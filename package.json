@@ -1,12 +1,14 @@
 {
-  "name": "temp-init",
+  "name": "talika-ecommerce",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "agents": "npx tsx scripts/run-agents.ts",
+    "agent:run": "npx tsx scripts/run-agent-once.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.2",

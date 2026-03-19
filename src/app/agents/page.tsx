@@ -1,18 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/layout/header"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { AgentInsightCard } from "@/components/ui/agent-insight-card"
-import { mockInsights } from "@/lib/mock-data"
-import type { AgentType, AgentStatus } from "@/types"
+import { KPICard } from "@/components/ui/kpi-card"
 import {
   Bot,
   Play,
-  Pause,
-  RotateCcw,
   Globe,
   ShoppingCart,
   Megaphone,
@@ -20,171 +16,209 @@ import {
   Calendar,
   FolderKanban,
   Brain,
-  Zap,
+  Clock,
+  CheckCircle,
+  XCircle,
+
+  Loader2,
+  RefreshCw,
+  ListChecks,
 } from "lucide-react"
 
-interface AgentConfig {
-  type: AgentType
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface Agent {
+  id: string
+  slug: string
   name: string
   description: string
-  icon: typeof Bot
-  status: AgentStatus
-  lastRun?: string
-  tokensUsed?: number
-  insightsCount: number
-  capabilities: string[]
+  is_active: boolean
 }
 
-const agents: AgentConfig[] = [
-  {
-    type: "traffic",
-    name: "Agent Traffic",
-    description:
-      "Analyse les métriques de trafic, identifie les tendances et propose des améliorations SEO, contenu et campagnes.",
-    icon: Globe,
-    status: "completed",
-    lastRun: "Il y a 2h",
-    tokensUsed: 12500,
-    insightsCount: 3,
-    capabilities: [
-      "Analyse des sources de trafic",
-      "Détection de tendances",
-      "Suggestions SEO",
-      "Idées de contenu",
-      "Recommandations produit",
-    ],
-  },
-  {
-    type: "sales",
-    name: "Agent Ventes",
-    description:
-      "Analyse les performances produits, segments clients, et propose des optimisations de conversion.",
-    icon: ShoppingCart,
-    status: "completed",
-    lastRun: "Il y a 1h",
-    tokensUsed: 15200,
-    insightsCount: 4,
-    capabilities: [
-      "Top produits & bundles",
-      "Segmentation clients",
-      "Analyse de conversion",
-      "Prédiction de tendances",
-      "Suggestions cross-sell",
-    ],
-  },
-  {
-    type: "ads",
-    name: "Agent Meta Ads",
-    description:
-      "Analyse les campagnes Meta, optimise les budgets, ciblages et créatives. Détecte les campagnes sous-performantes.",
-    icon: Megaphone,
-    status: "completed",
-    lastRun: "Il y a 3h",
-    tokensUsed: 18700,
-    insightsCount: 2,
-    capabilities: [
-      "Audit de campagnes",
-      "Optimisation budget",
-      "Suggestions ciblage",
-      "Analyse créatives",
-      "Recommandations placements & formats",
-    ],
-  },
-  {
-    type: "klaviyo",
-    name: "Agent Klaviyo",
-    description:
-      "Analyse les flows et newsletters, propose des A/B tests, nouveaux flows et optimisations d'engagement.",
-    icon: Mail,
-    status: "running",
-    tokensUsed: 8900,
-    insightsCount: 5,
-    capabilities: [
-      "Audit des flows",
-      "Propositions de flows",
-      "Thèmes de newsletters",
-      "A/B tests sujets",
-      "Plans de rafraîchissement",
-    ],
-  },
-  {
-    type: "communication",
-    name: "Agent Communication",
-    description:
-      "Gère le calendrier de communication, synchronise avec les autres agents pour coordonner les actions.",
-    icon: Calendar,
-    status: "idle",
-    insightsCount: 0,
-    capabilities: [
-      "Planification campagnes",
-      "Coordination inter-agents",
-      "Suggestions de timing",
-      "Suivi NPD",
-    ],
-  },
-  {
-    type: "projects",
-    name: "Agent Projets",
-    description:
-      "Suit l'avancement des projets, identifie les blocages et propose des priorités.",
-    icon: FolderKanban,
-    status: "idle",
-    insightsCount: 0,
-    capabilities: [
-      "Suivi d'avancement",
-      "Détection de risques",
-      "Suggestions de priorités",
-      "Reporting automatique",
-    ],
-  },
-  {
-    type: "coach",
-    name: "Agent Coach",
-    description:
-      "Supervise les autres agents, optimise leurs prompts, processus et consommation de tokens.",
-    icon: Brain,
-    status: "idle",
-    insightsCount: 0,
-    capabilities: [
-      "Optimisation de prompts",
-      "Suivi consommation tokens",
-      "Amélioration des processus",
-      "Coordination inter-agents",
-      "Audit qualité des insights",
-    ],
-  },
-]
+interface AgentRun {
+  id: string
+  agent_id: string
+  status: "running" | "completed" | "error"
+  started_at: string
+  completed_at: string | null
+  result_summary: string | null
+}
 
-const statusConfig: Record<AgentStatus, { label: string; variant: "default" | "success" | "info" | "warning" }> = {
+interface Proposal {
+  id: string
+  agent_id: string
+  title: string
+  description: string
+  priority: "low" | "medium" | "high" | "critical"
+  category: string
+  status: "pending" | "approved" | "rejected"
+}
+
+// ---------------------------------------------------------------------------
+// Agent metadata (local – capabilities & icons)
+// ---------------------------------------------------------------------------
+
+const AGENT_META: Record<string, { capabilities: string[]; icon: string }> = {
+  traffic: { capabilities: ["Analytics", "SEO", "Sources", "Conversion"], icon: "Globe" },
+  sales: { capabilities: ["Revenue", "Produits", "Segments", "AOV"], icon: "ShoppingCart" },
+  meta_ads: { capabilities: ["Campagnes", "ROAS", "Ciblage", "Budgets"], icon: "Megaphone" },
+  klaviyo: { capabilities: ["Flows", "Newsletters", "A/B Tests", "Segments"], icon: "Mail" },
+  communication: { capabilities: ["Planning", "Cross-canal", "Calendrier"], icon: "Calendar" },
+  projects: { capabilities: ["Suivi", "Blocages", "Priorités"], icon: "Kanban" },
+  coaching: { capabilities: ["Optimisation", "Prompts", "Qualité"], icon: "Brain" },
+}
+
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  Globe,
+  ShoppingCart,
+  Megaphone,
+  Mail,
+  Calendar,
+  Kanban: FolderKanban,
+  Brain,
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type RunStatus = "idle" | "running" | "completed" | "error"
+
+const statusConfig: Record<
+  RunStatus,
+  { label: string; variant: "default" | "success" | "info" | "warning" | "danger" }
+> = {
   idle: { label: "En attente", variant: "default" },
   running: { label: "En cours", variant: "info" },
   completed: { label: "Terminé", variant: "success" },
-  error: { label: "Erreur", variant: "warning" },
+  error: { label: "Erreur", variant: "danger" },
 }
 
+const priorityVariant: Record<string, "default" | "success" | "warning" | "danger" | "info"> = {
+  low: "default",
+  medium: "info",
+  high: "warning",
+  critical: "danger",
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function isToday(iso: string) {
+  const d = new Date(iso)
+  const now = new Date()
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  )
+}
+
+function latestRunFor(agentId: string, runs: AgentRun[]): AgentRun | undefined {
+  return runs
+    .filter((r) => r.agent_id === agentId)
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())[0]
+}
+
+function agentStatus(agentId: string, runs: AgentRun[]): RunStatus {
+  const latest = latestRunFor(agentId, runs)
+  if (!latest) return "idle"
+  return latest.status as RunStatus
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export default function AgentsPage() {
-  const [agentStates, setAgentStates] = useState(agents)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [runs, setRuns] = useState<AgentRun[]>([])
+  const [proposals, setProposals] = useState<Proposal[]>([])
+  const [loading, setLoading] = useState(true)
+  const [runningAction, setRunningAction] = useState<string | null>(null)
 
-  const totalTokens = agentStates.reduce((s, a) => s + (a.tokensUsed || 0), 0)
-  const totalInsights = agentStates.reduce((s, a) => s + a.insightsCount, 0)
-  const runningCount = agentStates.filter((a) => a.status === "running").length
+  // --- Fetch data -----------------------------------------------------------
 
-  const toggleAgent = (type: AgentType) => {
-    setAgentStates((prev) =>
-      prev.map((a) =>
-        a.type === type
-          ? {
-              ...a,
-              status: a.status === "running" ? "idle" : "running",
-            }
-          : a
-      )
-    )
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true)
+      const res = await fetch("/api/agents")
+      if (!res.ok) throw new Error("Erreur de chargement")
+      const data = await res.json()
+      setAgents(data.agents ?? [])
+      setRuns(data.runs ?? [])
+      setProposals(data.proposals ?? [])
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // --- Actions --------------------------------------------------------------
+
+  const runAgent = async (agentId: string) => {
+    try {
+      setRunningAction(agentId)
+      await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId }),
+      })
+      await fetchData()
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setRunningAction(null)
+    }
   }
 
-  const runAll = () => {
-    setAgentStates((prev) =>
-      prev.map((a) => ({ ...a, status: "running" as AgentStatus }))
+  const handleProposal = async (proposalId: string, status: "approved" | "rejected") => {
+    try {
+      await fetch("/api/agents/proposals", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposalId, status }),
+      })
+      setProposals((prev) =>
+        prev.map((p) => (p.id === proposalId ? { ...p, status } : p))
+      )
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  // --- Derived data ---------------------------------------------------------
+
+  const pendingProposals = proposals.filter((p) => p.status === "pending")
+  const activeAgents = agents.filter((a) => a.is_active)
+  const runsToday = runs.filter((r) => isToday(r.started_at))
+  const recentRuns = [...runs]
+    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime())
+    .slice(0, 20)
+
+  const agentNameMap = Object.fromEntries(agents.map((a) => [a.id, a.name]))
+
+  // --- Render ---------------------------------------------------------------
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+      </div>
     )
   }
 
@@ -192,150 +226,252 @@ export default function AgentsPage() {
     <div>
       <Header
         title="Gestion des Agents"
-        subtitle="Supervision, configuration et optimisation des agents IA"
+        subtitle="Supervision, configuration et lancement des agents IA"
         actions={
-          <Button size="sm" onClick={runAll}>
-            <Play className="h-4 w-4" />
-            Lancer tous les agents
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={fetchData}>
+              <RefreshCw className="h-4 w-4" />
+              Rafraîchir
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => runAgent("all")}
+              disabled={runningAction !== null}
+            >
+              {runningAction === "all" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              Lancer tous les agents
+            </Button>
+          </div>
         }
       />
 
-      <div className="p-6 space-y-6">
-        {/* Summary */}
+      <div className="p-6 space-y-8">
+        {/* ---- KPI Summary ---- */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Card>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="rounded-lg bg-zinc-100 p-2.5">
-                <Bot className="h-5 w-5 text-zinc-600" />
-              </div>
-              <div>
-                <div className="text-sm text-zinc-500">Agents actifs</div>
-                <div className="text-xl font-bold">{runningCount} / {agents.length}</div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="rounded-lg bg-zinc-100 p-2.5">
-                <Zap className="h-5 w-5 text-zinc-600" />
-              </div>
-              <div>
-                <div className="text-sm text-zinc-500">Tokens utilisés (24h)</div>
-                <div className="text-xl font-bold">{totalTokens.toLocaleString("fr-FR")}</div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center gap-4 p-4">
-              <div className="rounded-lg bg-zinc-100 p-2.5">
-                <Brain className="h-5 w-5 text-zinc-600" />
-              </div>
-              <div>
-                <div className="text-sm text-zinc-500">Insights générés (24h)</div>
-                <div className="text-xl font-bold">{totalInsights}</div>
-              </div>
-            </CardContent>
-          </Card>
+          <KPICard
+            label="Agents actifs"
+            value={`${activeAgents.length} / ${agents.length}`}
+            icon={<Bot className="h-5 w-5" />}
+          />
+          <KPICard
+            label="Runs aujourd'hui"
+            value={runsToday.length}
+            icon={<Clock className="h-5 w-5" />}
+          />
+          <KPICard
+            label="Propositions en attente"
+            value={pendingProposals.length}
+            icon={<ListChecks className="h-5 w-5" />}
+          />
         </div>
 
-        {/* Agent cards */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {agentStates.map((agent) => {
-            const Icon = agent.icon
-            const status = statusConfig[agent.status]
-            const agentInsights = mockInsights.filter(
-              (i) => i.agentType === agent.type
-            )
+        {/* ---- Agent Grid ---- */}
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-900 mb-4">Agents</h2>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {agents.map((agent) => {
+              const meta = AGENT_META[agent.slug] ?? {
+                capabilities: [],
+                icon: "Bot",
+              }
+              const IconComp = ICON_MAP[meta.icon] ?? Bot
+              const status = agentStatus(agent.id, runs)
+              const statusCfg = statusConfig[status]
+              const latest = latestRunFor(agent.id, runs)
+              const pendingCount = proposals.filter(
+                (p) => p.agent_id === agent.id && p.status === "pending"
+              ).length
+              const isRunning = runningAction === agent.id
 
-            return (
-              <Card key={agent.type}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`rounded-lg p-2 ${
-                          agent.status === "running"
-                            ? "bg-blue-100"
-                            : "bg-zinc-100"
-                        }`}
-                      >
-                        <Icon
-                          className={`h-5 w-5 ${
-                            agent.status === "running"
-                              ? "text-blue-600 animate-pulse"
-                              : "text-zinc-600"
+              return (
+                <Card key={agent.id}>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`rounded-lg p-2 ${
+                            status === "running" ? "bg-blue-100" : "bg-zinc-100"
                           }`}
-                        />
-                      </div>
-                      <div>
-                        <CardTitle className="text-base">{agent.name}</CardTitle>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <Badge variant={status.variant}>
-                            {agent.status === "running" && (
-                              <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                        >
+                          <IconComp
+                            className={`h-5 w-5 ${
+                              status === "running"
+                                ? "text-blue-600 animate-pulse"
+                                : "text-zinc-600"
+                            }`}
+                          />
+                        </div>
+                        <div>
+                          <CardTitle className="text-base">{agent.name}</CardTitle>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <Badge variant={statusCfg.variant}>
+                              {status === "running" && (
+                                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                              )}
+                              {statusCfg.label}
+                            </Badge>
+                            {latest && (
+                              <span className="text-xs text-zinc-400">
+                                {formatDate(latest.started_at)}
+                              </span>
                             )}
-                            {status.label}
-                          </Badge>
-                          {agent.lastRun && (
-                            <span className="text-xs text-zinc-400">
-                              {agent.lastRun}
-                            </span>
-                          )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleAgent(agent.type)}
-                      >
-                        {agent.status === "running" ? (
-                          <Pause className="h-4 w-4" />
-                        ) : (
-                          <Play className="h-4 w-4" />
+                      <div className="flex items-center gap-2">
+                        {pendingCount > 0 && (
+                          <Badge variant="warning">{pendingCount} en attente</Badge>
                         )}
-                      </Button>
-                      <Button variant="ghost" size="sm">
-                        <RotateCcw className="h-4 w-4" />
-                      </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => runAgent(agent.id)}
+                          disabled={runningAction !== null}
+                        >
+                          {isRunning ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                          Lancer
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-zinc-500 mb-3">{agent.description}</p>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-zinc-500 mb-3">{agent.description}</p>
 
-                  {/* Capabilities */}
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {agent.capabilities.map((cap) => (
-                      <Badge key={cap} variant="default">
-                        {cap}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  {/* Stats */}
-                  {agent.tokensUsed !== undefined && (
-                    <div className="flex gap-4 text-xs text-zinc-400 border-t border-zinc-100 pt-3">
-                      <span>{agent.tokensUsed.toLocaleString("fr-FR")} tokens</span>
-                      <span>{agent.insightsCount} insights</span>
-                    </div>
-                  )}
-
-                  {/* Recent insights */}
-                  {agentInsights.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {agentInsights.slice(0, 2).map((insight) => (
-                        <AgentInsightCard key={insight.id} insight={insight} />
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
+                    {/* Capabilities */}
+                    {meta.capabilities.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {meta.capabilities.map((cap) => (
+                          <Badge key={cap} variant="default">
+                            {cap}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
         </div>
+
+        {/* ---- Propositions en attente ---- */}
+        {pendingProposals.length > 0 && (
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900 mb-4">
+              Propositions en attente ({pendingProposals.length})
+            </h2>
+            <div className="space-y-3">
+              {pendingProposals.map((proposal) => (
+                <Card key={proposal.id}>
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-zinc-400">
+                            {agentNameMap[proposal.agent_id] ?? "Agent"}
+                          </span>
+                          <Badge variant={priorityVariant[proposal.priority] ?? "default"}>
+                            {proposal.priority}
+                          </Badge>
+                          {proposal.category && (
+                            <Badge variant="info">{proposal.category}</Badge>
+                          )}
+                        </div>
+                        <h3 className="font-medium text-zinc-900 text-sm">
+                          {proposal.title}
+                        </h3>
+                        <p className="text-sm text-zinc-500 mt-0.5 line-clamp-2">
+                          {proposal.description}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => handleProposal(proposal.id, "approved")}
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          Approuver
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-red-600 hover:bg-red-700 text-white"
+                          onClick={() => handleProposal(proposal.id, "rejected")}
+                        >
+                          <XCircle className="h-4 w-4" />
+                          Rejeter
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ---- Historique des runs ---- */}
+        {recentRuns.length > 0 && (
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900 mb-4">
+              Historique des runs
+            </h2>
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-100 text-left text-xs text-zinc-500">
+                        <th className="px-4 py-3 font-medium">Agent</th>
+                        <th className="px-4 py-3 font-medium">Statut</th>
+                        <th className="px-4 py-3 font-medium">Démarré</th>
+                        <th className="px-4 py-3 font-medium">Terminé</th>
+                        <th className="px-4 py-3 font-medium">Résumé</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentRuns.map((run) => {
+                        const runStatusCfg = statusConfig[run.status as RunStatus] ?? statusConfig.idle
+                        return (
+                          <tr
+                            key={run.id}
+                            className="border-b border-zinc-50 last:border-0"
+                          >
+                            <td className="px-4 py-3 font-medium text-zinc-900">
+                              {agentNameMap[run.agent_id] ?? "—"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant={runStatusCfg.variant}>
+                                {runStatusCfg.label}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500">
+                              {formatDate(run.started_at)}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500">
+                              {run.completed_at ? formatDate(run.completed_at) : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-500 max-w-xs truncate">
+                              {run.result_summary ?? "—"}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   )

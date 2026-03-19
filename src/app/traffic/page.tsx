@@ -1,25 +1,65 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Header } from "@/components/layout/header"
 import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { AgentInsightCard } from "@/components/ui/agent-insight-card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { LineChart } from "@/components/charts/line-chart"
 import { BarChart } from "@/components/charts/bar-chart"
-import { Badge } from "@/components/ui/badge"
-import { mockTrafficData, trafficBySource, mockInsights } from "@/lib/mock-data"
 import { formatNumber } from "@/lib/utils"
-import { Globe, Clock, MousePointer, ArrowDownUp, Bot } from "lucide-react"
+import { supabase } from "@/lib/supabase/client"
+import { Globe, Clock, MousePointer, ArrowDownUp, Bot, Check, X } from "lucide-react"
+
+// Mock data for traffic (will be replaced when GA4/Shopify connected)
+const mockTrafficData = Array.from({ length: 30 }, (_, i) => ({
+  date: new Date(2026, 2, i + 1).toISOString().split("T")[0],
+  sessions: Math.floor(800 + Math.random() * 600),
+  pageviews: Math.floor(2000 + Math.random() * 1500),
+}))
+
+const trafficBySource = [
+  { source: "Organic Search", sessions: 12500, percentage: 35 },
+  { source: "Paid Social", sessions: 8200, percentage: 23 },
+  { source: "Direct", sessions: 6100, percentage: 17 },
+  { source: "Social Organic", sessions: 5300, percentage: 15 },
+  { source: "Email", sessions: 2800, percentage: 8 },
+  { source: "Referral", sessions: 700, percentage: 2 },
+]
+
+interface Proposal {
+  id: string
+  title: string
+  description: string
+  priority: string
+  category: string
+  status: string
+}
 
 export default function TrafficPage() {
+  const [proposals, setProposals] = useState<Proposal[]>([])
+
+  useEffect(() => {
+    supabase
+      .from("agent_proposals")
+      .select("*")
+      .eq("agent_id", "traffic")
+      .order("created_at", { ascending: false })
+      .limit(5)
+      .then(({ data }) => setProposals(data || []))
+  }, [])
+
+  const handleProposal = async (id: string, status: "approved" | "rejected") => {
+    await supabase
+      .from("agent_proposals")
+      .update({ status, reviewed_at: new Date().toISOString() })
+      .eq("id", id)
+    setProposals((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
+  }
+
   const totalSessions = mockTrafficData.reduce((s, d) => s + d.sessions, 0)
   const totalPageviews = mockTrafficData.reduce((s, d) => s + d.pageviews, 0)
-  const avgBounce =
-    mockTrafficData.reduce((s, d) => s + d.bounceRate, 0) / mockTrafficData.length
-  const avgDuration =
-    mockTrafficData.reduce((s, d) => s + d.avgDuration, 0) / mockTrafficData.length
-
-  const trafficInsights = mockInsights.filter((i) => i.agentType === "traffic")
 
   return (
     <div>
@@ -32,28 +72,28 @@ export default function TrafficPage() {
             label="Sessions (Mars)"
             value={formatNumber(totalSessions)}
             change={15.3}
-            changeLabel="vs fév."
+            changeLabel="vs fev."
             icon={<Globe className="h-5 w-5" />}
           />
           <KPICard
             label="Pages vues"
             value={formatNumber(totalPageviews)}
             change={12.1}
-            changeLabel="vs fév."
+            changeLabel="vs fev."
             icon={<MousePointer className="h-5 w-5" />}
           />
           <KPICard
             label="Taux de rebond"
-            value={`${avgBounce.toFixed(1)}%`}
+            value="44.2%"
             change={-2.4}
-            changeLabel="vs fév."
+            changeLabel="vs fev."
             icon={<ArrowDownUp className="h-5 w-5" />}
           />
           <KPICard
-            label="Durée moyenne"
-            value={`${Math.floor(avgDuration / 60)}m ${Math.floor(avgDuration % 60)}s`}
+            label="Duree moyenne"
+            value="2m 35s"
             change={8.5}
-            changeLabel="vs fév."
+            changeLabel="vs fev."
             icon={<Clock className="h-5 w-5" />}
           />
         </div>
@@ -94,7 +134,7 @@ export default function TrafficPage() {
         {/* Source breakdown table */}
         <Card>
           <CardHeader>
-            <CardTitle>Détail par source</CardTitle>
+            <CardTitle>Detail par source</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -132,25 +172,60 @@ export default function TrafficPage() {
           </CardContent>
         </Card>
 
-        {/* Agent insights */}
-        {trafficInsights.length > 0 && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Bot className="h-5 w-5 text-zinc-400" />
-                <CardTitle>Recommandations Agent Traffic</CardTitle>
-                <Badge variant="info">{trafficInsights.length}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
+        {/* Agent proposals */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-zinc-400" />
+              <CardTitle>Recommandations Agent Traffic</CardTitle>
+              {proposals.filter((p) => p.status === "pending").length > 0 && (
+                <Badge variant="info">
+                  {proposals.filter((p) => p.status === "pending").length}
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {proposals.length === 0 ? (
+              <p className="text-sm text-zinc-500">
+                Aucune recommandation. Lancez l&apos;Agent Traffic depuis la page Agents.
+              </p>
+            ) : (
               <div className="space-y-3">
-                {trafficInsights.map((insight) => (
-                  <AgentInsightCard key={insight.id} insight={insight} />
+                {proposals.map((p) => (
+                  <div key={p.id} className="rounded-lg border border-zinc-200 p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="font-medium text-zinc-900">{p.title}</h4>
+                          <Badge variant={p.priority === "high" || p.priority === "urgent" ? "danger" : p.priority === "medium" ? "warning" : "default"}>
+                            {p.priority}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-zinc-600">{p.description}</p>
+                      </div>
+                      {p.status === "pending" && (
+                        <div className="flex gap-1 ml-4 shrink-0">
+                          <Button size="sm" variant="ghost" onClick={() => handleProposal(p.id, "approved")}>
+                            <Check className="h-4 w-4 text-green-600" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleProposal(p.id, "rejected")}>
+                            <X className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </div>
+                      )}
+                      {p.status !== "pending" && (
+                        <Badge variant={p.status === "approved" ? "success" : "danger"}>
+                          {p.status === "approved" ? "Approuve" : "Rejete"}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

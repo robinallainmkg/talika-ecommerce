@@ -1,41 +1,80 @@
-import { NextResponse } from "next/server"
-import { AgentOrchestrator } from "@/lib/agents/base-agent"
-import { TrafficAgent } from "@/lib/agents/traffic-agent"
-import { SalesAgent } from "@/lib/agents/sales-agent"
-import { AdsAgent } from "@/lib/agents/ads-agent"
-import { KlaviyoAgent } from "@/lib/agents/klaviyo-agent"
-import { CoachAgent } from "@/lib/agents/coach-agent"
+import { NextRequest, NextResponse } from "next/server"
+import { createServiceClient } from "@/lib/supabase/client"
 
-const orchestrator = new AgentOrchestrator()
-orchestrator.register(new TrafficAgent(), "traffic")
-orchestrator.register(new SalesAgent(), "sales")
-orchestrator.register(new AdsAgent(), "ads")
-orchestrator.register(new KlaviyoAgent(), "klaviyo")
-orchestrator.register(new CoachAgent(), "coach")
+// GET /api/agents — list agents + latest runs + pending proposals count
+export async function GET() {
+  const supabase = createServiceClient()
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json()
-    const { agentType } = body
+  const [agentsRes, runsRes, proposalsRes] = await Promise.all([
+    supabase.from("agents").select("*").order("id"),
+    supabase
+      .from("agent_runs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(50),
+    supabase
+      .from("agent_proposals")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false }),
+  ])
 
-    if (agentType === "all") {
-      const insights = await orchestrator.runAll()
-      return NextResponse.json({ insights, runs: orchestrator.getRunHistory() })
-    }
-
-    const insights = await orchestrator.runAgent(agentType)
-    return NextResponse.json({ insights })
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Agent execution failed" },
-      { status: 500 }
-    )
-  }
+  return NextResponse.json({
+    agents: agentsRes.data || [],
+    runs: runsRes.data || [],
+    proposals: proposalsRes.data || [],
+  })
 }
 
-export async function GET() {
-  return NextResponse.json({
-    insights: orchestrator.getInsights(),
-    runs: orchestrator.getRunHistory(),
-  })
+// POST /api/agents — trigger an agent run (creates a pending run in Supabase)
+export async function POST(request: NextRequest) {
+  const body = await request.json()
+  const { agentId, inputData } = body
+
+  if (!agentId) {
+    return NextResponse.json({ error: "agentId is required" }, { status: 400 })
+  }
+
+  const supabase = createServiceClient()
+
+  // If agentId is "all", trigger all active agents
+  if (agentId === "all") {
+    const { data: agents } = await supabase
+      .from("agents")
+      .select("id")
+      .eq("is_active", true)
+
+    const runs = []
+    for (const agent of agents || []) {
+      const { data } = await supabase
+        .from("agent_runs")
+        .insert({
+          agent_id: agent.id,
+          status: "pending",
+          input_data: inputData || {},
+        })
+        .select()
+        .single()
+      if (data) runs.push(data)
+    }
+
+    return NextResponse.json({ runs })
+  }
+
+  // Single agent trigger
+  const { data, error } = await supabase
+    .from("agent_runs")
+    .insert({
+      agent_id: agentId,
+      status: "pending",
+      input_data: inputData || {},
+    })
+    .select()
+    .single()
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ run: data })
 }
