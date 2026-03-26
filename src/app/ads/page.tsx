@@ -258,7 +258,7 @@ export default function MetaAdsPage() {
             <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
           </div>
         ) : summary ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-5">
             <KPICard
               label="Depenses"
               value={formatCurrency(summary.spend)}

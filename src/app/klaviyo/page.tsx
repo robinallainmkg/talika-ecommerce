@@ -161,7 +161,7 @@ export default function KlaviyoPage() {
             <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
           </div>
         ) : campaigns.length > 0 || flows.length > 0 ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <KPICard
               label="Flows actifs"
               value={formatNumber(activeFlows)}

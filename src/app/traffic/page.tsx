@@ -67,7 +67,7 @@ export default function TrafficPage() {
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* KPIs */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <KPICard
             label="Sessions (Mars)"
             value={formatNumber(totalSessions)}
