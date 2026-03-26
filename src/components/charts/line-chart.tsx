@@ -43,6 +43,10 @@ export function LineChart({ data, lines, xKey, height = 300 }: LineChartProps) {
             border: "1px solid #e4e4e7",
             fontSize: "13px",
           }}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          formatter={(value: any) =>
+            new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(Math.round(Number(value)))
+          }
         />
         <Legend />
         {lines.map((line) => (

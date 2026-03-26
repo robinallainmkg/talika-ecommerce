@@ -211,27 +211,6 @@ export default function DashboardPage() {
       <Header
         title="Dashboard"
         subtitle="Vue d'ensemble de l'activité Talika"
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSync}
-              disabled={syncing}
-            >
-              {syncing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              {syncing ? "Sync en cours..." : "Sync Shopify"}
-            </Button>
-            <Button variant="secondary" size="sm">
-              <Play className="h-4 w-4" />
-              Lancer tous les agents
-            </Button>
-          </div>
-        }
       />
 
       <div className="p-6 space-y-6">

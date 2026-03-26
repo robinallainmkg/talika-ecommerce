@@ -98,28 +98,6 @@ export function PageInsightsPanel({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation()
-              runAnalysis()
-            }}
-            disabled={analyzing}
-            className="text-xs"
-          >
-            {analyzing ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Analyse en cours...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-3 w-3" />
-                Analyser
-              </>
-            )}
-          </Button>
           {expanded ? (
             <ChevronUp className="h-4 w-4 text-zinc-400" />
           ) : (
@@ -169,7 +147,7 @@ export function PageInsightsPanel({
             </div>
           ) : !analysis && !analyzing ? (
             <p className="text-sm text-zinc-400 text-center py-4">
-              Aucun insight disponible. Cliquez sur &quot;Analyser&quot; pour lancer l&apos;agent IA.
+              Aucun insight disponible.
             </p>
           ) : null}
         </div>

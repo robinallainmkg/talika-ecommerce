@@ -138,28 +138,6 @@ export default function KlaviyoPage() {
       <Header
         title="Klaviyo"
         subtitle="Campagnes email, flows et listes Klaviyo"
-        actions={
-          <div className="flex items-center gap-3">
-            {lastSync && (
-              <span className="text-xs text-zinc-400">
-                Derniere sync : {new Date(lastSync).toLocaleString("fr-FR")}
-              </span>
-            )}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleSync}
-              disabled={syncing}
-            >
-              {syncing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              {syncing ? "Sync en cours..." : "Sync Klaviyo"}
-            </Button>
-          </div>
-        }
       />
 
       <div className="p-6 space-y-6">

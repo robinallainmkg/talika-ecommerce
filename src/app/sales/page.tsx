@@ -137,12 +137,6 @@ export default function SalesPage() {
       <Header
         title="Analyse des Ventes"
         subtitle={`Performance produits et codes promo — ${monthName} ${currentYear}`}
-        actions={
-          <Button size="sm" onClick={handleSync} disabled={syncing}>
-            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sync Shopify
-          </Button>
-        }
       />
 
       <div className="p-6 space-y-6">
