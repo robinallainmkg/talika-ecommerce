@@ -146,6 +146,37 @@ async function gatherContext(
         .order("date", { ascending: false })
         .limit(30);
       context.pnl_data = pnl ?? [];
+
+      // Also fetch cached Shopify data for real analytics
+      const { data: shopifyAnalytics } = await supabase
+        .from("data_cache")
+        .select("key, data")
+        .eq("source", "shopify");
+      if (shopifyAnalytics) {
+        for (const entry of shopifyAnalytics) {
+          if (entry.key.startsWith("shopify_analytics")) {
+            context.shopify_analytics = entry.data;
+          } else if (entry.key.startsWith("shopify_orders")) {
+            // Send summary, not full orders (too large for prompt)
+            const orders = (entry.data as any)?.orders || [];
+            context.shopify_orders_summary = {
+              count: orders.length,
+              total_revenue: orders.reduce((s: number, o: any) => s + parseFloat(o.total_price || "0"), 0),
+              avg_order_value: orders.length ? orders.reduce((s: number, o: any) => s + parseFloat(o.total_price || "0"), 0) / orders.length : 0,
+              top_discount_codes: Array.from(new Set(orders.flatMap((o: any) => (o.discount_codes || []).map((d: any) => d.code)))).slice(0, 20),
+              fulfillment_statuses: orders.reduce((acc: any, o: any) => { acc[o.fulfillment_status || "unfulfilled"] = (acc[o.fulfillment_status || "unfulfilled"] || 0) + 1; return acc; }, {}),
+              financial_statuses: orders.reduce((acc: any, o: any) => { acc[o.financial_status || "unknown"] = (acc[o.financial_status || "unknown"] || 0) + 1; return acc; }, {}),
+            };
+          } else if (entry.key === "shopify_products") {
+            const products = (entry.data as any)?.products || [];
+            context.shopify_products_summary = {
+              count: products.length,
+              by_status: products.reduce((acc: any, p: any) => { acc[p.status || "unknown"] = (acc[p.status || "unknown"] || 0) + 1; return acc; }, {}),
+              product_types: Array.from(new Set(products.map((p: any) => p.product_type).filter(Boolean))),
+            };
+          }
+        }
+      }
       break;
     }
     case "meta_ads": {
@@ -299,6 +330,19 @@ export async function processRun(runId: string): Promise<void> {
     log(`Gathering context for agent "${agent.id}" (${agent.name})`);
     const contextData = await gatherContext(agent.id);
 
+    // Trim context to avoid "prompt too long" errors (max ~50KB of JSON)
+    const contextStr = JSON.stringify(contextData);
+    if (contextStr.length > 50_000) {
+      log(`Context too large (${contextStr.length} chars), trimming...`);
+      // Keep only summary keys, drop large arrays
+      for (const key of Object.keys(contextData)) {
+        const val = JSON.stringify(contextData[key]);
+        if (val.length > 10_000) {
+          contextData[key] = `[Trimmed: ${val.length} chars - too large for prompt]`;
+        }
+      }
+    }
+
     // Build the prompt
     const prompt = buildPrompt(agent, run, contextData);
 
@@ -312,17 +356,17 @@ export async function processRun(runId: string): Promise<void> {
     let rawOutput: string;
     try {
       rawOutput = execSync(
-        `cat "${tmpFile}" | claude -p --output-format json`,
+        `cat "${tmpFile}" | npx -y @anthropic-ai/claude-code -p --output-format json`,
         {
           encoding: "utf-8",
           timeout: 180_000, // 3 minute timeout
           maxBuffer: 10 * 1024 * 1024, // 10MB
-          env: { ...process.env },
+          env: { ...process.env, PATH: `/usr/local/bin:/opt/homebrew/bin:${process.env.PATH}` },
         }
       );
     } catch (cliError: unknown) {
-      const err = cliError as { stderr?: string; message?: string };
-      throw new Error(`Claude CLI failed: ${err.stderr || err.message}`);
+      const err = cliError as { stderr?: string; stdout?: string; message?: string; status?: number };
+      throw new Error(`Claude CLI failed (exit=${err.status}): stderr=${err.stderr?.slice(0, 500)} stdout=${err.stdout?.slice(0, 500)} msg=${err.message?.slice(0, 200)}`);
     } finally {
       // Clean up temp file
       try {

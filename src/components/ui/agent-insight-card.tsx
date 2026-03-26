@@ -43,7 +43,7 @@ interface AgentInsightCardProps {
 }
 
 export function AgentInsightCard({ insight, className }: AgentInsightCardProps) {
-  const config = severityConfig[insight.severity]
+  const config = severityConfig[insight.severity as keyof typeof severityConfig] || severityConfig.info
   const Icon = config.icon
 
   return (

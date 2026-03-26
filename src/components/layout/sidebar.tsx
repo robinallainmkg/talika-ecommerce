@@ -16,17 +16,22 @@ import {
   Bot,
   Settings,
   Sparkles,
+  Target,
+  Radar,
+  Gift,
 } from "lucide-react"
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Traffic", href: "/traffic", icon: Globe },
+  { name: "Acquisition", href: "/acquisition", icon: Radar },
   { name: "Ventes", href: "/sales", icon: ShoppingCart },
   { name: "Meta Ads", href: "/ads", icon: Megaphone },
   { name: "Klaviyo", href: "/klaviyo", icon: Mail },
+  { name: "Influenceurs", href: "/influencers", icon: Users },
   { name: "Calendrier", href: "/calendar", icon: Calendar },
   { name: "Projets", href: "/projects", icon: FolderKanban },
-  { name: "Influenceurs", href: "/influencers", icon: Users },
+  { name: "Objectifs 2026", href: "/objectives", icon: Target },
+  { name: "Générosité", href: "/generosite", icon: Gift },
   { name: "P&L", href: "/pnl", icon: FileSpreadsheet },
   { name: "Agents", href: "/agents", icon: Bot },
 ]

@@ -18,6 +18,7 @@ export const AGENT_DEFINITIONS = {
     description: "Analyse le trafic web, les sources, les taux de conversion et les tendances SEO",
     capabilities: ["Analytics", "SEO", "Sources", "Conversion"],
     icon: "Globe",
+    pages: ["dashboard", "traffic"],
   },
   sales: {
     id: "sales",
@@ -25,6 +26,7 @@ export const AGENT_DEFINITIONS = {
     description: "Analyse les revenus, AOV, performance produits et segments clients",
     capabilities: ["Revenue", "Produits", "Segments", "AOV"],
     icon: "ShoppingCart",
+    pages: ["dashboard", "sales"],
   },
   meta_ads: {
     id: "meta_ads",
@@ -32,6 +34,7 @@ export const AGENT_DEFINITIONS = {
     description: "Optimise les campagnes Meta : budgets, audiences, créas",
     capabilities: ["Campagnes", "ROAS", "Ciblage", "Budgets"],
     icon: "Megaphone",
+    pages: ["dashboard", "ads"],
   },
   klaviyo: {
     id: "klaviyo",
@@ -39,6 +42,7 @@ export const AGENT_DEFINITIONS = {
     description: "Analyse les flows email/SMS, performances des campagnes, santé des listes",
     capabilities: ["Flows", "Newsletters", "A/B Tests", "Segments"],
     icon: "Mail",
+    pages: ["dashboard", "klaviyo"],
   },
   communication: {
     id: "communication",
@@ -46,6 +50,7 @@ export const AGENT_DEFINITIONS = {
     description: "Planifie le calendrier de communication cross-canal",
     capabilities: ["Planning", "Cross-canal", "Calendrier"],
     icon: "Calendar",
+    pages: ["calendar"],
   },
   projects: {
     id: "projects",
@@ -53,6 +58,7 @@ export const AGENT_DEFINITIONS = {
     description: "Suit l'avancement des projets, identifie les blocages",
     capabilities: ["Suivi", "Blocages", "Priorités"],
     icon: "Kanban",
+    pages: ["projects"],
   },
   coaching: {
     id: "coaching",
@@ -60,6 +66,15 @@ export const AGENT_DEFINITIONS = {
     description: "Méta-agent qui optimise les autres agents et leurs prompts",
     capabilities: ["Optimisation", "Prompts", "Qualité"],
     icon: "Brain",
+    pages: ["dashboard"],
+  },
+  influencers: {
+    id: "influencers",
+    name: "Agent Influenceurs",
+    description: "Analyse les performances par influenceur : produits vendus, codes, ROI, tendances",
+    capabilities: ["Produits", "ROI", "Codes", "Tendances"],
+    icon: "Users",
+    pages: ["influencers"],
   },
 } as const
 

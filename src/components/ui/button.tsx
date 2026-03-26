@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils"
 import { forwardRef } from "react"
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger"
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline"
 type ButtonSize = "sm" | "md" | "lg"
 
 const variantStyles: Record<ButtonVariant, string> = {
@@ -11,6 +11,7 @@ const variantStyles: Record<ButtonVariant, string> = {
   secondary: "bg-zinc-100 text-zinc-900 hover:bg-zinc-200",
   ghost: "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900",
   danger: "bg-red-600 text-white hover:bg-red-700",
+  outline: "border border-zinc-300 text-zinc-700 hover:bg-zinc-50",
 }
 
 const sizeStyles: Record<ButtonSize, string> = {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { supabase } from "@/lib/supabase/client"
 import { Header } from "@/components/layout/header"
 import { KPICard } from "@/components/ui/kpi-card"
@@ -9,11 +9,11 @@ import { AgentInsightCard } from "@/components/ui/agent-insight-card"
 import { LineChart } from "@/components/charts/line-chart"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { formatCurrency } from "@/lib/utils"
+import { formatCurrency, formatNumber } from "@/lib/utils"
+import { PageInsightsPanel } from "@/components/agents/page-insights-panel"
 import type { AgentInsight } from "@/types"
 import {
   ShoppingCart,
-  Eye,
   TrendingUp,
   Users,
   Bot,
@@ -23,32 +23,9 @@ import {
   Loader2,
   Calendar,
   FolderKanban,
+  RefreshCw,
+  DollarSign,
 } from "lucide-react"
-
-// --- Mock KPI & chart data (Shopify non connecté) ---
-
-const mockSalesData = [
-  { date: "2026-03-01", revenue: 4200, orders: 38, conversionRate: 2.1 },
-  { date: "2026-03-02", revenue: 3800, orders: 32, conversionRate: 1.9 },
-  { date: "2026-03-03", revenue: 5100, orders: 45, conversionRate: 2.4 },
-  { date: "2026-03-04", revenue: 4700, orders: 41, conversionRate: 2.2 },
-  { date: "2026-03-05", revenue: 6200, orders: 52, conversionRate: 2.8 },
-  { date: "2026-03-06", revenue: 5500, orders: 48, conversionRate: 2.5 },
-  { date: "2026-03-07", revenue: 4900, orders: 43, conversionRate: 2.3 },
-  { date: "2026-03-08", revenue: 5800, orders: 50, conversionRate: 2.6 },
-  { date: "2026-03-09", revenue: 4300, orders: 37, conversionRate: 2.0 },
-  { date: "2026-03-10", revenue: 6100, orders: 53, conversionRate: 2.7 },
-  { date: "2026-03-11", revenue: 5400, orders: 46, conversionRate: 2.4 },
-  { date: "2026-03-12", revenue: 6800, orders: 58, conversionRate: 3.0 },
-  { date: "2026-03-13", revenue: 5900, orders: 51, conversionRate: 2.6 },
-  { date: "2026-03-14", revenue: 7200, orders: 62, conversionRate: 3.2 },
-]
-
-const totalRevenue = mockSalesData.reduce((sum, d) => sum + d.revenue, 0)
-const totalOrders = mockSalesData.reduce((sum, d) => sum + d.orders, 0)
-const avgConversion =
-  mockSalesData.reduce((sum, d) => sum + d.conversionRate, 0) /
-  mockSalesData.length
 
 // --- Status helpers ---
 
@@ -104,6 +81,29 @@ interface CalendarEventRow {
   assignee?: string
 }
 
+interface ShopifyAnalytics {
+  total_revenue: number
+  total_orders: number
+  aov: number
+  unique_customers: number
+  total_refunds?: number
+  total_discounts?: number
+}
+
+interface ShopifyOrder {
+  created_at: string
+  total_price: string | number
+  financial_status: string
+  discount_codes?: unknown[]
+  fulfillment_status?: string
+}
+
+interface DailyChartData {
+  date: string
+  revenue: number
+  orders: number
+}
+
 // --- Helpers ---
 
 function proposalToInsight(row: AgentProposalRow): AgentInsight {
@@ -121,44 +121,105 @@ function proposalToInsight(row: AgentProposalRow): AgentInsight {
   }
 }
 
+function buildDailyChartData(orders: ShopifyOrder[]): DailyChartData[] {
+  const dailyMap = new Map<string, { revenue: number; orders: number }>()
+
+  for (const order of orders) {
+    const day = order.created_at.split("T")[0]
+    const price = typeof order.total_price === "string" ? parseFloat(order.total_price) : order.total_price
+    const existing = dailyMap.get(day)
+    if (existing) {
+      existing.revenue += price
+      existing.orders += 1
+    } else {
+      dailyMap.set(day, { revenue: price, orders: 1 })
+    }
+  }
+
+  return Array.from(dailyMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, data]) => ({
+      date,
+      revenue: Math.round(data.revenue * 100) / 100,
+      orders: data.orders,
+    }))
+}
+
 export default function DashboardPage() {
   const [proposals, setProposals] = useState<AgentProposalRow[]>([])
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [events, setEvents] = useState<CalendarEventRow[]>([])
+  const [shopifyAnalytics, setShopifyAnalytics] = useState<ShopifyAnalytics | null>(null)
+  const [chartData, setChartData] = useState<DailyChartData[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function fetchData() {
-      setLoading(true)
+  const fetchData = useCallback(async () => {
+    setLoading(true)
 
-      const [proposalsRes, projectsRes, eventsRes] = await Promise.all([
-        supabase
-          .from("agent_proposals")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(5),
-        supabase
-          .from("projects")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("calendar_events")
-          .select("*")
-          .gte("date", new Date().toISOString().split("T")[0])
-          .order("date", { ascending: true })
-          .limit(5),
-      ])
+    // Fetch lightweight data in parallel
+    const [proposalsRes, projectsRes, eventsRes, statsRes] = await Promise.all([
+      supabase
+        .from("agent_proposals")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(5),
+      supabase
+        .from("projects")
+        .select("*")
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("calendar_events")
+        .select("*")
+        .gte("date", new Date().toISOString().split("T")[0])
+        .order("date", { ascending: true })
+        .limit(5),
+      // Use server-side API to avoid fetching 5MB orders blob client-side
+      fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
+    ])
 
-      if (proposalsRes.data) setProposals(proposalsRes.data)
-      if (projectsRes.data) setProjects(projectsRes.data)
-      if (eventsRes.data) setEvents(eventsRes.data)
+    if (proposalsRes.data) setProposals(proposalsRes.data)
+    if (projectsRes.data) setProjects(projectsRes.data)
+    if (eventsRes.data) setEvents(eventsRes.data)
 
-      setLoading(false)
+    // Process stats from server-side aggregation
+    if (statsRes?.analytics) {
+      const a = statsRes.analytics
+      setShopifyAnalytics({
+        total_revenue: a.total_revenue ?? 0,
+        total_orders: a.total_orders ?? 0,
+        aov: a.aov ?? 0,
+        unique_customers: a.unique_customers ?? 0,
+        total_refunds: a.total_refunds,
+        total_discounts: a.total_discounts,
+      })
+    }
+    if (statsRes?.dailyChart && Array.isArray(statsRes.dailyChart)) {
+      setChartData(statsRes.dailyChart)
     }
 
-    fetchData()
+    setLoading(false)
   }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  async function handleSync() {
+    setSyncing(true)
+    try {
+      const res = await fetch("/api/shopify/sync", { method: "POST" })
+      if (res.ok) {
+        // Refresh data after sync
+        await fetchData()
+      }
+    } catch (err) {
+      console.error("Sync failed:", err)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   async function handleProposalAction(id: string, action: "approved" | "rejected") {
     setActionLoading(id)
@@ -183,45 +244,75 @@ export default function DashboardPage() {
         title="Dashboard"
         subtitle="Vue d'ensemble de l'activité Talika"
         actions={
-          <Button variant="secondary" size="sm">
-            <Play className="h-4 w-4" />
-            Lancer tous les agents
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing}
+            >
+              {syncing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              {syncing ? "Sync en cours..." : "Sync Shopify"}
+            </Button>
+            <Button variant="secondary" size="sm">
+              <Play className="h-4 w-4" />
+              Lancer tous les agents
+            </Button>
+          </div>
         }
       />
 
       <div className="p-6 space-y-6">
-        {/* KPIs (données mock — Shopify non connecté) */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <KPICard
-            label="Chiffre d'affaires (Mars)"
-            value={formatCurrency(totalRevenue)}
-            change={12.5}
-            changeLabel="vs fév."
-            icon={<ShoppingCart className="h-5 w-5" />}
-          />
-          <KPICard
-            label="Commandes"
-            value={totalOrders}
-            change={8.2}
-            changeLabel="vs fév."
-            icon={<TrendingUp className="h-5 w-5" />}
-          />
-          <KPICard
-            label="Taux de conversion"
-            value={`${avgConversion.toFixed(1)}%`}
-            change={-0.3}
-            changeLabel="vs fév."
-            icon={<Eye className="h-5 w-5" />}
-          />
-          <KPICard
-            label="Clients actifs"
-            value="2 060"
-            change={5.1}
-            changeLabel="vs fév."
-            icon={<Users className="h-5 w-5" />}
-          />
-        </div>
+        {/* AI Insights Panel */}
+        <PageInsightsPanel
+          agentId="sales"
+          pageContext="dashboard"
+          title="Insights Dashboard"
+        />
+
+        {/* KPIs - Shopify real data */}
+        {shopifyAnalytics ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <KPICard
+              label={`CA ${new Date().toLocaleDateString("fr-FR", { month: "long" }).replace(/^\w/, c => c.toUpperCase())}`}
+              value={formatCurrency(shopifyAnalytics.total_revenue)}
+              icon={<ShoppingCart className="h-5 w-5" />}
+            />
+            <KPICard
+              label="Commandes"
+              value={formatNumber(shopifyAnalytics.total_orders)}
+              icon={<TrendingUp className="h-5 w-5" />}
+            />
+            <KPICard
+              label="Panier moyen"
+              value={formatCurrency(shopifyAnalytics.aov)}
+              icon={<DollarSign className="h-5 w-5" />}
+            />
+            <KPICard
+              label="Clients uniques"
+              value={formatNumber(shopifyAnalytics.unique_customers)}
+              icon={<Users className="h-5 w-5" />}
+            />
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center">
+            <p className="text-sm text-zinc-500">
+              Aucune donnée Shopify en cache.{" "}
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="text-zinc-900 underline underline-offset-2 hover:text-zinc-700"
+              >
+                Lancer une synchronisation
+              </button>{" "}
+              pour afficher les KPIs.
+            </p>
+          </div>
+        )}
 
         {/* Charts + Insights */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -231,19 +322,32 @@ export default function DashboardPage() {
               <CardTitle>Évolution du CA</CardTitle>
             </CardHeader>
             <CardContent>
-              <LineChart
-                data={mockSalesData}
-                xKey="date"
-                lines={[
-                  { key: "revenue", color: "#18181b", name: "CA (€)" },
-                  { key: "orders", color: "#a1a1aa", name: "Commandes" },
-                ]}
-                height={280}
-              />
+              {chartData.length > 0 ? (
+                <LineChart
+                  data={chartData}
+                  xKey="date"
+                  lines={[
+                    { key: "revenue", color: "#18181b", name: "CA (€)" },
+                    { key: "orders", color: "#a1a1aa", name: "Commandes" },
+                  ]}
+                  height={280}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-[280px] text-zinc-400 text-sm">
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                      Chargement...
+                    </>
+                  ) : (
+                    "Aucune donnée de commandes disponible. Lancez une sync Shopify."
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Agent Insights — real data from Supabase */}
+          {/* Agent Insights -- real data from Supabase */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -373,7 +477,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Projects Overview — from Supabase */}
+        {/* Projects Overview -- from Supabase */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

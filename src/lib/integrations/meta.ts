@@ -3,8 +3,10 @@
  */
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || ""
-const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID || ""
-const META_API_VERSION = "v19.0"
+// Strip act_ prefix if present — the code already prepends it
+const RAW_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID || ""
+const META_AD_ACCOUNT_ID = RAW_AD_ACCOUNT_ID.replace(/^act_/, "")
+const META_API_VERSION = "v21.0"
 
 const metaFetch = async (endpoint: string, params?: Record<string, string>) => {
   const query = new URLSearchParams({

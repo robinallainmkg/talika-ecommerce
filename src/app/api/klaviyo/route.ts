@@ -1,0 +1,34 @@
+import { NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+
+export async function GET() {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  const { data, error } = await supabase
+    .from("data_cache")
+    .select("key, data, expires_at, created_at")
+    .eq("source", "klaviyo")
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  const cacheMap: Record<string, any> = {}
+  for (const row of data || []) {
+    cacheMap[row.key] = row.data
+  }
+
+  return NextResponse.json({
+    campaigns: cacheMap["klaviyo_campaigns"] || null,
+    flows: cacheMap["klaviyo_flows"] || null,
+    lists: cacheMap["klaviyo_lists"] || null,
+    cached_keys: (data || []).map((r) => ({
+      key: r.key,
+      expires_at: r.expires_at,
+      created_at: r.created_at,
+    })),
+  })
+}
