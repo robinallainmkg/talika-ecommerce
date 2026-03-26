@@ -129,7 +129,7 @@ export default function AcquisitionPage() {
         ) : (
           <>
             {/* Global KPIs */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
               <KPICard
                 label={`CA Total ${monthName}`}
                 value={formatCurrency(data.total_revenue)}

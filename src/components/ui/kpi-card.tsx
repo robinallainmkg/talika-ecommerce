@@ -32,10 +32,10 @@ export function KPICard({
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-zinc-500">{label}</span>
-        {icon && <span className="text-zinc-400">{icon}</span>}
+        <span className="text-xs sm:text-sm font-medium text-zinc-500 truncate">{label}</span>
+        {icon && <span className="text-zinc-400 hidden sm:block">{icon}</span>}
       </div>
-      <div className="mt-2 text-2xl font-bold text-zinc-900">{value}</div>
+      <div className="mt-1 sm:mt-2 text-xl sm:text-2xl font-bold text-zinc-900 truncate">{value}</div>
       {change !== undefined && (
         <div className="mt-1 flex items-center gap-1">
           {isPositive && <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />}
