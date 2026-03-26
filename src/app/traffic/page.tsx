@@ -65,7 +65,7 @@ export default function TrafficPage() {
     <div>
       <Header title="Analyse du Traffic" subtitle="Sources, comportement et tendances" />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* KPIs */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KPICard
@@ -137,7 +137,7 @@ export default function TrafficPage() {
             <CardTitle>Detail par source</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200">

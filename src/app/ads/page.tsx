@@ -119,7 +119,7 @@ export default function MetaAdsPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
-  const [lastSync, setLastSync] = useState<string | null>(null)
+  const [, setLastSync] = useState<string | null>(null)
   const [mappingOpen, setMappingOpen] = useState(false)
   const [mappingData, setMappingData] = useState<{
     mapped: any[]
@@ -237,7 +237,7 @@ export default function MetaAdsPage() {
         subtitle="Performance des campagnes publicitaires Meta"
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* AI Insights Panel */}
         <PageInsightsPanel
           agentId="meta_ads"
@@ -258,7 +258,7 @@ export default function MetaAdsPage() {
             <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
           </div>
         ) : summary ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
             <KPICard
               label="Depenses"
               value={formatCurrency(summary.spend)}
@@ -314,7 +314,7 @@ export default function MetaAdsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto -mx-6 px-6">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b-2 border-zinc-300">
@@ -459,7 +459,7 @@ export default function MetaAdsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto -mx-6 px-6">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b-2 border-zinc-300">
@@ -631,8 +631,8 @@ export default function MetaAdsPage() {
                       </h4>
                       <div className="space-y-2">
                         {mappingData.unmapped.map((m: any) => (
-                          <div key={m.ad_id} className="flex items-center gap-3 py-1.5 px-3 rounded bg-red-50 border border-red-100">
-                            <span className="text-sm text-zinc-700 min-w-[200px]">{m.ad_name}</span>
+                          <div key={m.ad_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 py-1.5 px-3 rounded bg-red-50 border border-red-100">
+                            <span className="text-sm text-zinc-700 sm:min-w-[200px] truncate max-w-full">{m.ad_name}</span>
                             <input
                               type="text"
                               placeholder="Nom du produit..."
@@ -685,7 +685,7 @@ export default function MetaAdsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto -mx-6 px-6">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b-2 border-zinc-300">
@@ -735,7 +735,7 @@ export default function MetaAdsPage() {
             <CardContent>
               {/* Visual bar chart */}
               <div className="mb-6">
-                <div className="flex items-end gap-3 h-40">
+                <div className="flex items-end gap-2 sm:gap-3 h-32 sm:h-40">
                   {trend.map((m) => {
                     const maxSpend = Math.max(...trend.map((t) => t.spend), 1)
                     const heightPct = (m.spend / maxSpend) * 100
@@ -774,7 +774,7 @@ export default function MetaAdsPage() {
               </div>
 
               {/* Detail table */}
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-zinc-200">

@@ -108,7 +108,7 @@ export default function PnLPage() {
         }
       />
 
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         {loading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
@@ -119,11 +119,11 @@ export default function PnLPage() {
               <CardTitle>Compte de Resultat 2026</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b-2 border-zinc-300">
-                      <th className="pb-3 text-left font-medium text-zinc-500 sticky left-0 bg-white min-w-[200px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 sticky left-0 bg-white min-w-[140px] sm:min-w-[200px]">
                         Categorie
                       </th>
                       {monthLabels.map((m) => (

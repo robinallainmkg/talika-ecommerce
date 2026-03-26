@@ -27,7 +27,7 @@ export function KPICard({
   return (
     <div
       className={cn(
-        "rounded-xl border border-zinc-200 bg-white p-5 shadow-sm",
+        "rounded-xl border border-zinc-200 bg-white p-4 sm:p-5 shadow-sm",
         className
       )}
     >

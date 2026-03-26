@@ -17,13 +17,11 @@ import {
   TrendingUp,
   Users,
   Bot,
-  Play,
   CheckCircle2,
   XCircle,
   Loader2,
   Calendar,
   FolderKanban,
-  RefreshCw,
   DollarSign,
 } from "lucide-react"
 
@@ -213,7 +211,7 @@ export default function DashboardPage() {
         subtitle="Vue d'ensemble de l'activité Talika"
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* AI Insights Panel */}
         <PageInsightsPanel
           agentId="sales"
@@ -387,7 +385,7 @@ export default function DashboardPage() {
                 Aucun événement à venir.
               </p>
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
                 {events.map((event) => (
                   <div
                     key={event.id}

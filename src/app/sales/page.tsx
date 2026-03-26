@@ -5,7 +5,6 @@ import { Header } from "@/components/layout/header"
 import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { LineChart } from "@/components/charts/line-chart"
 import { formatCurrency, formatNumber } from "@/lib/utils"
 import { supabase } from "@/lib/supabase/client"
@@ -16,7 +15,6 @@ import {
   CreditCard,
   Tag,
   Loader2,
-  RefreshCw,
 } from "lucide-react"
 
 interface ShopifyAnalytics {
@@ -41,7 +39,7 @@ export default function SalesPage() {
   const [topProducts, setTopProducts] = useState<ProductSale[]>([])
   const [discountBreakdown, setDiscountBreakdown] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
+  const [, setSyncing] = useState(false)
 
   const now = new Date()
   const currentYear = now.getFullYear()
@@ -118,6 +116,7 @@ export default function SalesPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSync = async () => {
     setSyncing(true)
     try {
@@ -139,7 +138,7 @@ export default function SalesPage() {
         subtitle={`Performance produits et codes promo — ${monthName} ${currentYear}`}
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* Insights */}
         <PageInsightsPanel agentId="sales" pageContext="sales" title="Insights Ventes" />
 
@@ -204,11 +203,11 @@ export default function SalesPage() {
                   <CardTitle>Top Produits</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-zinc-200">
-                          <th className="pb-3 text-left font-medium text-zinc-500">Produit</th>
+                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[150px]">Produit</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">CA</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">Qté</th>
                         </tr>
@@ -238,11 +237,11 @@ export default function SalesPage() {
                   <CardTitle>Top Codes Promo</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-zinc-200">
-                          <th className="pb-3 text-left font-medium text-zinc-500">Code</th>
+                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[100px]">Code</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">Commandes</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">CA</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">Remise</th>

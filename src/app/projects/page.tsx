@@ -152,7 +152,7 @@ function TaskRow({
           e.preventDefault()
           onDrop?.(e, task.id)
         }}
-        className={`flex items-center gap-2 rounded-lg border p-2.5 hover:bg-zinc-50 transition-all cursor-grab active:cursor-grabbing ${
+        className={`flex flex-wrap items-center gap-1.5 sm:gap-2 rounded-lg border p-2 sm:p-2.5 hover:bg-zinc-50 transition-all cursor-grab active:cursor-grabbing ${
           depth > 0 ? "ml-6 border-l-2 border-l-zinc-200" : ""
         } ${task.status === "done" ? "opacity-60" : ""} ${
           isDropTarget && dragOverPosition === "above"
@@ -220,7 +220,7 @@ function TaskRow({
           </select>
         ) : (
           <button
-            className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 min-w-[80px] justify-end"
+            className="hidden sm:flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 min-w-[80px] justify-end"
             onClick={() => startEdit("assignee", task.assignee)}
           >
             <User className="h-3 w-3" />
@@ -240,7 +240,7 @@ function TaskRow({
           />
         ) : (
           <button
-            className={`flex items-center gap-1 text-xs min-w-[90px] justify-end ${
+            className={`hidden sm:flex items-center gap-1 text-xs min-w-[90px] justify-end ${
               isOverdue ? "text-red-500 font-medium" : "text-zinc-400 hover:text-zinc-600"
             }`}
             onClick={() => startEdit("due_date", task.due_date)}
@@ -521,7 +521,7 @@ export default function ProjectsPage() {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {loading && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
@@ -555,8 +555,8 @@ export default function ProjectsPage() {
           return (
             <Card key={project.id}>
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                     <CardTitle>{project.name}</CardTitle>
                     <Badge variant={config.variant}>
                       <StatusIcon className="mr-1 h-3 w-3" />
