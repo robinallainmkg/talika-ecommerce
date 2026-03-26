@@ -219,7 +219,7 @@ export default function ObjectivesPage() {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {loading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
@@ -338,7 +338,7 @@ export default function ObjectivesPage() {
                 <Badge variant="info">12 mois</Badge>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto -mx-6 px-6">
+                <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b-2 border-zinc-300">

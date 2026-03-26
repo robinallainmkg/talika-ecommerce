@@ -45,7 +45,7 @@ export function BarChart({
               type="category"
               dataKey={xKey}
               tick={{ fontSize: 12, fill: "#71717a" }}
-              width={120}
+              width={100}
             />
           </>
         ) : (

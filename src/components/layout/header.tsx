@@ -11,9 +11,9 @@ interface HeaderProps {
 
 export function Header({ title, subtitle, actions }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-zinc-200 bg-white/80 px-6 backdrop-blur-sm">
-      <div>
-        <h1 className="text-xl font-bold text-zinc-900">{title}</h1>
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-zinc-200 bg-white/80 px-4 sm:px-6 backdrop-blur-sm">
+      <div className="pl-12 lg:pl-0">
+        <h1 className="text-lg sm:text-xl font-bold text-zinc-900">{title}</h1>
         {subtitle && (
           <p className="text-sm text-zinc-500">{subtitle}</p>
         )}

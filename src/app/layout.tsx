@@ -16,7 +16,7 @@ export default function RootLayout({
     <html lang="fr">
       <body className="antialiased font-sans">
         <Sidebar />
-        <main className="ml-64 min-h-screen bg-zinc-50">
+        <main className="min-h-screen bg-zinc-50 lg:ml-64">
           {children}
         </main>
       </body>

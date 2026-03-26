@@ -118,7 +118,7 @@ export default function AcquisitionPage() {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
@@ -129,7 +129,7 @@ export default function AcquisitionPage() {
         ) : (
           <>
             {/* Global KPIs */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
               <KPICard
                 label={`CA Total ${monthName}`}
                 value={formatCurrency(data.total_revenue)}
@@ -185,7 +185,7 @@ export default function AcquisitionPage() {
                       </div>
                     ))}
                 </div>
-                <div className="flex gap-4 mt-3">
+                <div className="flex flex-wrap gap-3 sm:gap-4 mt-3">
                   {data.channels.filter(c => c.revenue > 0 || c.blocked).map(c => (
                     <div key={c.id} className="flex items-center gap-1.5 text-xs text-zinc-500">
                       <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: c.color }} />
@@ -197,7 +197,7 @@ export default function AcquisitionPage() {
             </Card>
 
             {/* Channel Cards */}
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
               {data.channels.filter(c => c.id !== "organic").map(channel => {
                 const Icon = CHANNEL_ICONS[channel.icon] || Globe
                 return (
@@ -325,7 +325,7 @@ export default function AcquisitionPage() {
             {data.channels.find(c => c.id === "organic") && (
               <Card>
                 <CardContent className="py-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
                       <div className="rounded-lg p-2 bg-emerald-50">
                         <Globe className="h-5 w-5 text-emerald-600" />
@@ -335,7 +335,7 @@ export default function AcquisitionPage() {
                         <p className="text-xs text-zinc-500">Commandes sans code promo influenceur ni attribution Meta</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-8 text-right">
+                    <div className="flex flex-wrap items-center gap-4 sm:gap-8 text-right">
                       <div>
                         <div className="text-xs text-zinc-500">Revenue</div>
                         <div className="text-lg font-semibold">
@@ -367,10 +367,11 @@ export default function AcquisitionPage() {
                   <CardTitle>Campagnes Meta Ads actives</CardTitle>
                 </CardHeader>
                 <CardContent>
+                  <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-zinc-200">
-                        <th className="pb-3 text-left font-medium text-zinc-500">Campagne</th>
+                        <th className="pb-3 text-left font-medium text-zinc-500 min-w-[200px]">Campagne</th>
                         <th className="pb-3 text-right font-medium text-zinc-500">Spend</th>
                         <th className="pb-3 text-right font-medium text-zinc-500">ROAS</th>
                         <th className="pb-3 text-right font-medium text-zinc-500">Clics</th>
@@ -393,6 +394,7 @@ export default function AcquisitionPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </CardContent>
               </Card>
             )}

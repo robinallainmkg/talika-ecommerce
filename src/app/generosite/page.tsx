@@ -130,7 +130,7 @@ function CategoryCard({ cat }: { cat: CategoryData }) {
       {/* Expanded codes */}
       {expanded && cat.codes.length > 0 && (
         <div className="mt-3 space-y-1">
-          <div className="grid grid-cols-3 text-[10px] font-medium text-zinc-400 uppercase tracking-wider px-2">
+          <div className="grid grid-cols-3 text-[10px] sm:text-xs font-medium text-zinc-400 uppercase tracking-wider px-2">
             <span>Code</span>
             <span className="text-right">Montant</span>
             <span className="text-right">Utilisations</span>
@@ -211,7 +211,7 @@ export default function GenerositePage() {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {loading ? (
           <div className="text-center py-12 text-zinc-400">Chargement...</div>
         ) : !data ? (
@@ -335,7 +335,7 @@ export default function GenerositePage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
                       <p className="text-xs text-emerald-600 font-medium">Livraison facturée</p>
                       <p className="text-xl font-bold text-emerald-700">{formatCurrency(data.shipping.revenue_collected)}</p>
@@ -364,7 +364,7 @@ export default function GenerositePage() {
                       <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">Méthodes de livraison</h4>
                       <div className="space-y-1">
                         {data.shipping.methods.map((m) => (
-                          <div key={m.method} className="flex items-center justify-between text-sm py-1.5 px-2 rounded hover:bg-zinc-50">
+                          <div key={m.method} className="flex flex-col sm:flex-row sm:items-center justify-between text-sm py-1.5 px-2 rounded hover:bg-zinc-50 gap-1 sm:gap-0">
                             <span className="text-zinc-700">{m.method}</span>
                             <div className="flex items-center gap-4">
                               <span className="text-zinc-500">{m.count} commandes</span>

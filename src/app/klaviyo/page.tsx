@@ -76,7 +76,7 @@ export default function KlaviyoPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
-  const [lastSync, setLastSync] = useState<string | null>(null)
+  const [, setLastSync] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -140,7 +140,7 @@ export default function KlaviyoPage() {
         subtitle="Campagnes email, flows et listes Klaviyo"
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* AI Insights Panel */}
         <PageInsightsPanel
           agentId="klaviyo"
@@ -228,20 +228,20 @@ export default function KlaviyoPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto -mx-6 px-6">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b-2 border-zinc-300">
-                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[300px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[200px] sm:min-w-[300px]">
                         Nom
                       </th>
-                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[120px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[100px]">
                         Statut
                       </th>
-                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[120px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[100px]">
                         Date d&apos;envoi
                       </th>
-                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[120px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[100px]">
                         Mise a jour
                       </th>
                     </tr>
@@ -298,17 +298,17 @@ export default function KlaviyoPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto -mx-6 px-6">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b-2 border-zinc-300">
-                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[300px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[200px] sm:min-w-[300px]">
                         Nom
                       </th>
-                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[120px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[100px]">
                         Statut
                       </th>
-                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[150px]">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[120px]">
                         Type de declencheur
                       </th>
                       <th className="pb-3 text-left font-medium text-zinc-500 min-w-[120px]">

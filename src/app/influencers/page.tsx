@@ -431,7 +431,7 @@ export default function InfluencersPage() {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* AI Insights Panel */}
         <PageInsightsPanel
           agentId="influencers"
@@ -486,7 +486,7 @@ export default function InfluencersPage() {
                 <Badge variant="info">{influencers.length} influenceurs</Badge>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto -mx-6 px-6">
+                <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b-2 border-zinc-300">
@@ -1085,7 +1085,7 @@ export default function InfluencersPage() {
                   autoFocus
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-zinc-700 mb-1">
                     Instagram
@@ -1111,7 +1111,7 @@ export default function InfluencersPage() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-zinc-700 mb-1">
                     Commission (%)

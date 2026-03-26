@@ -152,7 +152,7 @@ export default function CalendarPage() {
         }
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
@@ -196,7 +196,8 @@ export default function CalendarPage() {
               </div>
             ) : (
               /* Calendar grid */
-              <div className="grid grid-cols-7 gap-px rounded-lg border border-zinc-200 bg-zinc-200 overflow-hidden">
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
+              <div className="grid grid-cols-7 gap-px rounded-lg border border-zinc-200 bg-zinc-200 overflow-hidden min-w-[640px]">
                 {/* Header */}
                 {daysOfWeek.map((day) => (
                   <div
@@ -220,7 +221,7 @@ export default function CalendarPage() {
                   return (
                     <div
                       key={i}
-                      className={`min-h-[100px] bg-white p-1.5 ${
+                      className={`min-h-[80px] sm:min-h-[100px] bg-white p-1 sm:p-1.5 ${
                         day ? "hover:bg-zinc-50" : "bg-zinc-50/50"
                       }`}
                     >
@@ -252,6 +253,7 @@ export default function CalendarPage() {
                   )
                 })}
               </div>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -276,7 +278,7 @@ export default function CalendarPage() {
                 {upcomingEvents.map((event) => (
                   <div
                     key={event.id}
-                    className="flex items-center justify-between rounded-lg border border-zinc-200 p-3 hover:bg-zinc-50"
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-zinc-200 p-3 hover:bg-zinc-50"
                   >
                     <div className="flex items-center gap-3">
                       <span

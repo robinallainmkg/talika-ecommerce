@@ -1,9 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Button } from "@/components/ui/button"
 import { AgentInsightCard } from "@/components/ui/agent-insight-card"
-import { Sparkles, Loader2, ChevronDown, ChevronUp } from "lucide-react"
+import { Sparkles, ChevronDown, ChevronUp } from "lucide-react"
 
 interface Proposal {
   id: string
@@ -52,6 +51,7 @@ export function PageInsightsPanel({
     fetchInsights()
   }, [fetchInsights])
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const runAnalysis = async () => {
     setAnalyzing(true)
     setError(null)

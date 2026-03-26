@@ -249,7 +249,7 @@ export default function AgentsPage() {
         }
       />
 
-      <div className="p-6 space-y-8">
+      <div className="p-4 sm:p-6 space-y-6 sm:space-y-8">
         {/* ---- KPI Summary ---- */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <KPICard
@@ -272,7 +272,7 @@ export default function AgentsPage() {
         {/* ---- Agent Grid ---- */}
         <div>
           <h2 className="text-lg font-semibold text-zinc-900 mb-4">Agents</h2>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {agents.map((agent) => {
               const meta = AGENT_META[agent.slug] ?? {
                 capabilities: [],
@@ -290,7 +290,7 @@ export default function AgentsPage() {
               return (
                 <Card key={agent.id}>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
                         <div
                           className={`rounded-lg p-2 ${
@@ -372,7 +372,7 @@ export default function AgentsPage() {
               {pendingProposals.map((proposal) => (
                 <Card key={proposal.id}>
                   <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-medium text-zinc-400">
