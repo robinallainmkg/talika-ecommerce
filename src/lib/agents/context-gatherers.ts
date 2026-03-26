@@ -62,7 +62,6 @@ export async function gatherInfluencerContext(
   }
 
   // 5. Build enriched influencer list
-  const codeMap = new Map((codes || []).map(c => [c.influencer_id, c]))
   const enrichedInfluencers = (influencers || []).map(inf => {
     const infCodes = (codes || []).filter(c => c.influencer_id === inf.id)
     const products = productsByInfluencer[inf.id] || {}

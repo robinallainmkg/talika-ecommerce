@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { AgentInsightCard } from "@/components/ui/agent-insight-card"
-import { Sparkles, Loader2, RefreshCw, ChevronDown, ChevronUp } from "lucide-react"
+import { Sparkles, Loader2, ChevronDown, ChevronUp } from "lucide-react"
 
 interface Proposal {
   id: string
@@ -31,7 +31,6 @@ export function PageInsightsPanel({
   maxInsights = 5,
 }: PageInsightsPanelProps) {
   const [insights, setInsights] = useState<Proposal[]>([])
-  const [loading, setLoading] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(true)

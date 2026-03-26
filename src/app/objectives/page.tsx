@@ -14,7 +14,6 @@ const MONTHS_FR = [
 ]
 
 const GROWTH_TARGET = 1.20 // +20%
-const MEDIA_TARGET = 25 // <=25% du CA
 const GENEROSITE_TARGET = 20 // 20% (down from 23.75%)
 
 interface MonthData {
@@ -165,7 +164,6 @@ export default function ObjectivesPage() {
   }
 
   function rowStatus(row: MonthData) {
-    const target = row.ca_2025 * GROWTH_TARGET
     const croissance = row.ca_2025 > 0 ? ((row.ca_2026 - row.ca_2025) / row.ca_2025) * 100 : 0
     const mediaPct = row.ca_2026 > 0 ? (row.media_spent / row.ca_2026) * 100 : 0
 

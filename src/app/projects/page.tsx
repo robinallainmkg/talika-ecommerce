@@ -110,7 +110,6 @@ function TaskRow({
 
   const tc = taskStatusConfig[task.status] || taskStatusConfig.todo
   const TaskIcon = tc.icon
-  const pc = priorityConfig[task.priority] || priorityConfig.medium
   const hasSubtasks = subtasks.length > 0
   const subtasksDone = subtasks.filter(s => s.status === "done").length
 

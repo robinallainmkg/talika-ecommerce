@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { getAnalytics, getProducts, getCustomers, getAllOrders } from "@/lib/integrations/shopify"
+import { getAnalytics, getProducts, getAllOrders } from "@/lib/integrations/shopify"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -90,14 +90,6 @@ interface ShopifyAnalytics {
   total_discounts?: number
 }
 
-interface ShopifyOrder {
-  created_at: string
-  total_price: string | number
-  financial_status: string
-  discount_codes?: unknown[]
-  fulfillment_status?: string
-}
-
 interface DailyChartData {
   date: string
   revenue: number
@@ -119,30 +111,6 @@ function proposalToInsight(row: AgentProposalRow): AgentInsight {
     createdAt: row.created_at,
     data: row.data,
   }
-}
-
-function buildDailyChartData(orders: ShopifyOrder[]): DailyChartData[] {
-  const dailyMap = new Map<string, { revenue: number; orders: number }>()
-
-  for (const order of orders) {
-    const day = order.created_at.split("T")[0]
-    const price = typeof order.total_price === "string" ? parseFloat(order.total_price) : order.total_price
-    const existing = dailyMap.get(day)
-    if (existing) {
-      existing.revenue += price
-      existing.orders += 1
-    } else {
-      dailyMap.set(day, { revenue: price, orders: 1 })
-    }
-  }
-
-  return Array.from(dailyMap.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, data]) => ({
-      date,
-      revenue: Math.round(data.revenue * 100) / 100,
-      orders: data.orders,
-    }))
 }
 
 export default function DashboardPage() {

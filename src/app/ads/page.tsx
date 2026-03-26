@@ -22,8 +22,6 @@ import {
   Sparkles,
   Check,
   AlertCircle,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react"
 
 interface Campaign {

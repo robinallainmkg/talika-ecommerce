@@ -180,7 +180,6 @@ export async function GET(request: Request) {
     const cpaGoogle = newCustomersGoogle > 0 ? googleSpend / newCustomersGoogle : null
 
     // ── 5. Organic / Direct (everything not attributed) ──
-    const attributedRevenue = influenceRevenue + metaRevenue + googleRevenue
     const organicRevenue = Math.max(0, totalRevenue - influenceRevenue) // don't double-subtract Meta
     const organicOrders = totalOrders - influenceOrders
 
