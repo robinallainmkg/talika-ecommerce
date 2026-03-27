@@ -6,6 +6,7 @@ import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency, formatNumber } from "@/lib/utils"
+import { DataInsights } from "@/components/data-insights"
 import {
   Users,
   Megaphone,
@@ -119,6 +120,8 @@ export default function AcquisitionPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+        <DataInsights page="acquisition" />
+
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />

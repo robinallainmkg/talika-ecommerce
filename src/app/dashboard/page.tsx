@@ -10,7 +10,7 @@ import { LineChart } from "@/components/charts/line-chart"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatCurrency, formatNumber } from "@/lib/utils"
-import { PageInsightsPanel } from "@/components/agents/page-insights-panel"
+import { DataInsights } from "@/components/data-insights"
 import type { AgentInsight } from "@/types"
 import {
   ShoppingCart,
@@ -212,12 +212,8 @@ export default function DashboardPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* AI Insights Panel */}
-        <PageInsightsPanel
-          agentId="sales"
-          pageContext="dashboard"
-          title="Insights Dashboard"
-        />
+        {/* Data Insights */}
+        <DataInsights page="dashboard" />
 
         {/* KPIs - Shopify real data */}
         {shopifyAnalytics ? (

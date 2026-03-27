@@ -30,10 +30,7 @@ export function PageInsightsPanel({
   maxInsights = 5,
 }: PageInsightsPanelProps) {
   const [insights, setInsights] = useState<Proposal[]>([])
-  const [analyzing, setAnalyzing] = useState(false)
-  const [analysis, setAnalysis] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   const fetchInsights = useCallback(async () => {
     try {
@@ -50,36 +47,6 @@ export function PageInsightsPanel({
   useEffect(() => {
     fetchInsights()
   }, [fetchInsights])
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const runAnalysis = async () => {
-    setAnalyzing(true)
-    setError(null)
-    setAnalysis(null)
-
-    try {
-      const res = await fetch("/api/agents/run-inline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId, pageContext }),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error || "Erreur lors de l'analyse")
-        return
-      }
-
-      setAnalysis(data.analysis)
-      // Refresh insights list
-      await fetchInsights()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur de connexion")
-    } finally {
-      setAnalyzing(false)
-    }
-  }
 
   return (
     <div className="rounded-xl border border-zinc-200 bg-gradient-to-br from-violet-50/50 to-blue-50/50 overflow-hidden">
@@ -109,23 +76,6 @@ export function PageInsightsPanel({
       {/* Content */}
       {expanded && (
         <div className="px-5 pb-4 space-y-3">
-          {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          {analysis && (
-            <div className="rounded-lg bg-white/70 border border-violet-100 p-4">
-              <h4 className="text-xs font-semibold text-violet-600 uppercase tracking-wider mb-2">
-                Analyse
-              </h4>
-              <div className="text-sm text-zinc-700 whitespace-pre-line leading-relaxed">
-                {analysis}
-              </div>
-            </div>
-          )}
-
           {insights.length > 0 ? (
             <div className="space-y-2">
               {insights.map((insight) => (
@@ -145,11 +95,11 @@ export function PageInsightsPanel({
                 />
               ))}
             </div>
-          ) : !analysis && !analyzing ? (
+          ) : (
             <p className="text-sm text-zinc-400 text-center py-4">
               Aucun insight disponible.
             </p>
-          ) : null}
+          )}
         </div>
       )}
     </div>

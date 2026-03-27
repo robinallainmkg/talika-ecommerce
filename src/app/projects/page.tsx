@@ -21,6 +21,8 @@ import {
   CornerDownRight,
   CalendarDays,
   User,
+  GanttChart,
+  List,
 } from "lucide-react"
 
 // ─── Types ───────────────────────────────────────────────────
@@ -76,6 +78,208 @@ const priorityConfig: Record<string, { label: string; variant: "default" | "info
 }
 
 const ASSIGNEES = ["Robin", "Sophie", "Diane", "Meha", "Bruno"]
+
+const STATUS_COLORS: Record<string, string> = {
+  not_started: "bg-zinc-300",
+  active: "bg-blue-500",
+  in_progress: "bg-blue-500",
+  on_hold: "bg-amber-500",
+  completed: "bg-emerald-500",
+}
+
+const TASK_STATUS_COLORS: Record<string, string> = {
+  todo: "bg-zinc-300",
+  in_progress: "bg-blue-400",
+  blocked: "bg-red-400",
+  done: "bg-emerald-400",
+}
+
+// ─── Timeline Component ─────────────────────────────────────
+
+function ProjectTimeline({ projects }: { projects: Project[] }) {
+  // Determine date range
+  const now = new Date()
+  const allDates: Date[] = []
+  for (const p of projects) {
+    if (p.start_date) allDates.push(new Date(p.start_date))
+    if (p.target_date) allDates.push(new Date(p.target_date))
+    for (const t of p.project_tasks || []) {
+      if (t.due_date) allDates.push(new Date(t.due_date))
+    }
+  }
+  if (allDates.length === 0) allDates.push(now)
+
+  const minDate = new Date(Math.min(...allDates.map(d => d.getTime()), now.getTime()))
+  const maxDate = new Date(Math.max(...allDates.map(d => d.getTime()), now.getTime()))
+
+  // Add padding
+  minDate.setDate(minDate.getDate() - 7)
+  maxDate.setDate(maxDate.getDate() + 30)
+
+  const totalDays = Math.max(1, Math.ceil((maxDate.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24)))
+
+  const dateToPercent = (d: Date) => {
+    const days = (d.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24)
+    return Math.max(0, Math.min(100, (days / totalDays) * 100))
+  }
+
+  // Generate month markers
+  const months: { label: string; pct: number }[] = []
+  const cursor = new Date(minDate.getFullYear(), minDate.getMonth(), 1)
+  while (cursor <= maxDate) {
+    months.push({
+      label: cursor.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
+      pct: dateToPercent(cursor),
+    })
+    cursor.setMonth(cursor.getMonth() + 1)
+  }
+
+  const todayPct = dateToPercent(now)
+
+  const [expandedProject, setExpandedProject] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-1">
+      {/* Month axis */}
+      <div className="relative h-8 ml-[220px]">
+        {months.map((m, i) => (
+          <div
+            key={i}
+            className="absolute top-0 h-full border-l border-zinc-200"
+            style={{ left: `${m.pct}%` }}
+          >
+            <span className="absolute top-0 left-1 text-[10px] text-zinc-400 whitespace-nowrap">
+              {m.label}
+            </span>
+          </div>
+        ))}
+        {/* Today marker */}
+        <div
+          className="absolute top-0 h-full w-0.5 bg-red-400 z-10"
+          style={{ left: `${todayPct}%` }}
+        >
+          <span className="absolute -top-0 left-1 text-[10px] font-bold text-red-500">Auj.</span>
+        </div>
+      </div>
+
+      {/* Projects */}
+      {projects.map(project => {
+        const config = statusConfig[project.status] || statusConfig.not_started
+        const barColor = STATUS_COLORS[project.status] || "bg-zinc-300"
+        const start = project.start_date ? new Date(project.start_date) : now
+        const end = project.target_date ? new Date(project.target_date) : new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000)
+        const startPct = dateToPercent(start)
+        const endPct = dateToPercent(end)
+        const widthPct = Math.max(1, endPct - startPct)
+
+        const allTasks = project.project_tasks || []
+        const leafTasks = allTasks.filter(t => !allTasks.some(s => s.parent_task_id === t.id))
+        const doneCount = leafTasks.filter(t => t.status === "done").length
+        const progress = leafTasks.length > 0 ? Math.round((doneCount / leafTasks.length) * 100) : 0
+        const isExpanded = expandedProject === project.id
+
+        return (
+          <div key={project.id}>
+            {/* Project bar */}
+            <div
+              className="flex items-center gap-0 group cursor-pointer hover:bg-zinc-50 rounded-lg transition-colors"
+              onClick={() => setExpandedProject(isExpanded ? null : project.id)}
+            >
+              {/* Label */}
+              <div className="w-[220px] flex-shrink-0 pr-3 py-2 pl-2">
+                <div className="flex items-center gap-2">
+                  {allTasks.length > 0 && (
+                    isExpanded
+                      ? <ChevronDown className="h-3.5 w-3.5 text-zinc-400 flex-shrink-0" />
+                      : <ChevronRight className="h-3.5 w-3.5 text-zinc-400 flex-shrink-0" />
+                  )}
+                  <span className="text-sm font-medium text-zinc-900 truncate">{project.name}</span>
+                </div>
+                <div className="flex items-center gap-2 ml-5 mt-0.5">
+                  <Badge variant={config.variant} className="text-[10px]">{config.label}</Badge>
+                  <span className="text-[10px] text-zinc-400">{progress}%</span>
+                </div>
+              </div>
+
+              {/* Gantt area */}
+              <div className="flex-1 relative h-10">
+                {/* Grid lines */}
+                {months.map((m, i) => (
+                  <div key={i} className="absolute top-0 h-full border-l border-zinc-100" style={{ left: `${m.pct}%` }} />
+                ))}
+                {/* Today line */}
+                <div className="absolute top-0 h-full w-0.5 bg-red-100" style={{ left: `${todayPct}%` }} />
+                {/* Project bar */}
+                <div
+                  className={`absolute top-2 h-6 rounded-md ${barColor} opacity-80 group-hover:opacity-100 transition-opacity shadow-sm`}
+                  style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+                >
+                  {/* Progress fill */}
+                  <div
+                    className="h-full rounded-md bg-white/30"
+                    style={{ width: `${progress}%` }}
+                  />
+                  {widthPct > 8 && (
+                    <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-white drop-shadow">
+                      {progress}%
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Expanded tasks */}
+            {isExpanded && allTasks.length > 0 && (
+              <div className="ml-0">
+                {allTasks
+                  .filter(t => !t.parent_task_id)
+                  .sort((a, b) => a.sort_order - b.sort_order)
+                  .map(task => {
+                    const taskColor = TASK_STATUS_COLORS[task.status] || "bg-zinc-200"
+                    const tc = taskStatusConfig[task.status] || taskStatusConfig.todo
+                    const TaskIcon = tc.icon
+
+                    // Task bar: use due_date if available, otherwise show as dot
+                    const hasDueDate = !!task.due_date
+                    const taskDate = task.due_date ? new Date(task.due_date) : end
+                    const taskPct = dateToPercent(taskDate)
+
+                    return (
+                      <div key={task.id} className="flex items-center gap-0 hover:bg-zinc-50/50 rounded">
+                        <div className="w-[220px] flex-shrink-0 pr-3 py-1.5 pl-8">
+                          <div className="flex items-center gap-2">
+                            <TaskIcon className={`h-3 w-3 ${tc.colorClass} flex-shrink-0`} />
+                            <span className={`text-xs truncate ${
+                              task.status === "done" ? "text-zinc-400 line-through" : "text-zinc-700"
+                            }`}>
+                              {task.title}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1 relative h-6">
+                          {months.map((m, i) => (
+                            <div key={i} className="absolute top-0 h-full border-l border-zinc-50" style={{ left: `${m.pct}%` }} />
+                          ))}
+                          <div className="absolute top-0 h-full w-0.5 bg-red-50" style={{ left: `${todayPct}%` }} />
+                          {hasDueDate ? (
+                            <div
+                              className={`absolute top-1.5 h-3 w-3 rounded-full ${taskColor} shadow-sm`}
+                              style={{ left: `${taskPct}%`, transform: "translateX(-50%)" }}
+                              title={`${task.title} — ${new Date(task.due_date!).toLocaleDateString("fr-FR")}`}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 // ─── Task Row Component ──────────────────────────────────────
 
@@ -310,6 +514,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [view, setView] = useState<"list" | "timeline">("list")
   const [newTaskTitle, setNewTaskTitle] = useState<Record<string, string>>({})
   const [addingTo, setAddingTo] = useState<string | null>(null)
   const [newSubtaskParent, setNewSubtaskParent] = useState<string | null>(null)
@@ -514,10 +719,32 @@ export default function ProjectsPage() {
         title="Suivi de Projets"
         subtitle="Gestion et suivi de l'avancement des projets"
         actions={
-          <Button size="sm">
-            <Plus className="h-4 w-4" />
-            Nouveau projet
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1 bg-zinc-100 rounded-lg p-1">
+              <button
+                onClick={() => setView("list")}
+                className={`p-1.5 rounded-md transition-colors ${
+                  view === "list" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
+                }`}
+                title="Vue liste"
+              >
+                <List className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setView("timeline")}
+                className={`p-1.5 rounded-md transition-colors ${
+                  view === "timeline" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
+                }`}
+                title="Vue timeline"
+              >
+                <GanttChart className="h-4 w-4" />
+              </button>
+            </div>
+            <Button size="sm">
+              <Plus className="h-4 w-4" />
+              Nouveau projet
+            </Button>
+          </div>
         }
       />
 
@@ -537,7 +764,23 @@ export default function ProjectsPage() {
           <div className="text-center py-12 text-zinc-500">Aucun projet pour le moment.</div>
         )}
 
-        {projects.map(project => {
+        {/* Timeline view */}
+        {!loading && !error && projects.length > 0 && view === "timeline" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <GanttChart className="h-5 w-5" />
+                Timeline des projets
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ProjectTimeline projects={projects} />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* List view */}
+        {view === "list" && projects.map(project => {
           const config = statusConfig[project.status] || statusConfig.not_started
           const StatusIcon = config.icon
           const allTasks = project.project_tasks || []
@@ -688,3 +931,4 @@ export default function ProjectsPage() {
     </div>
   )
 }
+

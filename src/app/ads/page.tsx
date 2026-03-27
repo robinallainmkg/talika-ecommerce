@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatCurrency, formatNumber } from "@/lib/utils"
-import { PageInsightsPanel } from "@/components/agents/page-insights-panel"
+import { DataInsights } from "@/components/data-insights"
 import {
   Megaphone,
   MousePointer,
@@ -119,7 +119,6 @@ export default function MetaAdsPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
-  const [, setLastSync] = useState<string | null>(null)
   const [mappingOpen, setMappingOpen] = useState(false)
   const [mappingData, setMappingData] = useState<{
     mapped: any[]
@@ -190,11 +189,6 @@ export default function MetaAdsPage() {
       if (json.monthly?.trend) {
         setTrend(json.monthly.trend)
       }
-      if (json.monthly?.fetched_at) {
-        setLastSync(json.monthly.fetched_at)
-      } else if (json.campaigns?.fetched_at) {
-        setLastSync(json.campaigns.fetched_at)
-      }
     } catch (err) {
       console.error("Failed to fetch Meta data:", err)
     } finally {
@@ -238,12 +232,7 @@ export default function MetaAdsPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* AI Insights Panel */}
-        <PageInsightsPanel
-          agentId="meta_ads"
-          pageContext="ads"
-          title="Insights Meta Ads"
-        />
+        <DataInsights page="acquisition" />
 
         {/* Sync error */}
         {syncError && (

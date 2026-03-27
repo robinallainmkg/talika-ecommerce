@@ -22,7 +22,7 @@ import {
   ToggleLeft,
   ToggleRight,
 } from "lucide-react"
-import { PageInsightsPanel } from "@/components/agents/page-insights-panel"
+import { DataInsights } from "@/components/data-insights"
 
 // ─── Types ───────────────────────────────────────────────────────
 interface InfluencerCode {
@@ -432,12 +432,7 @@ export default function InfluencersPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* AI Insights Panel */}
-        <PageInsightsPanel
-          agentId="influencers"
-          pageContext="influencers"
-          title="Insights Influenceurs"
-        />
+        <DataInsights page="influencers" />
 
         {/* Error banner */}
         {error && (

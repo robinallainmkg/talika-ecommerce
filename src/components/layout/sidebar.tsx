@@ -13,14 +13,13 @@ import {
   FolderKanban,
   Users,
   FileSpreadsheet,
-  Bot,
-  Settings,
   Sparkles,
   Target,
   Radar,
   Gift,
   Menu,
   X,
+  Settings,
 } from "lucide-react"
 
 const navigation = [
@@ -35,7 +34,6 @@ const navigation = [
   { name: "Objectifs 2026", href: "/objectives", icon: Target },
   { name: "Générosité", href: "/generosite", icon: Gift },
   { name: "P&L", href: "/pnl", icon: FileSpreadsheet },
-  { name: "Agents", href: "/agents", icon: Bot },
 ]
 
 export function Sidebar() {

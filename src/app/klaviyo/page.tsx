@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatNumber } from "@/lib/utils"
-import { PageInsightsPanel } from "@/components/agents/page-insights-panel"
+import { DataInsights } from "@/components/data-insights"
 import {
   Mail,
   GitBranch,
@@ -76,7 +76,7 @@ export default function KlaviyoPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
-  const [, setLastSync] = useState<string | null>(null)
+
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -92,11 +92,6 @@ export default function KlaviyoPage() {
       }
       if (json.lists?.lists) {
         setLists(json.lists.lists)
-      }
-      if (json.campaigns?.fetched_at) {
-        setLastSync(json.campaigns.fetched_at)
-      } else if (json.flows?.fetched_at) {
-        setLastSync(json.flows.fetched_at)
       }
     } catch (err) {
       console.error("Failed to fetch Klaviyo data:", err)
@@ -141,12 +136,7 @@ export default function KlaviyoPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* AI Insights Panel */}
-        <PageInsightsPanel
-          agentId="klaviyo"
-          pageContext="klaviyo"
-          title="Insights Klaviyo"
-        />
+        <DataInsights page="klaviyo" />
 
         {/* Sync error */}
         {syncError && (

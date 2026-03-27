@@ -6,6 +6,7 @@ import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency } from "@/lib/utils"
+import { DataInsights } from "@/components/data-insights"
 import {
   Gift,
   Users,
@@ -17,6 +18,8 @@ import {
   ChevronDown,
   ChevronRight,
   HelpCircle,
+  Package,
+  ArrowUpDown,
 } from "lucide-react"
 
 interface CodeDetail {
@@ -53,6 +56,32 @@ interface GenerositeData {
     free_shipping_rate: number
     methods: { method: string; count: number; revenue: number }[]
   }
+}
+
+interface ProductData {
+  product_id: number
+  title: string
+  quantity_sold: number
+  revenue: number
+  ca_brut: number
+  discount_allocated: number
+  generosite_pct: number
+  avg_price: number
+  avg_compare_at: number
+  prix_barre_discount: number
+  orders: number
+}
+
+interface ProductsResponse {
+  summary: {
+    total_products: number
+    total_revenue: number
+    total_ca_brut: number
+    total_discount_codes: number
+    total_prix_barres: number
+    overall_generosite_pct: number
+  }
+  products: ProductData[]
 }
 
 const CATEGORY_ICONS: Record<string, typeof Gift> = {
@@ -159,9 +188,13 @@ const MONTHS = [
 export default function GenerositePage() {
   const now = new Date()
   const [data, setData] = useState<GenerositeData | null>(null)
+  const [productsData, setProductsData] = useState<ProductsResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [productsLoading, setProductsLoading] = useState(false)
   const [selectedYear, setSelectedYear] = useState(now.getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
+  const [tab, setTab] = useState<"categories" | "products">("categories")
+  const [productSort, setProductSort] = useState<"generosite" | "revenue" | "quantity">("generosite")
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -177,11 +210,37 @@ export default function GenerositePage() {
     }
   }, [selectedYear, selectedMonth])
 
+  const fetchProducts = useCallback(async () => {
+    setProductsLoading(true)
+    try {
+      const res = await fetch(`/api/generosite/products?year=${selectedYear}&month=${selectedMonth}`)
+      const json = await res.json()
+      if (!json.error) setProductsData(json)
+      else setProductsData(null)
+    } catch {
+      setProductsData(null)
+    } finally {
+      setProductsLoading(false)
+    }
+  }, [selectedYear, selectedMonth])
+
   useEffect(() => {
     fetchData()
   }, [fetchData])
 
+  useEffect(() => {
+    if (tab === "products") fetchProducts()
+  }, [tab, fetchProducts])
+
   const target = 20 // 20% target
+
+  const sortedProducts = productsData?.products
+    ? [...productsData.products].sort((a, b) => {
+        if (productSort === "revenue") return b.revenue - a.revenue
+        if (productSort === "quantity") return b.quantity_sold - a.quantity_sold
+        return b.generosite_pct - a.generosite_pct
+      })
+    : []
 
   return (
     <div>
@@ -212,11 +271,35 @@ export default function GenerositePage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+        <DataInsights page="generosite" />
+
+        {/* Tabs */}
+        <div className="flex gap-1 bg-zinc-100 rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setTab("categories")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              tab === "categories" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            <Tag className="h-4 w-4 inline mr-1.5" />
+            Par catégorie
+          </button>
+          <button
+            onClick={() => setTab("products")}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              tab === "products" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            <Package className="h-4 w-4 inline mr-1.5" />
+            Par produit
+          </button>
+        </div>
+
         {loading ? (
           <div className="text-center py-12 text-zinc-400">Chargement...</div>
         ) : !data ? (
           <div className="text-center py-12 text-zinc-400">Aucune donnée. Lancez une sync Shopify.</div>
-        ) : (
+        ) : tab === "categories" ? (
           <>
             {/* KPIs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -379,6 +462,123 @@ export default function GenerositePage() {
               </Card>
             )}
           </>
+        ) : (
+          /* ── Products tab ────────────────────────── */
+          productsLoading ? (
+            <div className="text-center py-12 text-zinc-400">Chargement des produits...</div>
+          ) : !productsData ? (
+            <div className="text-center py-12 text-zinc-400">Aucune donnée produit disponible.</div>
+          ) : (
+            <>
+              {/* Products KPIs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <KPICard
+                  label="Taux global"
+                  value={`${productsData.summary.overall_generosite_pct}%`}
+                  icon={<Percent className="h-5 w-5" />}
+                  changeLabel={`Cible : ${target}%`}
+                />
+                <KPICard
+                  label="Discounts codes"
+                  value={formatCurrency(productsData.summary.total_discount_codes)}
+                  icon={<Tag className="h-5 w-5" />}
+                />
+                <KPICard
+                  label="Prix barrés"
+                  value={formatCurrency(productsData.summary.total_prix_barres)}
+                  icon={<ShoppingBag className="h-5 w-5" />}
+                />
+                <KPICard
+                  label="Produits actifs"
+                  value={String(productsData.summary.total_products)}
+                  icon={<Package className="h-5 w-5" />}
+                />
+              </div>
+
+              {/* Products table */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2">
+                      <Package className="h-5 w-5" />
+                      Générosité par produit
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      <ArrowUpDown className="h-4 w-4 text-zinc-400" />
+                      <select
+                        className="text-xs border border-zinc-200 rounded px-2 py-1 bg-white"
+                        value={productSort}
+                        onChange={e => setProductSort(e.target.value as typeof productSort)}
+                      >
+                        <option value="generosite">% Générosité</option>
+                        <option value="revenue">CA</option>
+                        <option value="quantity">Quantité</option>
+                      </select>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-200 text-left">
+                          <th className="pb-2 font-medium text-zinc-500">Produit</th>
+                          <th className="pb-2 font-medium text-zinc-500 text-right">Qté</th>
+                          <th className="pb-2 font-medium text-zinc-500 text-right">CA</th>
+                          <th className="pb-2 font-medium text-zinc-500 text-right">Prix moyen</th>
+                          <th className="pb-2 font-medium text-zinc-500 text-right">Prix catalogue</th>
+                          <th className="pb-2 font-medium text-zinc-500 text-right">Discount codes</th>
+                          <th className="pb-2 font-medium text-zinc-500 text-right">Prix barrés</th>
+                          <th className="pb-2 font-medium text-zinc-500 text-right">% Générosité</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedProducts.map((p) => {
+                          const isHigh = p.generosite_pct > target
+                          return (
+                            <tr key={`${p.product_id}_${p.title}`} className="border-b border-zinc-50 hover:bg-zinc-50">
+                              <td className="py-2.5 pr-4">
+                                <span className="font-medium text-zinc-900">{p.title}</span>
+                              </td>
+                              <td className="py-2.5 text-right text-zinc-600">{p.quantity_sold}</td>
+                              <td className="py-2.5 text-right font-medium text-zinc-900">{formatCurrency(p.revenue)}</td>
+                              <td className="py-2.5 text-right text-zinc-600">{formatCurrency(p.avg_price)}</td>
+                              <td className="py-2.5 text-right text-zinc-500">
+                                {p.avg_compare_at > p.avg_price ? formatCurrency(p.avg_compare_at) : "—"}
+                              </td>
+                              <td className="py-2.5 text-right text-zinc-600">
+                                {p.discount_allocated > 0 ? formatCurrency(p.discount_allocated) : "—"}
+                              </td>
+                              <td className="py-2.5 text-right text-zinc-600">
+                                {p.prix_barre_discount > 0 ? formatCurrency(p.prix_barre_discount) : "—"}
+                              </td>
+                              <td className="py-2.5 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <div className="w-16 h-1.5 rounded-full bg-zinc-100">
+                                    <div
+                                      className={`h-1.5 rounded-full transition-all ${
+                                        isHigh ? "bg-red-500" : p.generosite_pct > 15 ? "bg-amber-500" : "bg-emerald-500"
+                                      }`}
+                                      style={{ width: `${Math.min(100, (p.generosite_pct / 40) * 100)}%` }}
+                                    />
+                                  </div>
+                                  <span className={`font-bold text-xs min-w-[40px] text-right ${
+                                    isHigh ? "text-red-600" : "text-zinc-700"
+                                  }`}>
+                                    {p.generosite_pct}%
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )
         )}
       </div>
     </div>

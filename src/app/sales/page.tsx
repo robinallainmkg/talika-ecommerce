@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { LineChart } from "@/components/charts/line-chart"
 import { formatCurrency, formatNumber } from "@/lib/utils"
 import { supabase } from "@/lib/supabase/client"
-import { PageInsightsPanel } from "@/components/agents/page-insights-panel"
+import { DataInsights } from "@/components/data-insights"
 import {
   ShoppingCart,
   TrendingUp,
@@ -39,7 +39,6 @@ export default function SalesPage() {
   const [topProducts, setTopProducts] = useState<ProductSale[]>([])
   const [discountBreakdown, setDiscountBreakdown] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [, setSyncing] = useState(false)
 
   const now = new Date()
   const currentYear = now.getFullYear()
@@ -116,21 +115,6 @@ export default function SalesPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleSync = async () => {
-    setSyncing(true)
-    try {
-      await fetch("/api/shopify/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "all" }),
-      })
-      await loadData()
-    } finally {
-      setSyncing(false)
-    }
-  }
-
   return (
     <div>
       <Header
@@ -140,7 +124,7 @@ export default function SalesPage() {
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* Insights */}
-        <PageInsightsPanel agentId="sales" pageContext="sales" title="Insights Ventes" />
+        <DataInsights page="sales" />
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
