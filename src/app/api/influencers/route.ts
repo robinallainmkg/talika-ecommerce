@@ -44,6 +44,18 @@ export async function GET(request: Request) {
     if (month) feesQuery = feesQuery.eq("month", month)
     const { data: allFees } = await feesQuery
 
+    // 2b. Fetch manual commissions from influencer_commissions table
+    let commissionsQuery = supabase.from("influencer_commissions").select("*").eq("year", year)
+    if (month) commissionsQuery = commissionsQuery.eq("month", month)
+    const { data: allCommissions } = await commissionsQuery
+
+    // 2c. Determine which months have commission data (to show "??" for missing months)
+    const { data: availableMonths } = await supabase
+      .from("influencer_commissions")
+      .select("month")
+      .eq("year", year)
+    const monthsWithData = new Set((availableMonths || []).map((m: { month: number }) => m.month))
+
     // 3. Fetch Shopify orders from data_cache (year or specific month)
     const cachePattern = month
       ? `shopify_orders_${year}_${month}`
@@ -82,8 +94,8 @@ export async function GET(request: Request) {
       }
     }
 
-    // 5. Compute per-influencer stats from orders
-    const stats = new Map<string, { sales: number; orders: number; commissions: number }>()
+    // 5. Compute per-influencer stats from orders (sales + orders only, commissions are MANUAL)
+    const stats = new Map<string, { sales: number; orders: number }>()
 
     for (const order of allOrders) {
       if (!order.discount_codes || order.discount_codes.length === 0) continue
@@ -94,17 +106,22 @@ export async function GET(request: Request) {
         if (!influencerId) continue
 
         if (!stats.has(influencerId)) {
-          stats.set(influencerId, { sales: 0, orders: 0, commissions: 0 })
+          stats.set(influencerId, { sales: 0, orders: 0 })
         }
         const s = stats.get(influencerId)!
         const orderTotal = parseFloat(order.total_price) || 0
         s.sales += orderTotal
         s.orders += 1
-        // Commission = order total * commission_rate / 100
-        const inf = influencers?.find((i) => i.id === influencerId)
-        const rate = inf?.commission_rate ?? 0
-        s.commissions += orderTotal * (rate / 100)
         break // count order once per influencer
+      }
+    }
+
+    // 5b. Compute manual commissions per influencer from influencer_commissions table
+    const commissionsMap = new Map<string, number>()
+    if (allCommissions) {
+      for (const c of allCommissions) {
+        const current = commissionsMap.get(c.influencer_id) || 0
+        commissionsMap.set(c.influencer_id, current + (c.amount || 0))
       }
     }
 
@@ -117,23 +134,39 @@ export async function GET(request: Request) {
       }
     }
 
-    // 7. Enrich influencers with computed stats
+    // 7. Determine current month for "??" indicator
+    const now = new Date()
+    const currentMonth = now.getMonth() + 1 // 1-based
+    const currentYear = now.getFullYear()
+    // If viewing current year with no month filter or current month, check if data exists
+    const isCurrentPeriod = year === currentYear && (!month || month === currentMonth)
+    const hasDataForCurrentMonth = monthsWithData.has(currentMonth)
+
+    // 8. Enrich influencers with computed stats (commissions are MANUAL from CSV)
     const enriched = (influencers || []).map((inf) => {
-      const s = stats.get(inf.id) || { sales: 0, orders: 0, commissions: 0 }
+      const s = stats.get(inf.id) || { sales: 0, orders: 0 }
       const fixedFees = feesMap.get(inf.id) || 0
+      const commissions = commissionsMap.get(inf.id) || 0
       return {
         ...inf,
         total_sales: Math.round(s.sales),
         total_orders: s.orders,
-        total_commissions: Math.round(s.commissions),
+        total_commissions: Math.round(commissions),
         total_fixed_fees: Math.round(fixedFees),
+        // Flag to indicate if current month data is pending
+        commissions_pending: isCurrentPeriod && !hasDataForCurrentMonth,
       }
     })
 
     // Sort by total_sales desc
     enriched.sort((a, b) => b.total_sales - a.total_sales)
 
-    return NextResponse.json({ influencers: enriched, year })
+    return NextResponse.json({
+      influencers: enriched,
+      year,
+      monthsWithData: Array.from(monthsWithData),
+      commissions_pending: isCurrentPeriod && !hasDataForCurrentMonth,
+    })
   } catch (error) {
     console.error("Influencers GET error:", error)
     return NextResponse.json(

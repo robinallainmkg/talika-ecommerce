@@ -10,6 +10,7 @@ interface KPICardProps {
   changeLabel?: string
   icon?: React.ReactNode
   className?: string
+  subtitle?: string
 }
 
 export function KPICard({
@@ -19,6 +20,7 @@ export function KPICard({
   changeLabel,
   icon,
   className,
+  subtitle,
 }: KPICardProps) {
   const isPositive = change !== undefined && change > 0
   const isNegative = change !== undefined && change < 0
@@ -36,6 +38,9 @@ export function KPICard({
         {icon && <span className="text-zinc-400 hidden sm:block">{icon}</span>}
       </div>
       <div className="mt-1 sm:mt-2 text-xl sm:text-2xl font-bold text-zinc-900 truncate">{value}</div>
+      {subtitle && (
+        <div className="mt-0.5 text-xs text-amber-500 font-medium">{subtitle}</div>
+      )}
       {change !== undefined && (
         <div className="mt-1 flex items-center gap-1">
           {isPositive && <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />}
