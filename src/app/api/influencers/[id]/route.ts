@@ -189,10 +189,32 @@ export async function GET(
     // Average order value
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
 
-    // ROAS
-    const totalCost =
-      (influencer.total_commissions || 0) + (influencer.total_fixed_fees || 0)
+    // Fetch REAL commissions from influencer_commissions table (manual data from CSV)
+    const { data: commissionsData } = await supabase
+      .from("influencer_commissions")
+      .select("month, year, amount")
+      .eq("influencer_id", id)
+
+    const totalManualCommissions = (commissionsData || []).reduce(
+      (s, c) => s + (parseFloat(c.amount) || 0), 0
+    )
+
+    // Fetch fixed fees total (already fetched above but need sum)
+    const totalFixedFeesSum = (fixedFees || []).reduce(
+      (s: number, f: { amount: number }) => s + (f.amount || 0), 0
+    )
+
+    // ROAS from REAL data
+    const totalCost = totalManualCommissions + totalFixedFeesSum
     const roas = totalCost > 0 ? totalRevenue / totalCost : 0
+
+    // Check if current month has commission data
+    const now = new Date()
+    const currentMonth = now.getMonth() + 1
+    const currentYear = now.getFullYear()
+    const hasCurrentMonthData = (commissionsData || []).some(
+      (c) => c.month === currentMonth && c.year === currentYear
+    )
 
     return NextResponse.json({
       influencer,
@@ -201,12 +223,16 @@ export async function GET(
       lastOrders,
       fixedFees: fixedFees || [],
       content: content || [],
+      commissions: commissionsData || [],
       stats: {
         totalRevenue,
         totalOrders,
         avgOrderValue,
         roas,
         totalCost,
+        totalCommissions: totalManualCommissions,
+        totalFixedFees: totalFixedFeesSum,
+        commissionsPending: !hasCurrentMonthData,
       },
     })
   } catch (error) {
