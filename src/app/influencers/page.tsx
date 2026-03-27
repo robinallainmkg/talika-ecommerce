@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, Fragment } from "react"
+import Link from "next/link"
 import { Header } from "@/components/layout/header"
 import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -21,6 +22,7 @@ import {
   Tag,
   ToggleLeft,
   ToggleRight,
+  Eye,
 } from "lucide-react"
 import { DataInsights } from "@/components/data-insights"
 
@@ -127,6 +129,7 @@ export default function InfluencersPage() {
   const [assignTarget, setAssignTarget] = useState<string>("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedYear, setSelectedYear] = useState(2026)
 
   // Expanded row for inline editing
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -165,7 +168,7 @@ export default function InfluencersPage() {
     setError(null)
     try {
       const [infRes, codesRes] = await Promise.all([
-        fetch("/api/influencers"),
+        fetch(`/api/influencers?year=${selectedYear}`),
         fetch("/api/influencers/codes"),
       ])
       const infJson = await infRes.json()
@@ -193,7 +196,7 @@ export default function InfluencersPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedYear])
 
   useEffect(() => {
     fetchData()
@@ -424,10 +427,21 @@ export default function InfluencersPage() {
         title="Gestion Influenceurs"
         subtitle="Tracking, commissions et performance des influenceurs"
         actions={
-          <Button size="sm" onClick={() => setShowAddModal(true)}>
-            <Plus className="h-4 w-4" />
-            Ajouter
-          </Button>
+          <div className="flex gap-2 items-center">
+            <select
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm"
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            >
+              <option value={2024}>2024</option>
+              <option value={2025}>2025</option>
+              <option value={2026}>2026</option>
+            </select>
+            <Button size="sm" onClick={() => setShowAddModal(true)}>
+              <Plus className="h-4 w-4" />
+              Ajouter
+            </Button>
+          </div>
         }
       />
 
@@ -510,7 +524,22 @@ export default function InfluencersPage() {
                               onClick={() => handleExpand(inf)}
                             >
                               <td className="py-3">
-                                <div className="font-medium text-zinc-900">{inf.name}</div>
+                                <div className="flex items-center gap-1.5">
+                                  <Link
+                                    href={`/influencers/${inf.id}`}
+                                    className="font-medium text-zinc-900 hover:text-blue-600 hover:underline transition-colors"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {inf.name}
+                                  </Link>
+                                  <Link
+                                    href={`/influencers/${inf.id}`}
+                                    className="text-zinc-300 hover:text-blue-500 transition-colors"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Link>
+                                </div>
                                 {inf.instagram_handle && (
                                   <div className="text-xs text-zinc-400">@{inf.instagram_handle}</div>
                                 )}

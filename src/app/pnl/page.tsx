@@ -353,30 +353,37 @@ export default function PnLPage() {
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+                    <colgroup>
+                      <col style={{ width: "180px" }} />
+                      {MONTHS.map((m) => (
+                        <col key={m} style={{ width: "85px" }} />
+                      ))}
+                      <col style={{ width: "100px" }} />
+                      <col style={{ width: "32px" }} />
+                    </colgroup>
                     <thead>
                       <tr className="border-b-2 border-zinc-300">
-                        <th className="pb-3 text-left font-medium text-zinc-500 sticky left-0 bg-white min-w-[180px] z-10">
+                        <th className="pb-3 text-left font-medium text-zinc-500 sticky left-0 bg-white z-10">
                           Catégorie
                         </th>
                         {MONTH_LABELS.map((m, i) => (
-                          <th key={i} className="pb-3 text-right font-medium text-zinc-500 min-w-[85px]">
+                          <th key={i} className="pb-3 text-right font-medium text-zinc-500">
                             {m}
                           </th>
                         ))}
-                        <th className="pb-3 text-right font-bold text-zinc-700 min-w-[100px]">Total</th>
-                        <th className="pb-3 w-8"></th>
+                        <th className="pb-3 text-right font-bold text-zinc-700">Total</th>
+                        <th className="pb-3"></th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {categories.map((cat) => {
-                        const catRows = allRows.filter((r) => r.category === cat)
-                        const style = CATEGORY_STYLE[cat] || { bg: "bg-zinc-50", text: "text-zinc-900", sign: -1 }
-                        const catYearTotal = getCategoryYearTotal(cat)
+                    {categories.map((cat) => {
+                      const catRows = allRows.filter((r) => r.category === cat)
+                      const style = CATEGORY_STYLE[cat] || { bg: "bg-zinc-50", text: "text-zinc-900", sign: -1 }
+                      const catYearTotal = getCategoryYearTotal(cat)
 
-                        return (
-                          <tbody key={cat}>
-                            {/* Category header row */}
+                      return (
+                        <tbody key={cat}>
+                          {/* Category header row */}
                             <tr className={`border-b border-zinc-200 ${style.bg}`}>
                               <td className={`py-2.5 px-2 font-bold ${style.text} sticky left-0 ${style.bg} z-10`}>
                                 {cat}
@@ -494,6 +501,7 @@ export default function PnLPage() {
                         )
                       })}
 
+                    <tbody>
                       {/* NET RESULT */}
                       <tr className="border-t-2 border-zinc-400 bg-zinc-900 text-white">
                         <td className="py-3 px-2 font-bold sticky left-0 bg-zinc-900 z-10">RÉSULTAT NET</td>

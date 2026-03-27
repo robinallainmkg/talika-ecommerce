@@ -1,25 +1,136 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
+export const dynamic = "force-dynamic"
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
 )
 
-// GET: List all influencers with their codes, sorted by total_sales DESC
-export async function GET() {
+// ─── Types for Shopify data_cache ─────────────────────────────────
+interface ShopifyDiscountCode {
+  code: string
+  amount: string
+}
+interface ShopifyOrder {
+  id: number | string
+  total_price: string
+  total_discounts: string
+  discount_codes: ShopifyDiscountCode[]
+  created_at: string
+}
+
+// GET: List all influencers with computed stats from Shopify orders
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const year = parseInt(searchParams.get("year") || "2026")
+
+    // 1. Fetch influencers with their codes
     const { data: influencers, error } = await supabase
       .from("influencers")
       .select(`*, influencer_codes (*)`)
-      .order("total_sales", { ascending: false, nullsFirst: false })
+      .order("name", { ascending: true })
 
     if (error) {
-      console.error("Error fetching influencers:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ influencers: influencers || [] })
+    // 2. Fetch fixed fees for the year
+    const { data: allFees } = await supabase
+      .from("influencer_fixed_fees")
+      .select("*")
+      .eq("year", year)
+
+    // 3. Fetch Shopify orders for the year from data_cache
+    const { data: cacheEntries } = await supabase
+      .from("data_cache")
+      .select("key, data")
+      .like("key", `shopify_orders_${year}_%`)
+
+    // Parse all orders for the year
+    // data_cache format: { count: N, orders: [...] } or direct array
+    const allOrders: ShopifyOrder[] = []
+    if (cacheEntries) {
+      for (const entry of cacheEntries) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw = entry.data as any
+        const orders: ShopifyOrder[] = Array.isArray(raw) ? raw : (raw?.orders || [])
+        allOrders.push(...orders)
+      }
+    }
+
+    // 4. Build code → influencer mapping
+    const codeToInfluencer = new Map<string, string>() // code → influencer_id
+    const influencerCodes = new Map<string, string[]>() // influencer_id → codes[]
+    if (influencers) {
+      for (const inf of influencers) {
+        const codes: string[] = []
+        if (inf.influencer_codes) {
+          for (const c of inf.influencer_codes) {
+            const codeUpper = c.code.toUpperCase()
+            codeToInfluencer.set(codeUpper, inf.id)
+            codes.push(codeUpper)
+          }
+        }
+        influencerCodes.set(inf.id, codes)
+      }
+    }
+
+    // 5. Compute per-influencer stats from orders
+    const stats = new Map<string, { sales: number; orders: number; commissions: number }>()
+
+    for (const order of allOrders) {
+      if (!order.discount_codes || order.discount_codes.length === 0) continue
+
+      for (const dc of order.discount_codes) {
+        const codeUpper = dc.code.toUpperCase()
+        const influencerId = codeToInfluencer.get(codeUpper)
+        if (!influencerId) continue
+
+        if (!stats.has(influencerId)) {
+          stats.set(influencerId, { sales: 0, orders: 0, commissions: 0 })
+        }
+        const s = stats.get(influencerId)!
+        const orderTotal = parseFloat(order.total_price) || 0
+        s.sales += orderTotal
+        s.orders += 1
+        // Commission = order total * commission_rate / 100
+        const inf = influencers?.find((i) => i.id === influencerId)
+        const rate = inf?.commission_rate ?? 0
+        s.commissions += orderTotal * (rate / 100)
+        break // count order once per influencer
+      }
+    }
+
+    // 6. Compute fixed fees per influencer for the year
+    const feesMap = new Map<string, number>()
+    if (allFees) {
+      for (const fee of allFees) {
+        const current = feesMap.get(fee.influencer_id) || 0
+        feesMap.set(fee.influencer_id, current + (fee.amount || 0))
+      }
+    }
+
+    // 7. Enrich influencers with computed stats
+    const enriched = (influencers || []).map((inf) => {
+      const s = stats.get(inf.id) || { sales: 0, orders: 0, commissions: 0 }
+      const fixedFees = feesMap.get(inf.id) || 0
+      return {
+        ...inf,
+        total_sales: Math.round(s.sales),
+        total_orders: s.orders,
+        total_commissions: Math.round(s.commissions),
+        total_fixed_fees: Math.round(fixedFees),
+      }
+    })
+
+    // Sort by total_sales desc
+    enriched.sort((a, b) => b.total_sales - a.total_sales)
+
+    return NextResponse.json({ influencers: enriched, year })
   } catch (error) {
     console.error("Influencers GET error:", error)
     return NextResponse.json(
@@ -60,7 +171,6 @@ export async function POST(request: Request) {
       .single()
 
     if (error) {
-      console.error("Error creating influencer:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -84,7 +194,6 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "id is required" }, { status: 400 })
     }
 
-    // Only allow updating specific fields
     const allowedFields = [
       "name", "instagram_handle", "tiktok_handle", "email", "phone",
       "tier", "category", "status", "commission_rate", "notes",
@@ -106,7 +215,6 @@ export async function PATCH(request: Request) {
       .single()
 
     if (error) {
-      console.error("Error updating influencer:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
