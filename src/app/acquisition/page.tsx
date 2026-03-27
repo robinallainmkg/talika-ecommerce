@@ -39,6 +39,7 @@ interface Channel {
   kpis: ChannelKPI
   note?: string
   blocked?: boolean
+  pending?: boolean
 }
 
 interface AcquisitionData {
@@ -231,6 +232,14 @@ export default function AcquisitionPage() {
                         </div>
                       ) : (
                         <div className="space-y-4">
+                          {/* Pending warning */}
+                          {channel.pending && (
+                            <div className="flex items-start gap-2 text-xs text-amber-600 bg-amber-50 rounded-lg p-2.5">
+                              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                              <span>Données de dépenses non disponibles pour ce mois</span>
+                            </div>
+                          )}
+
                           {/* Main metrics */}
                           <div className="grid grid-cols-2 gap-4">
                             <div>
@@ -242,7 +251,11 @@ export default function AcquisitionPage() {
                             <div>
                               <div className="text-xs text-zinc-500">Dépenses</div>
                               <div className="text-lg font-semibold text-zinc-900">
-                                {formatCurrency(channel.spend)}
+                                {channel.pending ? (
+                                  <span className="text-amber-500">??</span>
+                                ) : (
+                                  formatCurrency(channel.spend)
+                                )}
                               </div>
                             </div>
                           </div>
@@ -252,14 +265,16 @@ export default function AcquisitionPage() {
                             <span className="text-sm font-medium text-zinc-600">ROAS</span>
                             <span
                               className={`text-xl font-bold ${
-                                (channel.roas || 0) >= 5
+                                channel.pending
+                                  ? "text-amber-500"
+                                  : (channel.roas || 0) >= 5
                                   ? "text-emerald-600"
                                   : (channel.roas || 0) >= 2
                                   ? "text-blue-600"
                                   : "text-red-600"
                               }`}
                             >
-                              {channel.roas != null ? `${channel.roas.toFixed(1)}x` : "—"}
+                              {channel.pending ? "??" : channel.roas != null ? `${channel.roas.toFixed(1)}x` : "—"}
                             </span>
                           </div>
 
@@ -297,14 +312,17 @@ export default function AcquisitionPage() {
                               clicks: "Clics",
                               cpm: "CPM",
                               campaigns: "Campagnes actives",
+                              commissions: "Commissions",
+                              fixed_fees: "Frais fixes",
                             }
-                            const formatted = key === "aov" || key === "cpm"
-                              ? formatCurrency(val as number)
+                            const isCurrency = ["aov", "cpm", "commissions", "fixed_fees"].includes(key)
+                            const formatted = isCurrency
+                              ? channel.pending ? "??" : formatCurrency(val as number)
                               : typeof val === "number" ? formatNumber(val) : String(val)
                             return (
                               <div key={key} className="flex items-center justify-between text-sm">
                                 <span className="text-zinc-500">{labels[key] || key}</span>
-                                <span className="font-medium">{formatted}</span>
+                                <span className={`font-medium ${channel.pending && isCurrency ? "text-amber-500" : ""}`}>{formatted}</span>
                               </div>
                             )
                           })}

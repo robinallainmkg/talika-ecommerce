@@ -56,31 +56,30 @@ export async function GET(request: Request) {
     const influenceOrders = new Set((influenceData || []).map(r => r.shopify_order_id)).size
     const influenceInfluencers = new Set((influenceData || []).map(r => r.influencer_id)).size
 
-    // Estimate influence cost: get commission rates from influencers who sold this month
-    const activeInfluencerIds = Array.from(new Set((influenceData || []).map(r => r.influencer_id)))
-    let influenceCost = 0
-    if (activeInfluencerIds.length > 0) {
-      const { data: influencers } = await supabase
-        .from("influencers")
-        .select("id, commission_rate, has_fixed_fee, fixed_fee_amount")
-        .in("id", activeInfluencerIds)
+    // Get ACTUAL influence cost from manual data (commissions + fixed fees)
+    // Commissions are MANUAL (from CSV), NOT auto-calculated from commission_rate
+    const { data: monthCommissions } = await supabase
+      .from("influencer_commissions")
+      .select("amount")
+      .eq("year", year)
+      .eq("month", month)
 
-      // Per-influencer revenue this month
-      const revByInf: Record<string, number> = {}
-      for (const r of influenceData || []) {
-        revByInf[r.influencer_id] = (revByInf[r.influencer_id] || 0) + parseFloat(r.line_price)
-      }
+    const { data: monthFees } = await supabase
+      .from("influencer_fixed_fees")
+      .select("amount")
+      .eq("year", year)
+      .eq("month", month)
 
-      for (const inf of influencers || []) {
-        const rev = revByInf[inf.id] || 0
-        // Commission on this month's sales only (rate stored as %, e.g. 12 = 12%)
-        const rate = parseFloat(inf.commission_rate || "10")
-        const commission = rev * (rate > 1 ? rate / 100 : rate)
-        // Fixed fees are historical totals from CSV — NOT monthly.
-        // Only count commission for monthly cost calculation.
-        influenceCost += commission
-      }
-    }
+    const totalCommissions = (monthCommissions || []).reduce(
+      (s, r) => s + (parseFloat(r.amount) || 0), 0
+    )
+    const totalFixedFees = (monthFees || []).reduce(
+      (s, r) => s + (parseFloat(r.amount) || 0), 0
+    )
+    const influenceCost = totalCommissions + totalFixedFees
+
+    // Check if commission data exists for this month (for "??" display)
+    const hasCommissionData = (monthCommissions || []).length > 0 || (monthFees || []).length > 0
 
     // ── 3. Meta Ads channel ──
     const { data: metaCache } = await supabase
@@ -200,9 +199,12 @@ export async function GET(request: Request) {
         share: totalRevenue > 0 ? (influenceRevenue / totalRevenue) * 100 : 0,
         new_customers: newCustomersInfluence,
         cpa: cpaInfluence,
+        pending: !hasCommissionData,
         kpis: {
           influencers_actifs: influenceInfluencers,
           aov: influenceOrders > 0 ? influenceRevenue / influenceOrders : 0,
+          commissions: totalCommissions,
+          fixed_fees: totalFixedFees,
         },
       },
       {
