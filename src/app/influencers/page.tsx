@@ -130,6 +130,7 @@ export default function InfluencersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedYear, setSelectedYear] = useState(2026)
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null) // null = année complète
 
   // Expanded row for inline editing
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -168,7 +169,7 @@ export default function InfluencersPage() {
     setError(null)
     try {
       const [infRes, codesRes] = await Promise.all([
-        fetch(`/api/influencers?year=${selectedYear}`),
+        fetch(`/api/influencers?year=${selectedYear}${selectedMonth ? `&month=${selectedMonth}` : ""}`),
         fetch("/api/influencers/codes"),
       ])
       const infJson = await infRes.json()
@@ -196,7 +197,7 @@ export default function InfluencersPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedYear])
+  }, [selectedYear, selectedMonth])
 
   useEffect(() => {
     fetchData()
@@ -427,7 +428,17 @@ export default function InfluencersPage() {
         title="Gestion Influenceurs"
         subtitle="Tracking, commissions et performance des influenceurs"
         actions={
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
+            <select
+              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm"
+              value={selectedMonth ?? ""}
+              onChange={(e) => setSelectedMonth(e.target.value ? parseInt(e.target.value) : null)}
+            >
+              <option value="">Année complète</option>
+              {MONTHS_FR.map((m, i) => (
+                <option key={i} value={i + 1}>{m}</option>
+              ))}
+            </select>
             <select
               className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm"
               value={selectedYear}

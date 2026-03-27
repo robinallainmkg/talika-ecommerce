@@ -27,6 +27,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const year = parseInt(searchParams.get("year") || "2026")
+    const month = searchParams.get("month") ? parseInt(searchParams.get("month")!) : null // null = all year
 
     // 1. Fetch influencers with their codes
     const { data: influencers, error } = await supabase
@@ -38,17 +39,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // 2. Fetch fixed fees for the year
-    const { data: allFees } = await supabase
-      .from("influencer_fixed_fees")
-      .select("*")
-      .eq("year", year)
+    // 2. Fetch fixed fees for the year (or specific month)
+    let feesQuery = supabase.from("influencer_fixed_fees").select("*").eq("year", year)
+    if (month) feesQuery = feesQuery.eq("month", month)
+    const { data: allFees } = await feesQuery
 
-    // 3. Fetch Shopify orders for the year from data_cache
+    // 3. Fetch Shopify orders from data_cache (year or specific month)
+    const cachePattern = month
+      ? `shopify_orders_${year}_${month}`
+      : `shopify_orders_${year}_%`
     const { data: cacheEntries } = await supabase
       .from("data_cache")
       .select("key, data")
-      .like("key", `shopify_orders_${year}_%`)
+      .like("key", cachePattern)
 
     // Parse all orders for the year
     // data_cache format: { count: N, orders: [...] } or direct array
