@@ -131,7 +131,6 @@ export default function InfluencersPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedYear, setSelectedYear] = useState(2026)
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null) // null = année complète
-  const [commissionsPending, setCommissionsPending] = useState(false)
 
   // Expanded row for inline editing
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -180,7 +179,6 @@ export default function InfluencersPage() {
       if (codesJson.error) throw new Error(codesJson.error)
 
       setInfluencers(infJson.influencers || [])
-      setCommissionsPending(infJson.commissions_pending || false)
       const codes = codesJson.codes || []
       setAllCodes(codes)
 
@@ -488,15 +486,13 @@ export default function InfluencersPage() {
               />
               <KPICard
                 label="Dépenses totales"
-                value={commissionsPending ? `${formatCurrency(totalCommissions)} + ??` : formatCurrency(totalCommissions)}
+                value={formatCurrency(totalCommissions)}
                 icon={<TrendingUp className="h-5 w-5" />}
-                subtitle={commissionsPending ? "Mars en attente" : undefined}
               />
               <KPICard
                 label="ROAS moyen influenceurs"
-                value={commissionsPending ? "??" : avgRoas > 0 ? `${avgRoas.toFixed(2)}x` : "--"}
+                value={avgRoas > 0 ? `${avgRoas.toFixed(2)}x` : "--"}
                 icon={<Target className="h-5 w-5" />}
-                subtitle={commissionsPending ? "Données mars non dispo" : undefined}
               />
             </div>
 
@@ -574,22 +570,10 @@ export default function InfluencersPage() {
                                 {formatNumber(inf.total_orders || 0)}
                               </td>
                               <td className="py-3 text-right text-zinc-600">
-                                {commissionsPending ? (
-                                  <span className="text-amber-500 font-medium" title="Données du mois en cours non disponibles">
-                                    {inf.total_commissions > 0 ? formatCurrency(inf.total_commissions) : "??"}
-                                  </span>
-                                ) : (
-                                  formatCurrency(inf.total_commissions || 0)
-                                )}
+                                {formatCurrency(inf.total_commissions || 0)}
                               </td>
                               <td className="py-3 text-right text-zinc-600">
-                                {commissionsPending ? (
-                                  <span className="text-amber-500 font-medium" title="Données du mois en cours non disponibles">
-                                    {inf.total_fixed_fees > 0 ? formatCurrency(inf.total_fixed_fees) : "??"}
-                                  </span>
-                                ) : (
-                                  inf.total_fixed_fees > 0 ? formatCurrency(inf.total_fixed_fees) : "--"
-                                )}
+                                {inf.total_fixed_fees > 0 ? formatCurrency(inf.total_fixed_fees) : "--"}
                               </td>
                               <td className="py-3 text-right">
                                 {roas > 0 ? (
@@ -839,21 +823,13 @@ export default function InfluencersPage() {
                             {formatNumber(influencers.reduce((s, i) => s + (i.total_orders || 0), 0))}
                           </td>
                           <td className="py-3 text-right font-bold">
-                            {commissionsPending ? (
-                              <span className="text-amber-400">{formatCurrency(influencers.reduce((s, i) => s + (i.total_commissions || 0), 0))} + ??</span>
-                            ) : (
-                              formatCurrency(influencers.reduce((s, i) => s + (i.total_commissions || 0), 0))
-                            )}
+                            {formatCurrency(influencers.reduce((s, i) => s + (i.total_commissions || 0), 0))}
                           </td>
                           <td className="py-3 text-right font-bold">
-                            {commissionsPending ? (
-                              <span className="text-amber-400">{formatCurrency(influencers.reduce((s, i) => s + (i.total_fixed_fees || 0), 0))} + ??</span>
-                            ) : (
-                              formatCurrency(influencers.reduce((s, i) => s + (i.total_fixed_fees || 0), 0))
-                            )}
+                            {formatCurrency(influencers.reduce((s, i) => s + (i.total_fixed_fees || 0), 0))}
                           </td>
                           <td className="py-3 text-right font-bold">
-                            {commissionsPending ? <span className="text-amber-400">??</span> : avgRoas > 0 ? `${avgRoas.toFixed(1)}x` : "--"}
+                            {avgRoas > 0 ? `${avgRoas.toFixed(1)}x` : "--"}
                           </td>
                           <td className="py-3"></td>
                           <td className="py-3"></td>
