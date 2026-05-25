@@ -6,21 +6,19 @@
  *
  * == DATA SOURCES & WHAT THIS ENDPOINT UPDATES ==
  *
- * This endpoint ONLY updates columns that come from Shopify:
- *   - ca_2025: Shopify revenue by month (total_price - refunds), used as comparison baseline
- *   - ca_2026: Shopify revenue by month (total_price - refunds)
- *   - generosite: Shopify discount rate (see formula below)
+ * This endpoint ONLY updates the `generosite` column (Shopify discount rate).
  *
  * It PRESERVES (does not overwrite):
- *   - media_spent: manually entered or imported from Reporting Global Excel
+ *   - ca_2025: manually entered from Reporting Global Excel (Shopify + Amazon + Choose)
+ *   - ca_2026: manually entered from Reporting Global Excel (Shopify + Amazon + Choose)
+ *   - media_spent: manually entered from Reporting Global Excel (ads only)
  *
  * == IMPORTANT: CA VALUES ==
  *
- * ca_2025 and ca_2026 are Shopify-only revenue. The official reporting
- * (Reporting Global.xlsx on SharePoint) includes Shopify + Amazon + Choose.
- * If reporting values have been manually inserted via SQL, a Sync Shopify
- * will OVERWRITE them with Shopify-only data. To use reporting values,
- * insert them via SQL after syncing, or don't sync at all.
+ * ca_2025 and ca_2026 are entered manually from Reporting Global Excel
+ * (Shopify + Amazon + Choose). This sync does NOT touch them.
+ * The Shopify-only revenue is computed internally for the aggregation
+ * but only used to return informational shopify_ca values in the response.
  *
  * == GENEROSITY FORMULA ==
  *
@@ -143,52 +141,56 @@ export async function POST() {
     const agg2025 = aggregateByMonth(orders2025)
     const agg2026 = aggregateByMonth(orders2026)
 
-    // Fetch existing rows to preserve media_spent
-    const { data: existing } = await supabase
-      .from("objectives_2026")
-      .select("month, media_spent")
-      .order("month")
-
-    const existingMap = new Map(
-      (existing || []).map((r: any) => [r.month, r.media_spent || 0])
-    )
-
-    // Build upsert rows (preserve media_spent from existing data)
-    const rows = Array.from({ length: 12 }, (_, i) => {
-      const m = i + 1
-      const ca2025 = Math.round(agg2025[m].revenue)
-      const ca2026 = m <= currentMonth ? Math.round(agg2026[m].revenue) : 0
-      // Generosity = (discount_codes + prix_barres) / ca_brut
-      // Same formula as /api/generosite/products — includes ALL forms of price reduction
+    // Compute generosity per month (only thing the sync updates)
+    // ca_2025, ca_2026, media_spent are manually entered from Reporting Global
+    // and must NEVER be overwritten by this sync.
+    const generositeByMonth: Record<number, number> = {}
+    for (let m = 1; m <= 12; m++) {
       const totalGenerosite = agg2026[m].discounts + agg2026[m].prix_barres
-      const generosite2026 = agg2026[m].ca_brut > 0
+      generositeByMonth[m] = agg2026[m].ca_brut > 0
         ? Math.round((totalGenerosite / agg2026[m].ca_brut) * 10000) / 100
         : 0
+    }
 
+    // Update ONLY generosite column — preserve ca_2025, ca_2026, media_spent
+    const updateErrors: string[] = []
+    for (let m = 1; m <= 12; m++) {
+      const { error: updateErr } = await supabase
+        .from("objectives_2026")
+        .update({
+          generosite: generositeByMonth[m],
+          updated_at: new Date().toISOString(),
+        })
+        .eq("month", m)
+
+      if (updateErr) {
+        updateErrors.push(`Month ${m}: ${updateErr.message}`)
+      }
+    }
+
+    if (updateErrors.length > 0) {
+      console.error("Update errors:", updateErrors)
+      return NextResponse.json({ error: updateErrors.join("; ") }, { status: 500 })
+    }
+
+    // Build response summary (read-only, for display)
+    const rows = Array.from({ length: 12 }, (_, i) => {
+      const m = i + 1
       return {
         month: m,
-        ca_2025: ca2025,
-        ca_2026: ca2026,
-        media_spent: existingMap.get(m) || 0,
-        generosite: generosite2026,
-        updated_at: new Date().toISOString(),
+        generosite: generositeByMonth[m],
+        shopify_ca_2025: Math.round(agg2025[m].revenue),
+        shopify_ca_2026: m <= currentMonth ? Math.round(agg2026[m].revenue) : 0,
       }
     })
-
-    const { error } = await supabase
-      .from("objectives_2026")
-      .upsert(rows, { onConflict: "month" })
-
-    if (error) {
-      console.error("Upsert error:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
 
     return NextResponse.json({
       success: true,
       synced_at: now.toISOString(),
       orders_2025: orders2025.length,
       orders_2026: orders2026.length,
+      updated_fields: ["generosite"],
+      preserved_fields: ["ca_2025", "ca_2026", "media_spent"],
       rows,
     })
   } catch (error) {
