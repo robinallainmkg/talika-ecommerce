@@ -26,18 +26,19 @@ export async function POST() {
 
     // Aggregate by month
     const aggregateByMonth = (orders: any[]) => {
-      const months: Record<number, { revenue: number; discounts: number; orders: number }> = {}
+      const months: Record<number, { revenue: number; gross_revenue: number; discounts: number; orders: number }> = {}
       for (let m = 1; m <= 12; m++) {
-        months[m] = { revenue: 0, discounts: 0, orders: 0 }
+        months[m] = { revenue: 0, gross_revenue: 0, discounts: 0, orders: 0 }
       }
       for (const o of orders) {
         if (o.financial_status === "voided" || o.cancelled_at) continue
         const month = new Date(o.created_at).getMonth() + 1
-        const revenue = parseFloat(o.total_price || "0")
+        const totalPrice = parseFloat(o.total_price || "0")
         const refundAmount = (o.refunds || []).reduce((sum: number, r: any) =>
           sum + (r.transactions || []).reduce((ts: number, t: any) =>
             ts + parseFloat(t.amount || "0"), 0), 0)
-        months[month].revenue += revenue - refundAmount
+        months[month].revenue += totalPrice - refundAmount
+        months[month].gross_revenue += totalPrice // before refunds, for generosity calc
         months[month].discounts += parseFloat(o.total_discounts || "0")
         months[month].orders += 1
       }
@@ -62,8 +63,10 @@ export async function POST() {
       const m = i + 1
       const ca2025 = Math.round(agg2025[m].revenue)
       const ca2026 = m <= currentMonth ? Math.round(agg2026[m].revenue) : 0
-      const generosite2026 = agg2026[m].revenue > 0
-        ? Math.round((agg2026[m].discounts / agg2026[m].revenue) * 10000) / 100
+      // Generosity = discounts / gross_revenue (total_price before refunds)
+      // Same formula as getAnalytics: discount / total_revenue
+      const generosite2026 = agg2026[m].gross_revenue > 0
+        ? Math.round((agg2026[m].discounts / agg2026[m].gross_revenue) * 10000) / 100
         : 0
 
       return {
