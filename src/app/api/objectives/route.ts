@@ -1,3 +1,35 @@
+/**
+ * GET/POST /api/objectives
+ *
+ * CRUD for the objectives_2026 table — the single source of truth for the
+ * Objectives 2026 page. No caching layer, no overrides.
+ *
+ * == TABLE: objectives_2026 (Supabase, project uvohlnmwiucedehemxrt) ==
+ *
+ *   month       int PK     — 1-12
+ *   ca_2025     numeric    — CA comparison (ideally from Reporting Global, not Shopify-only)
+ *   ca_2026     numeric    — CA actuel (ideally from Reporting Global)
+ *   media_spent numeric    — Media spend (ads only, from Reporting Global)
+ *   generosite  numeric    — Discount rate % (Shopify-only, see sync/route.ts for formula)
+ *   updated_at  timestamptz
+ *
+ * == DATA FLOW ==
+ *
+ *   1. "Sync Shopify" button → POST /api/objectives/sync → overwrites ca_2025, ca_2026,
+ *      generosite with Shopify-only data. Preserves media_spent.
+ *   2. Manual SQL inserts → for reporting values (Shopify + Amazon + Choose).
+ *      Run AFTER sync to override Shopify-only CA values.
+ *   3. Page "Sauvegarder" button → POST /api/objectives → saves all editable fields.
+ *   4. GET /api/objectives → reads objectives_2026, returns as-is. No cache overlay.
+ *
+ * == INFLUENCE SPENDING (TODO) ==
+ *
+ *   Not yet tracked in this table. Sources:
+ *   - Jan-Mar 2026: "Paiements Influenceurs.xlsx" (SharePoint Compta_fournisseurs)
+ *   - Apr+ 2026: "budget influs 2026-27.xlsx" (SharePoint webmaster) for fixed costs
+ *     + commissions calculated from Shopify discount code sales (12% rate)
+ */
+
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 

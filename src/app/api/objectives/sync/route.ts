@@ -1,3 +1,52 @@
+/**
+ * POST /api/objectives/sync
+ *
+ * Syncs Shopify order data into the objectives_2026 table.
+ * Called via the "Sync Shopify" button on the Objectives page.
+ *
+ * == DATA SOURCES & WHAT THIS ENDPOINT UPDATES ==
+ *
+ * This endpoint ONLY updates columns that come from Shopify:
+ *   - ca_2025: Shopify revenue by month (total_price - refunds), used as comparison baseline
+ *   - ca_2026: Shopify revenue by month (total_price - refunds)
+ *   - generosite: Shopify discount rate (see formula below)
+ *
+ * It PRESERVES (does not overwrite):
+ *   - media_spent: manually entered or imported from Reporting Global Excel
+ *
+ * == IMPORTANT: CA VALUES ==
+ *
+ * ca_2025 and ca_2026 are Shopify-only revenue. The official reporting
+ * (Reporting Global.xlsx on SharePoint) includes Shopify + Amazon + Choose.
+ * If reporting values have been manually inserted via SQL, a Sync Shopify
+ * will OVERWRITE them with Shopify-only data. To use reporting values,
+ * insert them via SQL after syncing, or don't sync at all.
+ *
+ * == GENEROSITY FORMULA ==
+ *
+ * generosite = total_discounts / gross_revenue * 100
+ *
+ * Where:
+ *   - total_discounts = sum of Shopify order.total_discounts (codes + automatic discounts)
+ *   - gross_revenue = sum of Shopify order.total_price (BEFORE refund subtraction)
+ *
+ * This matches the formula in getAnalytics() in lib/integrations/shopify.ts.
+ * Generosity is Shopify-only by design (Amazon/Choose have different promo mechanics).
+ *
+ * WARNING: Do NOT use (revenue - refunds) as denominator — that inflates the %
+ * because refunds reduce the base while discounts stay counted.
+ *
+ * == KPI TARGETS (defined in page.tsx) ==
+ *
+ *   - Croissance CA: +20% vs 2025 (GROWTH_TARGET = 1.20)
+ *   - Media/CA: <= 25%
+ *   - Generosite: 20% (down from 23.75% in 2025)
+ *
+ * == EXCLUDED ORDERS ==
+ *
+ * Orders with financial_status === "voided" or cancelled_at set are skipped.
+ */
+
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { getAllOrders } from "@/lib/integrations/shopify"
