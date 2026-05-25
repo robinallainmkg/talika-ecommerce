@@ -91,17 +91,26 @@ export async function POST() {
     })
 
     // Aggregate by month
-    // Tracks revenue (net refunds), ca_brut (catalog price), discounts, and prix_barres
+    // Tracks revenue, ca_brut, and generosity breakdown by category
     const aggregateByMonth = (orders: any[]) => {
       const months: Record<number, {
-        revenue: number       // total_price - refunds (for CA column)
-        ca_brut: number       // catalog price = sum of max(compare_at_price, price) * qty
-        discounts: number     // order.total_discounts (codes + auto)
-        prix_barres: number   // sum of (compare_at_price - price) * qty per line item
+        revenue: number        // total_price - refunds (for CA column)
+        ca_brut: number        // catalog price = sum of max(compare_at_price, price) * qty
+        discounts: number      // order.total_discounts (codes + auto)
+        prix_barres: number    // sum of (compare_at_price - price) * qty per line item
         orders: number
+        // Breakdown by category for insights tooltip
+        dotations: number      // MKG code (influencer gifts at 100%)
+        retours: number        // CS-Retour code (returns/exchanges)
+        codes_influenceurs: number // influencer codes (ending in 10/12/15/20%)
+        codes_promo: number    // other promo codes
+        auto_discounts: number // orders with discounts but no code
       }> = {}
       for (let m = 1; m <= 12; m++) {
-        months[m] = { revenue: 0, ca_brut: 0, discounts: 0, prix_barres: 0, orders: 0 }
+        months[m] = {
+          revenue: 0, ca_brut: 0, discounts: 0, prix_barres: 0, orders: 0,
+          dotations: 0, retours: 0, codes_influenceurs: 0, codes_promo: 0, auto_discounts: 0,
+        }
       }
       for (const o of orders) {
         if (o.financial_status === "voided" || o.cancelled_at) continue
@@ -111,14 +120,36 @@ export async function POST() {
           sum + (r.transactions || []).reduce((ts: number, t: any) =>
             ts + parseFloat(t.amount || "0"), 0), 0)
 
-        // Revenue for CA column (net of refunds)
         months[month].revenue += totalPrice - refundAmount
+        const orderDiscount = parseFloat(o.total_discounts || "0")
+        months[month].discounts += orderDiscount
 
-        // Discount codes + automatic discounts (order-level)
-        months[month].discounts += parseFloat(o.total_discounts || "0")
+        // Categorize discount by code type
+        const codes = o.discount_codes || []
+        if (codes.length === 0 && orderDiscount > 0) {
+          // No code = automatic discount (volume, etc.)
+          months[month].auto_discounts += orderDiscount
+        } else {
+          for (const dc of codes) {
+            const code = (dc.code || "").toUpperCase()
+            const amount = parseFloat(dc.amount || "0")
+            if (code === "MKG") {
+              months[month].dotations += amount
+            } else if (code.startsWith("CS-") || code.includes("RETOUR") || code.includes("RETURN")) {
+              months[month].retours += amount
+            } else {
+              // Check if influencer code (name + percentage pattern)
+              const isInfluencer = /^[A-Z]+\d{1,2}$/.test(code) || /^[A-Z]+-?\d{1,2}$/.test(code)
+              if (isInfluencer) {
+                months[month].codes_influenceurs += amount
+              } else {
+                months[month].codes_promo += amount
+              }
+            }
+          }
+        }
 
-        // Prix barrés: delta between compare_at_price and price per line item
-        // This is NOT included in total_discounts — must be calculated separately
+        // Prix barrés from line items
         let orderCaBrut = 0
         let orderPrixBarres = 0
         for (const item of (o.line_items || [])) {
@@ -141,24 +172,38 @@ export async function POST() {
     const agg2025 = aggregateByMonth(orders2025)
     const agg2026 = aggregateByMonth(orders2026)
 
-    // Compute generosity per month (only thing the sync updates)
+    // Compute generosity + breakdown per month
     // ca_2025, ca_2026, media_spent are manually entered from Reporting Global
     // and must NEVER be overwritten by this sync.
-    const generositeByMonth: Record<number, number> = {}
+    const generositeByMonth: Record<number, { pct: number; detail: object }> = {}
     for (let m = 1; m <= 12; m++) {
-      const totalGenerosite = agg2026[m].discounts + agg2026[m].prix_barres
-      generositeByMonth[m] = agg2026[m].ca_brut > 0
-        ? Math.round((totalGenerosite / agg2026[m].ca_brut) * 10000) / 100
+      const a = agg2026[m]
+      const totalGenerosite = a.discounts + a.prix_barres
+      const pct = a.ca_brut > 0
+        ? Math.round((totalGenerosite / a.ca_brut) * 10000) / 100
         : 0
+      // Breakdown for tooltip insights
+      const detail = a.ca_brut > 0 ? {
+        ca_brut: Math.round(a.ca_brut),
+        dotations: Math.round(a.dotations),
+        retours: Math.round(a.retours),
+        codes_influenceurs: Math.round(a.codes_influenceurs),
+        codes_promo: Math.round(a.codes_promo),
+        auto_discounts: Math.round(a.auto_discounts),
+        prix_barres: Math.round(a.prix_barres),
+        total: Math.round(totalGenerosite),
+      } : {}
+      generositeByMonth[m] = { pct, detail }
     }
 
-    // Update ONLY generosite column — preserve ca_2025, ca_2026, media_spent
+    // Update generosite + generosite_detail — preserve ca_2025, ca_2026, media_spent
     const updateErrors: string[] = []
     for (let m = 1; m <= 12; m++) {
       const { error: updateErr } = await supabase
         .from("objectives_2026")
         .update({
-          generosite: generositeByMonth[m],
+          generosite: generositeByMonth[m].pct,
+          generosite_detail: generositeByMonth[m].detail,
           updated_at: new Date().toISOString(),
         })
         .eq("month", m)

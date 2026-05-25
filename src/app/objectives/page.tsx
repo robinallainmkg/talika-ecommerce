@@ -16,12 +16,24 @@ const MONTHS_FR = [
 const GROWTH_TARGET = 1.20 // +20%
 const GENEROSITE_TARGET = 20 // 20% (down from 23.75%)
 
+interface GenDetail {
+  ca_brut?: number
+  dotations?: number
+  retours?: number
+  codes_influenceurs?: number
+  codes_promo?: number
+  auto_discounts?: number
+  prix_barres?: number
+  total?: number
+}
+
 interface MonthData {
   month: number
   ca_2025: number
   ca_2026: number
   media_spent: number
   generosite: number
+  generosite_detail?: GenDetail
 }
 
 function emptyMonthData(): MonthData[] {
@@ -66,6 +78,7 @@ export default function ObjectivesPage() {
                 ca_2026: Number(obj.ca_2026) || 0,
                 media_spent: Number(obj.media_spent) || 0,
                 generosite: Number(obj.generosite) || 0,
+                generosite_detail: obj.generosite_detail || undefined,
               }
             }
           }
@@ -101,6 +114,7 @@ export default function ObjectivesPage() {
                 ca_2026: Number(obj.ca_2026) || 0,
                 media_spent: Number(obj.media_spent) || 0,
                 generosite: Number(obj.generosite) || 0,
+                generosite_detail: obj.generosite_detail || undefined,
               }
             }
           }
@@ -538,15 +552,50 @@ export default function ObjectivesPage() {
                               )}
                             </td>
 
-                            {/* Generosite % */}
+                            {/* Generosite % with hover breakdown */}
                             <td className="py-2.5 text-right">
-                              <input
-                                type="text"
-                                className="w-full text-right text-sm border-2 border-zinc-200 rounded-md bg-white text-zinc-700 focus:border-zinc-900 focus:ring-0 focus:outline-none px-2 py-1"
-                                value={row.generosite || ""}
-                                placeholder="0"
-                                onChange={(e) => updateField(idx, "generosite", e.target.value)}
-                              />
+                              <div className="group relative inline-block w-full">
+                                <input
+                                  type="text"
+                                  className="w-full text-right text-sm border-2 border-zinc-200 rounded-md bg-white text-zinc-700 focus:border-zinc-900 focus:ring-0 focus:outline-none px-2 py-1"
+                                  value={row.generosite || ""}
+                                  placeholder="0"
+                                  onChange={(e) => updateField(idx, "generosite", e.target.value)}
+                                />
+                                {row.generosite_detail && row.generosite_detail.total ? (() => {
+                                  const d = row.generosite_detail
+                                  const t = d.total || 1
+                                  const lines: { label: string; amount: number; color: string }[] = []
+                                  if (d.dotations) lines.push({ label: "Dotations (MKG)", amount: d.dotations, color: "text-purple-400" })
+                                  if (d.codes_influenceurs) lines.push({ label: "Codes influenceurs", amount: d.codes_influenceurs, color: "text-blue-400" })
+                                  if (d.codes_promo) lines.push({ label: "Codes promo", amount: d.codes_promo, color: "text-amber-400" })
+                                  if (d.auto_discounts) lines.push({ label: "Auto discounts", amount: d.auto_discounts, color: "text-cyan-400" })
+                                  if (d.prix_barres) lines.push({ label: "Prix barres", amount: d.prix_barres, color: "text-pink-400" })
+                                  if (d.retours) lines.push({ label: "Retours/echanges", amount: d.retours, color: "text-red-400" })
+                                  return (
+                                    <div className="invisible group-hover:visible absolute z-50 bottom-full right-0 mb-2 w-64 bg-zinc-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
+                                      <div className="font-semibold mb-2 text-zinc-300">
+                                        Decomposition — {formatCurrency(t)} / {formatCurrency(d.ca_brut || 0)} brut
+                                      </div>
+                                      <div className="space-y-1.5">
+                                        {lines.map((l) => (
+                                          <div key={l.label} className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className={`inline-block w-2 h-2 rounded-full ${l.color.replace("text-", "bg-")}`} />
+                                              <span>{l.label}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-medium">{formatCurrency(l.amount)}</span>
+                                              <span className="text-zinc-500 w-10 text-right">{Math.round((l.amount / t) * 100)}%</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="absolute bottom-0 right-4 translate-y-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-zinc-900" />
+                                    </div>
+                                  )
+                                })() : null}
+                              </div>
                             </td>
 
                             {/* Status */}
