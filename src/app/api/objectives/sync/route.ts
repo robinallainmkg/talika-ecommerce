@@ -36,6 +36,23 @@
  * WARNING: Do NOT use (revenue - refunds) as denominator — that inflates the %
  * because refunds reduce the base while discounts stay counted.
  *
+ * == WHAT COUNTS AS GENEROSITY ==
+ *
+ * Shopify total_discounts captures ALL of these:
+ *   1. Product discount codes (influencer codes at 10-12%, promo codes)
+ *   2. Order discount codes (cart-level promos)
+ *   3. Shipping discount codes (free shipping offers)
+ *   4. Dotations (influencer gifts) — passed as orders with code "MKG" at 100% discount
+ *   5. Automatic discounts (volume discounts, etc.)
+ *
+ * NOT captured in total_discounts (tracked separately on generosite page):
+ *   - Prix barrés (compare-at prices) — visual price reductions, not in total_discounts
+ *
+ * SHOULD NOT count as generosity but currently does:
+ *   - Returns/exchanges — free replacement orders where original was already paid.
+ *     These inflate generosity because the discount is counted but the original
+ *     payment is on a different order. TODO: exclude by discount code if identifiable.
+ *
  * == KPI TARGETS (defined in page.tsx) ==
  *
  *   - Croissance CA: +20% vs 2025 (GROWTH_TARGET = 1.20)
