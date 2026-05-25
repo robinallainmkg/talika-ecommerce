@@ -25,7 +25,7 @@ export async function POST() {
     })
 
     // Aggregate by month
-    function aggregateByMonth(orders: any[]) {
+    const aggregateByMonth = (orders: any[]) => {
       const months: Record<number, { revenue: number; discounts: number; orders: number }> = {}
       for (let m = 1; m <= 12; m++) {
         months[m] = { revenue: 0, discounts: 0, orders: 0 }
