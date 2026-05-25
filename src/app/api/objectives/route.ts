@@ -27,31 +27,9 @@ export async function GET() {
       return NextResponse.json({ objectives: [], shopify_data: {} })
     }
 
-    // Fetch Shopify analytics from data_cache for past months (real CA 2026)
-    const now = new Date()
-    const currentMonth = now.getMonth() + 1 // 1-12
-    const currentYear = now.getFullYear()
-    const shopifyData: Record<number, number> = {}
-
-    if (currentYear === 2026) {
-      // Fetch cached analytics for each past month
-      for (let m = 1; m <= Math.min(currentMonth, 12); m++) {
-        const cacheKey = `shopify_analytics_2026_${m}`
-        const { data: cached } = await supabase
-          .from("data_cache")
-          .select("data")
-          .eq("key", cacheKey)
-          .single()
-
-        if (cached?.data?.total_revenue) {
-          shopifyData[m] = cached.data.total_revenue
-        }
-      }
-    }
-
     return NextResponse.json({
       objectives: objectives || [],
-      shopify_data: shopifyData,
+      shopify_data: {},
     })
   } catch (error) {
     console.error("Objectives GET error:", error)

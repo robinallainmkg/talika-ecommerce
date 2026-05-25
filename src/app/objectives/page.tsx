@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatCurrency } from "@/lib/utils"
-import { Save, Loader2, Target, TrendingUp, Percent, Gift, CheckCircle } from "lucide-react"
+import { Save, Loader2, Target, TrendingUp, Percent, Gift, CheckCircle, RefreshCw } from "lucide-react"
 
 const MONTHS_FR = [
   "Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin",
@@ -40,6 +40,35 @@ export default function ObjectivesPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await fetch("/api/objectives/sync", { method: "POST" })
+      const json = await res.json()
+      if (json.success) {
+        setSyncResult(`${json.orders_2025} commandes 2025 + ${json.orders_2026} commandes 2026`)
+        setData(json.rows.map((r: any) => ({
+          month: r.month,
+          ca_2025: r.ca_2025 || 0,
+          ca_2026: r.ca_2026 || 0,
+          media_spent: 0,
+          generosite: r.generosite || 0,
+        })))
+        setTimeout(() => setSyncResult(null), 5000)
+      } else {
+        setSyncResult(`Erreur: ${json.error}`)
+      }
+    } catch (err) {
+      setSyncResult("Erreur de connexion")
+      console.error("Sync failed:", err)
+    } finally {
+      setSyncing(false)
+    }
+  }, [])
 
   // Load data on mount
   useEffect(() => {
@@ -191,6 +220,29 @@ export default function ObjectivesPage() {
         subtitle="Suivi des objectifs annuels Talika Paris"
         actions={
           <div className="flex items-center gap-2">
+            {syncResult && (
+              <span className="text-xs text-emerald-600 font-medium max-w-[200px] truncate">
+                {syncResult}
+              </span>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleSync}
+              disabled={syncing}
+            >
+              {syncing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Sync...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Sync Shopify
+                </>
+              )}
+            </Button>
             {saveSuccess && (
               <span className="flex items-center gap-1 text-sm text-emerald-600 font-medium">
                 <CheckCircle className="h-4 w-4" />
