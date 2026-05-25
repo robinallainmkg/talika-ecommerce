@@ -24,17 +24,19 @@
  *
  * == GENEROSITY FORMULA ==
  *
- * generosite = total_discounts / gross_revenue * 100
+ * generosite = (discount_codes + prix_barres) / ca_brut * 100
  *
  * Where:
- *   - total_discounts = sum of Shopify order.total_discounts (codes + automatic discounts)
- *   - gross_revenue = sum of Shopify order.total_price (BEFORE refund subtraction)
+ *   - discount_codes = sum of Shopify order.total_discounts (codes + automatic discounts)
+ *   - prix_barres = sum of (compare_at_price - price) * qty per line item
+ *   - ca_brut = sum of max(compare_at_price, price) * qty (catalog/original price)
  *
- * This matches the formula in getAnalytics() in lib/integrations/shopify.ts.
+ * This matches the formula in /api/generosite/products (the generosite page).
  * Generosity is Shopify-only by design (Amazon/Choose have different promo mechanics).
  *
- * WARNING: Do NOT use (revenue - refunds) as denominator — that inflates the %
- * because refunds reduce the base while discounts stay counted.
+ * WARNING: Do NOT use total_price or (total_price - refunds) as denominator.
+ * total_price is already net of both discounts AND prix barrés — using it
+ * as denominator inflates the %. Use ca_brut (original catalog price) instead.
  *
  * == WHAT COUNTS AS GENEROSITY ==
  *
@@ -45,8 +47,8 @@
  *   4. Dotations (influencer gifts) — passed as orders with code "MKG" at 100% discount
  *   5. Automatic discounts (volume discounts, etc.)
  *
- * NOT captured in total_discounts (tracked separately on generosite page):
- *   - Prix barrés (compare-at prices) — visual price reductions, not in total_discounts
+ * NOT in total_discounts but calculated separately from line items:
+ *   - Prix barrés (compare_at_price - price) — now included in generosity calc
  *
  * SHOULD NOT count as generosity but currently does:
  *   - Returns/exchanges — free replacement orders where original was already paid.
@@ -91,10 +93,17 @@ export async function POST() {
     })
 
     // Aggregate by month
+    // Tracks revenue (net refunds), ca_brut (catalog price), discounts, and prix_barres
     const aggregateByMonth = (orders: any[]) => {
-      const months: Record<number, { revenue: number; gross_revenue: number; discounts: number; orders: number }> = {}
+      const months: Record<number, {
+        revenue: number       // total_price - refunds (for CA column)
+        ca_brut: number       // catalog price = sum of max(compare_at_price, price) * qty
+        discounts: number     // order.total_discounts (codes + auto)
+        prix_barres: number   // sum of (compare_at_price - price) * qty per line item
+        orders: number
+      }> = {}
       for (let m = 1; m <= 12; m++) {
-        months[m] = { revenue: 0, gross_revenue: 0, discounts: 0, orders: 0 }
+        months[m] = { revenue: 0, ca_brut: 0, discounts: 0, prix_barres: 0, orders: 0 }
       }
       for (const o of orders) {
         if (o.financial_status === "voided" || o.cancelled_at) continue
@@ -103,9 +112,29 @@ export async function POST() {
         const refundAmount = (o.refunds || []).reduce((sum: number, r: any) =>
           sum + (r.transactions || []).reduce((ts: number, t: any) =>
             ts + parseFloat(t.amount || "0"), 0), 0)
+
+        // Revenue for CA column (net of refunds)
         months[month].revenue += totalPrice - refundAmount
-        months[month].gross_revenue += totalPrice // before refunds, for generosity calc
+
+        // Discount codes + automatic discounts (order-level)
         months[month].discounts += parseFloat(o.total_discounts || "0")
+
+        // Prix barrés: delta between compare_at_price and price per line item
+        // This is NOT included in total_discounts — must be calculated separately
+        let orderCaBrut = 0
+        let orderPrixBarres = 0
+        for (const item of (o.line_items || [])) {
+          const price = parseFloat(item.price || "0")
+          const compareAt = parseFloat(item.compare_at_price || "0")
+          const qty = item.quantity || 1
+          const catalogPrice = (compareAt > 0 && compareAt > price) ? compareAt : price
+          orderCaBrut += catalogPrice * qty
+          if (compareAt > price && compareAt > 0) {
+            orderPrixBarres += (compareAt - price) * qty
+          }
+        }
+        months[month].ca_brut += orderCaBrut
+        months[month].prix_barres += orderPrixBarres
         months[month].orders += 1
       }
       return months
@@ -129,10 +158,11 @@ export async function POST() {
       const m = i + 1
       const ca2025 = Math.round(agg2025[m].revenue)
       const ca2026 = m <= currentMonth ? Math.round(agg2026[m].revenue) : 0
-      // Generosity = discounts / gross_revenue (total_price before refunds)
-      // Same formula as getAnalytics: discount / total_revenue
-      const generosite2026 = agg2026[m].gross_revenue > 0
-        ? Math.round((agg2026[m].discounts / agg2026[m].gross_revenue) * 10000) / 100
+      // Generosity = (discount_codes + prix_barres) / ca_brut
+      // Same formula as /api/generosite/products — includes ALL forms of price reduction
+      const totalGenerosite = agg2026[m].discounts + agg2026[m].prix_barres
+      const generosite2026 = agg2026[m].ca_brut > 0
+        ? Math.round((totalGenerosite / agg2026[m].ca_brut) * 10000) / 100
         : 0
 
       return {
