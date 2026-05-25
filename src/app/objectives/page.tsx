@@ -50,14 +50,27 @@ export default function ObjectivesPage() {
       const res = await fetch("/api/objectives/sync", { method: "POST" })
       const json = await res.json()
       if (json.success) {
-        setSyncResult(`${json.orders_2025} commandes 2025 + ${json.orders_2026} commandes 2026`)
-        setData(json.rows.map((r: any) => ({
-          month: r.month,
-          ca_2025: r.ca_2025 || 0,
-          ca_2026: r.ca_2026 || 0,
-          media_spent: 0,
-          generosite: r.generosite || 0,
-        })))
+        setSyncResult(`${json.orders_2025} commandes 2025 + ${json.orders_2026} commandes 2026 — générosité mise à jour`)
+        // Re-fetch full data from DB (sync only updates generosite,
+        // CA and media_spent are preserved in DB)
+        const freshRes = await fetch("/api/objectives")
+        const freshJson = await freshRes.json()
+        if (freshJson.objectives && freshJson.objectives.length > 0) {
+          const merged = emptyMonthData()
+          for (const obj of freshJson.objectives) {
+            const idx = obj.month - 1
+            if (idx >= 0 && idx < 12) {
+              merged[idx] = {
+                month: obj.month,
+                ca_2025: Number(obj.ca_2025) || 0,
+                ca_2026: Number(obj.ca_2026) || 0,
+                media_spent: Number(obj.media_spent) || 0,
+                generosite: Number(obj.generosite) || 0,
+              }
+            }
+          }
+          setData(merged)
+        }
         setTimeout(() => setSyncResult(null), 5000)
       } else {
         setSyncResult(`Erreur: ${json.error}`)
