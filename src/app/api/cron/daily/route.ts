@@ -99,6 +99,37 @@ export async function GET(request: Request) {
     }, { onConflict: "key" })
     log.push(`Cached ${discountCodes.length} discount codes`)
 
+    // ── 2b. Auto-classify random codes as "auto_discounts" ──
+    const { data: knownCodes } = await supabase
+      .from("influencer_codes")
+      .select("code")
+    const knownSet = new Set((knownCodes || []).map(c => c.code.toUpperCase()))
+
+    const randomPattern = /^[A-Z0-9]{8,}$/
+    const randomCodes = discountCodes.filter((dc: any) => {
+      const upper = (dc.code || "").toUpperCase().trim()
+      if (knownSet.has(upper)) return false
+      // Random = 8+ alphanumeric chars, no readable words (no vowel clusters)
+      if (!randomPattern.test(upper)) return false
+      // Extra check: if it contains a common word pattern, it's probably not random
+      if (/[A-Z]{3,}/.test(upper) && /[AEIOU]{2,}/.test(upper)) return false
+      return true
+    })
+
+    let autoClassified = 0
+    for (const dc of randomCodes) {
+      const { error } = await supabase.from("influencer_codes").insert({
+        code: dc.code.toUpperCase().trim(),
+        code_type: "auto_discounts",
+        discount_percent: 0,
+        is_active: true,
+      })
+      if (!error) autoClassified++
+    }
+    if (autoClassified > 0) {
+      log.push(`Auto-classified ${autoClassified} random codes as "Remises automatiques"`)
+    }
+
     // ── 3. Sync influencer product sales ──
     log.push("Syncing influencer sales...")
     const { data: infCodes } = await supabase
