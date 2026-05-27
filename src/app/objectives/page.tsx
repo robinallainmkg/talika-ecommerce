@@ -54,6 +54,8 @@ export default function ObjectivesPage() {
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [tooltipMonth, setTooltipMonth] = useState<number | null>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
 
   const handleSync = useCallback(async () => {
     setSyncing(true)
@@ -554,47 +556,28 @@ export default function ObjectivesPage() {
 
                             {/* Generosite % with hover breakdown */}
                             <td className="py-2.5 text-right">
-                              <div className="group relative inline-block w-full">
+                              <div
+                                className="w-full"
+                                onMouseEnter={(e) => {
+                                  if (row.generosite_detail && row.generosite_detail.total) {
+                                    const rect = e.currentTarget.getBoundingClientRect()
+                                    setTooltipPos({ x: rect.right, y: rect.top })
+                                    setTooltipMonth(row.month)
+                                  }
+                                }}
+                                onMouseLeave={() => setTooltipMonth(null)}
+                              >
                                 <input
                                   type="text"
-                                  className="w-full text-right text-sm border-2 border-zinc-200 rounded-md bg-white text-zinc-700 focus:border-zinc-900 focus:ring-0 focus:outline-none px-2 py-1"
+                                  className={`w-full text-right text-sm border-2 rounded-md bg-white text-zinc-700 focus:border-zinc-900 focus:ring-0 focus:outline-none px-2 py-1 ${
+                                    row.generosite_detail && row.generosite_detail.total
+                                      ? "border-zinc-200 cursor-help"
+                                      : "border-zinc-200"
+                                  }`}
                                   value={row.generosite || ""}
                                   placeholder="0"
                                   onChange={(e) => updateField(idx, "generosite", e.target.value)}
                                 />
-                                {row.generosite_detail && row.generosite_detail.total ? (() => {
-                                  const d = row.generosite_detail
-                                  const t = d.total || 1
-                                  const lines: { label: string; amount: number; color: string }[] = []
-                                  if (d.dotations) lines.push({ label: "Dotations (MKG)", amount: d.dotations, color: "text-purple-400" })
-                                  if (d.codes_influenceurs) lines.push({ label: "Codes influenceurs", amount: d.codes_influenceurs, color: "text-blue-400" })
-                                  if (d.codes_promo) lines.push({ label: "Codes promo", amount: d.codes_promo, color: "text-amber-400" })
-                                  if (d.auto_discounts) lines.push({ label: "Auto discounts", amount: d.auto_discounts, color: "text-cyan-400" })
-                                  if (d.prix_barres) lines.push({ label: "Prix barres", amount: d.prix_barres, color: "text-pink-400" })
-                                  if (d.retours) lines.push({ label: "Retours/echanges", amount: d.retours, color: "text-red-400" })
-                                  return (
-                                    <div className="invisible group-hover:visible absolute z-50 bottom-full right-0 mb-2 w-64 bg-zinc-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
-                                      <div className="font-semibold mb-2 text-zinc-300">
-                                        Decomposition — {formatCurrency(t)} / {formatCurrency(d.ca_brut || 0)} brut
-                                      </div>
-                                      <div className="space-y-1.5">
-                                        {lines.map((l) => (
-                                          <div key={l.label} className="flex items-center justify-between gap-2">
-                                            <div className="flex items-center gap-1.5">
-                                              <span className={`inline-block w-2 h-2 rounded-full ${l.color.replace("text-", "bg-")}`} />
-                                              <span>{l.label}</span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                              <span className="font-medium">{formatCurrency(l.amount)}</span>
-                                              <span className="text-zinc-500 w-10 text-right">{Math.round((l.amount / t) * 100)}%</span>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <div className="absolute bottom-0 right-4 translate-y-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-zinc-900" />
-                                    </div>
-                                  )
-                                })() : null}
                               </div>
                             </td>
 
@@ -675,6 +658,56 @@ export default function ObjectivesPage() {
           </>
         )}
       </div>
+
+      {/* ── Fixed tooltip for generosity breakdown ── */}
+      {tooltipMonth !== null && (() => {
+        const row = data.find((r) => r.month === tooltipMonth)
+        const d = row?.generosite_detail
+        if (!d || !d.total) return null
+        const t = d.total
+        const lines: { label: string; amount: number; bg: string }[] = []
+        if (d.dotations) lines.push({ label: "Dotations (MKG)", amount: d.dotations, bg: "bg-purple-400" })
+        if (d.codes_influenceurs) lines.push({ label: "Codes influenceurs", amount: d.codes_influenceurs, bg: "bg-blue-400" })
+        if (d.codes_promo) lines.push({ label: "Codes promo", amount: d.codes_promo, bg: "bg-amber-400" })
+        if (d.auto_discounts) lines.push({ label: "Auto discounts", amount: d.auto_discounts, bg: "bg-cyan-400" })
+        if (d.prix_barres) lines.push({ label: "Prix barres", amount: d.prix_barres, bg: "bg-pink-400" })
+        if (d.retours) lines.push({ label: "Retours (SAV)", amount: d.retours, bg: "bg-red-400" })
+        return (
+          <div
+            className="fixed z-[9999] w-72 bg-zinc-900 text-white text-xs rounded-lg shadow-2xl p-3 pointer-events-none"
+            style={{ top: tooltipPos.y - 8, left: tooltipPos.x - 288, transform: "translateY(-100%)" }}
+          >
+            <div className="font-semibold mb-2 text-zinc-300 flex justify-between">
+              <span>{MONTHS_FR[tooltipMonth - 1]}</span>
+              <span>{formatCurrency(t)} / {formatCurrency(d.ca_brut || 0)} brut</span>
+            </div>
+            <div className="space-y-1.5">
+              {lines.map((l) => (
+                <div key={l.label} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-block w-2 h-2 rounded-full ${l.bg}`} />
+                    <span>{l.label}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{formatCurrency(l.amount)}</span>
+                    <span className="text-zinc-400 w-10 text-right">{Math.round((l.amount / t) * 100)}%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Mini bar chart */}
+            <div className="mt-2 flex h-2 rounded-full overflow-hidden bg-zinc-700">
+              {lines.map((l) => (
+                <div
+                  key={l.label}
+                  className={`${l.bg} h-full`}
+                  style={{ width: `${(l.amount / t) * 100}%` }}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
