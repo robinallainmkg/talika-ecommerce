@@ -86,11 +86,18 @@ const CODE_TYPE_LABELS: Record<string, string> = {
   gifting: "Gifting (MKG)",
   welcome: "Welcome / Générique",
   offre_site: "Offre Site / Promo",
+  presse: "Presse / RP",
+  auto_discount: "Réduction auto",
   logistique: "Logistique",
   service_client: "Service Client",
   autre: "Autre",
   influencer: "Influenceur",
 }
+
+// Categories available for classifying unassigned codes (excludes "influencer")
+const CLASSIFY_CATEGORIES = Object.entries(CODE_TYPE_LABELS).filter(
+  ([key]) => key !== "influencer"
+)
 
 // ─── Helpers ─────────────────────────────────────────────────────
 function getType(inf: Influencer): string {
@@ -386,7 +393,7 @@ export default function InfluencersPage() {
     }
   }
 
-  async function handleMarkAsSite(code: string) {
+  async function handleClassifyCode(code: string, category: string) {
     setAssigningCode(code)
     try {
       const discountMatch = code.match(/(\d+)$/)
@@ -394,7 +401,7 @@ export default function InfluencersPage() {
       const res = await fetch("/api/influencers/codes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, discount_percent: discount, code_type: "site" }),
+        body: JSON.stringify({ code, discount_percent: discount, code_type: category }),
       })
       const json = await res.json()
       if (json.error) throw new Error(json.error)
@@ -872,8 +879,8 @@ export default function InfluencersPage() {
                           <th className="pb-3 text-right font-medium text-zinc-500">Commandes</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">CA genere</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">Remises</th>
-                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[220px]">Attribuer a</th>
-                          <th className="pb-3 text-center font-medium text-zinc-500">Actions</th>
+                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[200px]">Attribuer à influenceur</th>
+                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[150px]">Ou catégoriser</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -901,14 +908,21 @@ export default function InfluencersPage() {
                                 ))}
                               </select>
                             </td>
-                            <td className="py-2.5 text-center">
-                              <button
-                                onClick={() => handleMarkAsSite(uc.code)}
-                                className="text-xs px-2 py-1 rounded bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-700 transition-colors"
-                                title="Marquer comme code site (pas influenceur)"
+                            <td className="py-2.5">
+                              <select
+                                className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600 focus:border-zinc-900 focus:outline-none"
+                                value=""
+                                onChange={(e) => {
+                                  if (e.target.value) handleClassifyCode(uc.code, e.target.value)
+                                }}
                               >
-                                Code site
-                              </button>
+                                <option value="">Catégoriser...</option>
+                                {CLASSIFY_CATEGORIES.map(function(entry) {
+                                  return (
+                                    <option key={entry[0]} value={entry[0]}>{entry[1]}</option>
+                                  )
+                                })}
+                              </select>
                             </td>
                           </tr>
                         ))}
