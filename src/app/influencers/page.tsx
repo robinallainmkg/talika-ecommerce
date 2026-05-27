@@ -133,7 +133,7 @@ export default function InfluencersPage() {
   const [influencers, setInfluencers] = useState<Influencer[]>([])
   const [allCodes, setAllCodes] = useState<CodeWithInfluencer[]>([])
   const [unassignedCodes, setUnassignedCodes] = useState<UnassignedCode[]>([])
-  const [codeSelections, setCodeSelections] = useState<Record<string, { category: string; influencerId?: string }>>({})
+  const [codeSelections, setCodeSelections] = useState<Record<string, { category: string; influencerId?: string; newInfluencerName?: string }>>({})
   const [savingCodes, setSavingCodes] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -382,9 +382,12 @@ export default function InfluencersPage() {
 
   // Batch save for unassigned codes classification
   async function handleSaveClassifications() {
-    const entries = Object.entries(codeSelections).filter(
-      (entry) => entry[1].category && (entry[1].category !== "influence" || entry[1].influencerId)
-    )
+    const entries = Object.entries(codeSelections).filter((entry) => {
+      const sel = entry[1]
+      if (!sel.category) return false
+      if (sel.category === "influence" && !sel.influencerId && !sel.newInfluencerName) return false
+      return true
+    })
     if (entries.length === 0) return
 
     setSavingCodes(true)
@@ -393,10 +396,24 @@ export default function InfluencersPage() {
 
     for (const [code, sel] of entries) {
       try {
+        let influencerId = sel.influencerId
         const discountMatch = code.match(/(\d+)$/)
         const discount = discountMatch ? parseInt(discountMatch[1]) : 0
+
+        // Create new influencer if needed
+        if (sel.category === "influence" && sel.newInfluencerName && !sel.influencerId) {
+          const createRes = await fetch("/api/influencers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: sel.newInfluencerName, commission_rate: discount || 15 }),
+          })
+          const createJson = await createRes.json()
+          if (createJson.error) { errors.push(code + ": " + createJson.error); continue }
+          influencerId = createJson.influencer?.id || createJson.id
+        }
+
         const body = sel.category === "influence"
-          ? { code, influencer_id: sel.influencerId, discount_percent: discount || 15 }
+          ? { code, influencer_id: influencerId, discount_percent: discount || 15 }
           : { code, discount_percent: discount, code_type: sel.category }
         const res = await fetch("/api/influencers/codes", {
           method: "POST",
@@ -413,11 +430,12 @@ export default function InfluencersPage() {
 
     if (errors.length > 0) alert("Erreurs: " + errors.join(", "))
 
-    // Remove saved codes from local list without full page refresh
+    // Remove saved codes from local list, refresh influencer list for new ones
     const savedSet = new Set(saved)
     setUnassignedCodes((prev) => prev.filter((uc) => !savedSet.has(uc.code)))
     setCodeSelections({})
     setSavingCodes(false)
+    if (saved.length > 0) await fetchData()
   }
 
   async function handleToggleCode(codeId: string) {
@@ -924,21 +942,53 @@ export default function InfluencersPage() {
                             </td>
                             <td className="py-2.5">
                               {sel?.category === "influence" ? (
-                                <select
-                                  className="w-full rounded-md border-2 border-blue-300 bg-blue-50 px-2 py-1.5 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none"
-                                  value={sel?.influencerId || ""}
-                                  onChange={(e) => {
-                                    setCodeSelections((prev) => ({
-                                      ...prev,
-                                      [uc.code]: { ...prev[uc.code], influencerId: e.target.value },
-                                    }))
-                                  }}
-                                >
-                                  <option value="">Choisir l&apos;influenceur...</option>
-                                  {influencers.map((inf) => (
-                                    <option key={inf.id} value={inf.id}>{inf.name}</option>
-                                  ))}
-                                </select>
+                                <div className="flex gap-1.5">
+                                  {sel?.influencerId === "__new__" ? (
+                                    <div className="flex gap-1 flex-1">
+                                      <input
+                                        type="text"
+                                        placeholder="Nom du nouvel influenceur"
+                                        className="flex-1 rounded-md border-2 border-blue-300 bg-blue-50 px-2 py-1.5 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none"
+                                        value={sel?.newInfluencerName || ""}
+                                        onChange={(e) => {
+                                          setCodeSelections((prev) => ({
+                                            ...prev,
+                                            [uc.code]: { ...prev[uc.code], newInfluencerName: e.target.value },
+                                          }))
+                                        }}
+                                        autoFocus
+                                      />
+                                      <button
+                                        className="text-xs px-2 rounded bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+                                        onClick={() => {
+                                          setCodeSelections((prev) => ({
+                                            ...prev,
+                                            [uc.code]: { ...prev[uc.code], influencerId: undefined, newInfluencerName: undefined },
+                                          }))
+                                        }}
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <select
+                                      className="w-full rounded-md border-2 border-blue-300 bg-blue-50 px-2 py-1.5 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none"
+                                      value={sel?.influencerId || ""}
+                                      onChange={(e) => {
+                                        setCodeSelections((prev) => ({
+                                          ...prev,
+                                          [uc.code]: { ...prev[uc.code], influencerId: e.target.value, newInfluencerName: undefined },
+                                        }))
+                                      }}
+                                    >
+                                      <option value="">Choisir...</option>
+                                      {influencers.map((inf) => (
+                                        <option key={inf.id} value={inf.id}>{inf.name}</option>
+                                      ))}
+                                      <option value="__new__">+ Nouveau influenceur</option>
+                                    </select>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="text-xs text-zinc-400 px-2">—</span>
                               )}
@@ -953,7 +1003,7 @@ export default function InfluencersPage() {
                   {Object.keys(codeSelections).length > 0 && (
                     <div className="mt-4 flex items-center justify-between border-t pt-4">
                       <p className="text-sm text-zinc-500">
-                        {Object.values(codeSelections).filter((s) => s.category && (s.category !== "influence" || s.influencerId)).length} code(s) prêt(s) à enregistrer
+                        {Object.values(codeSelections).filter((s) => s.category && (s.category !== "influence" || s.influencerId || s.newInfluencerName)).length} code(s) prêt(s) à enregistrer
                       </p>
                       <Button
                         onClick={handleSaveClassifications}
