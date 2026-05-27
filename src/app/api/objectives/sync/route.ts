@@ -76,15 +76,9 @@ const supabase = createClient(
 export async function POST() {
   try {
     const now = new Date()
-    const currentMonth = now.getMonth() + 1
 
-    // Fetch all 2025 orders in one paginated call
-    const orders2025 = await getAllOrders({
-      created_at_min: "2025-01-01T00:00:00Z",
-      created_at_max: "2025-12-31T23:59:59Z",
-    })
-
-    // Fetch 2026 orders up to now
+    // Only fetch 2026 orders — we no longer write ca_2025 (it's manually entered)
+    // This saves fetching 8000+ 2025 orders and avoids Vercel timeout
     const orders2026 = await getAllOrders({
       created_at_min: "2026-01-01T00:00:00Z",
       created_at_max: now.toISOString(),
@@ -175,7 +169,6 @@ export async function POST() {
       return months
     }
 
-    const agg2025 = aggregateByMonth(orders2025)
     const agg2026 = aggregateByMonth(orders2026)
 
     // Compute generosity + breakdown per month
@@ -224,25 +217,12 @@ export async function POST() {
       return NextResponse.json({ error: updateErrors.join("; ") }, { status: 500 })
     }
 
-    // Build response summary (read-only, for display)
-    const rows = Array.from({ length: 12 }, (_, i) => {
-      const m = i + 1
-      return {
-        month: m,
-        generosite: generositeByMonth[m],
-        shopify_ca_2025: Math.round(agg2025[m].revenue),
-        shopify_ca_2026: m <= currentMonth ? Math.round(agg2026[m].revenue) : 0,
-      }
-    })
-
     return NextResponse.json({
       success: true,
       synced_at: now.toISOString(),
-      orders_2025: orders2025.length,
       orders_2026: orders2026.length,
-      updated_fields: ["generosite"],
+      updated_fields: ["generosite", "generosite_detail"],
       preserved_fields: ["ca_2025", "ca_2026", "media_spent"],
-      rows,
     })
   } catch (error) {
     console.error("Objectives sync error:", error)
