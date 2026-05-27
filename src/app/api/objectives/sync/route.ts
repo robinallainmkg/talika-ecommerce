@@ -73,115 +73,172 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Shape of aggregated data per month (cached + fresh)
+interface MonthAgg {
+  revenue: number
+  ca_brut: number
+  discounts: number
+  prix_barres: number
+  orders: number
+  dotations: number
+  retours: number
+  codes_influenceurs: number
+  codes_promo: number
+  auto_discounts: number
+}
+
+const emptyAgg = (): MonthAgg => ({
+  revenue: 0, ca_brut: 0, discounts: 0, prix_barres: 0, orders: 0,
+  dotations: 0, retours: 0, codes_influenceurs: 0, codes_promo: 0, auto_discounts: 0,
+})
+
+// Aggregate orders into a single MonthAgg
+const aggregateOrders = (orders: any[]): MonthAgg => {
+  const agg = emptyAgg()
+  for (const o of orders) {
+    if (o.financial_status === "voided" || o.cancelled_at) continue
+    const totalPrice = parseFloat(o.total_price || "0")
+    const refundAmount = (o.refunds || []).reduce((sum: number, r: any) =>
+      sum + (r.transactions || []).reduce((ts: number, t: any) =>
+        ts + parseFloat(t.amount || "0"), 0), 0)
+
+    agg.revenue += totalPrice - refundAmount
+    const orderDiscount = parseFloat(o.total_discounts || "0")
+    agg.discounts += orderDiscount
+
+    // Categorize by code type
+    const codes = o.discount_codes || []
+    let codeAmountSum = 0
+    for (const dc of codes) {
+      const code = (dc.code || "").toUpperCase()
+      const amount = parseFloat(dc.amount || "0")
+      codeAmountSum += amount
+      if (code === "MKG") {
+        agg.dotations += amount
+      } else if (code.startsWith("CS-") || code.includes("RETOUR") || code.includes("RETURN")) {
+        agg.retours += amount
+      } else {
+        const isInfluencer = /^[A-Z]+\d{1,2}$/.test(code) || /^[A-Z]+-?\d{1,2}$/.test(code)
+        if (isInfluencer) {
+          agg.codes_influenceurs += amount
+        } else {
+          agg.codes_promo += amount
+        }
+      }
+    }
+    // Auto discounts = gap between total_discounts and code amounts
+    const autoGap = orderDiscount - codeAmountSum
+    if (autoGap > 0) agg.auto_discounts += autoGap
+
+    // Prix barrés from line items
+    let orderCaBrut = 0
+    let orderPrixBarres = 0
+    for (const item of (o.line_items || [])) {
+      const price = parseFloat(item.price || "0")
+      const compareAt = parseFloat(item.compare_at_price || "0")
+      const qty = item.quantity || 1
+      const catalogPrice = (compareAt > 0 && compareAt > price) ? compareAt : price
+      orderCaBrut += catalogPrice * qty
+      if (compareAt > price && compareAt > 0) {
+        orderPrixBarres += (compareAt - price) * qty
+      }
+    }
+    agg.ca_brut += orderCaBrut
+    agg.prix_barres += orderPrixBarres
+    agg.orders += 1
+  }
+  return agg
+}
+
 export async function POST() {
   try {
     const now = new Date()
+    const currentMonth = now.getMonth() + 1 // 1-12
 
-    // Only fetch 2026 orders — we no longer write ca_2025 (it's manually entered)
-    // This saves fetching 8000+ 2025 orders and avoids Vercel timeout
-    const orders2026 = await getAllOrders({
-      created_at_min: "2026-01-01T00:00:00Z",
-      created_at_max: now.toISOString(),
-    })
+    // == CACHING STRATEGY ==
+    // Months < currentMonth - 1 are "closed" — orders won't change.
+    // We cache their aggregation in data_cache and skip Shopify fetch.
+    // Only re-fetch: current month + previous month (for late orders/refunds).
+    const freshMonths = [currentMonth, Math.max(1, currentMonth - 1)]
+    const cachedMonths = Array.from({ length: 12 }, (_, i) => i + 1)
+      .filter((m) => !freshMonths.includes(m) && m < currentMonth)
 
-    // Aggregate by month
-    // Tracks revenue, ca_brut, and generosity breakdown by category
-    const aggregateByMonth = (orders: any[]) => {
-      const months: Record<number, {
-        revenue: number        // total_price - refunds (for CA column)
-        ca_brut: number        // catalog price = sum of max(compare_at_price, price) * qty
-        discounts: number      // order.total_discounts (codes + auto)
-        prix_barres: number    // sum of (compare_at_price - price) * qty per line item
-        orders: number
-        // Breakdown by category for insights tooltip
-        dotations: number      // MKG code (influencer gifts at 100%)
-        retours: number        // CS-Retour code (returns/exchanges)
-        codes_influenceurs: number // influencer codes (ending in 10/12/15/20%)
-        codes_promo: number    // other promo codes
-        auto_discounts: number // orders with discounts but no code
-      }> = {}
-      for (let m = 1; m <= 12; m++) {
-        months[m] = {
-          revenue: 0, ca_brut: 0, discounts: 0, prix_barres: 0, orders: 0,
-          dotations: 0, retours: 0, codes_influenceurs: 0, codes_promo: 0, auto_discounts: 0,
+    // 1. Read cached aggregations for closed months
+    const aggByMonth: Record<number, MonthAgg> = {}
+    for (let m = 1; m <= 12; m++) aggByMonth[m] = emptyAgg()
+
+    if (cachedMonths.length > 0) {
+      const cacheKeys = cachedMonths.map((m) => `objectives_agg_2026_${m}`)
+      const { data: cached } = await supabase
+        .from("data_cache")
+        .select("key, data")
+        .in("key", cacheKeys)
+
+      for (const row of (cached || [])) {
+        const m = parseInt(row.key.split("_").pop() || "0")
+        if (m > 0 && m <= 12 && row.data) {
+          aggByMonth[m] = row.data as MonthAgg
         }
       }
-      for (const o of orders) {
-        if (o.financial_status === "voided" || o.cancelled_at) continue
-        const month = new Date(o.created_at).getMonth() + 1
-        const totalPrice = parseFloat(o.total_price || "0")
-        const refundAmount = (o.refunds || []).reduce((sum: number, r: any) =>
-          sum + (r.transactions || []).reduce((ts: number, t: any) =>
-            ts + parseFloat(t.amount || "0"), 0), 0)
-
-        months[month].revenue += totalPrice - refundAmount
-        const orderDiscount = parseFloat(o.total_discounts || "0")
-        months[month].discounts += orderDiscount
-
-        // Categorize discount by code type
-        // total_discounts = codes + auto discounts (volume, etc.)
-        // discount_codes[].amount only covers code-based discounts
-        // The gap (total_discounts - sum of codes) = auto discounts on same order
-        const codes = o.discount_codes || []
-        let codeAmountSum = 0
-        for (const dc of codes) {
-          const code = (dc.code || "").toUpperCase()
-          const amount = parseFloat(dc.amount || "0")
-          codeAmountSum += amount
-          if (code === "MKG") {
-            months[month].dotations += amount
-          } else if (code.startsWith("CS-") || code.includes("RETOUR") || code.includes("RETURN")) {
-            months[month].retours += amount
-          } else {
-            // Check if influencer code (name + percentage pattern)
-            const isInfluencer = /^[A-Z]+\d{1,2}$/.test(code) || /^[A-Z]+-?\d{1,2}$/.test(code)
-            if (isInfluencer) {
-              months[month].codes_influenceurs += amount
-            } else {
-              months[month].codes_promo += amount
-            }
-          }
-        }
-        // Auto discounts = gap between total_discounts and sum of code amounts
-        // This catches volume discounts applied alongside promo codes
-        const autoGap = orderDiscount - codeAmountSum
-        if (autoGap > 0) {
-          months[month].auto_discounts += autoGap
-        }
-
-        // Prix barrés from line items
-        let orderCaBrut = 0
-        let orderPrixBarres = 0
-        for (const item of (o.line_items || [])) {
-          const price = parseFloat(item.price || "0")
-          const compareAt = parseFloat(item.compare_at_price || "0")
-          const qty = item.quantity || 1
-          const catalogPrice = (compareAt > 0 && compareAt > price) ? compareAt : price
-          orderCaBrut += catalogPrice * qty
-          if (compareAt > price && compareAt > 0) {
-            orderPrixBarres += (compareAt - price) * qty
-          }
-        }
-        months[month].ca_brut += orderCaBrut
-        months[month].prix_barres += orderPrixBarres
-        months[month].orders += 1
-      }
-      return months
     }
 
-    const agg2026 = aggregateByMonth(orders2026)
+    // 2. Fetch fresh orders from Shopify for recent months only
+    let totalOrdersFetched = 0
+    for (const m of freshMonths) {
+      if (m < 1 || m > 12) continue
+      const startDate = `2026-${String(m).padStart(2, "0")}-01T00:00:00Z`
+      const endDate = m === currentMonth
+        ? now.toISOString()
+        : `2026-${String(m + 1).padStart(2, "0")}-01T00:00:00Z`
 
-    // Compute generosity + breakdown per month
-    // ca_2025, ca_2026, media_spent are manually entered from Reporting Global
-    // and must NEVER be overwritten by this sync.
-    const generositeByMonth: Record<number, { pct: number; detail: object }> = {}
+      const orders = await getAllOrders({
+        created_at_min: startDate,
+        created_at_max: endDate,
+      })
+      totalOrdersFetched += orders.length
+      aggByMonth[m] = aggregateOrders(orders)
+    }
+
+    // 3. Cache freshly computed months that are now closed (previous month)
+    for (const m of freshMonths) {
+      if (m < currentMonth && m >= 1) {
+        // This month is closed — cache it for next sync
+        await supabase.from("data_cache").upsert({
+          key: `objectives_agg_2026_${m}`,
+          data: aggByMonth[m],
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "key" })
+      }
+    }
+
+    // 4. Also cache any closed months that were missing from cache
+    for (const m of cachedMonths) {
+      if (aggByMonth[m].orders === 0 && m < currentMonth) {
+        // Not in cache yet — fetch and cache
+        const startDate = `2026-${String(m).padStart(2, "0")}-01T00:00:00Z`
+        const endDate = `2026-${String(m + 1).padStart(2, "0")}-01T00:00:00Z`
+        const orders = await getAllOrders({
+          created_at_min: startDate,
+          created_at_max: endDate,
+        })
+        totalOrdersFetched += orders.length
+        aggByMonth[m] = aggregateOrders(orders)
+        await supabase.from("data_cache").upsert({
+          key: `objectives_agg_2026_${m}`,
+          data: aggByMonth[m],
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "key" })
+      }
+    }
+
+    // 5. Compute generosity + breakdown per month
+    const updateErrors: string[] = []
     for (let m = 1; m <= 12; m++) {
-      const a = agg2026[m]
+      const a = aggByMonth[m]
       const totalGenerosite = a.discounts + a.prix_barres
       const pct = a.ca_brut > 0
         ? Math.round((totalGenerosite / a.ca_brut) * 10000) / 100
         : 0
-      // Breakdown for tooltip insights
       const detail = a.ca_brut > 0 ? {
         ca_brut: Math.round(a.ca_brut),
         dotations: Math.round(a.dotations),
@@ -192,24 +249,17 @@ export async function POST() {
         prix_barres: Math.round(a.prix_barres),
         total: Math.round(totalGenerosite),
       } : {}
-      generositeByMonth[m] = { pct, detail }
-    }
 
-    // Update generosite + generosite_detail — preserve ca_2025, ca_2026, media_spent
-    const updateErrors: string[] = []
-    for (let m = 1; m <= 12; m++) {
       const { error: updateErr } = await supabase
         .from("objectives_2026")
         .update({
-          generosite: generositeByMonth[m].pct,
-          generosite_detail: generositeByMonth[m].detail,
+          generosite: pct,
+          generosite_detail: detail,
           updated_at: new Date().toISOString(),
         })
         .eq("month", m)
 
-      if (updateErr) {
-        updateErrors.push(`Month ${m}: ${updateErr.message}`)
-      }
+      if (updateErr) updateErrors.push(`Month ${m}: ${updateErr.message}`)
     }
 
     if (updateErrors.length > 0) {
@@ -220,7 +270,9 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       synced_at: now.toISOString(),
-      orders_2026: orders2026.length,
+      orders_fetched: totalOrdersFetched,
+      cached_months: cachedMonths,
+      fresh_months: freshMonths,
       updated_fields: ["generosite", "generosite_detail"],
       preserved_fields: ["ca_2025", "ca_2026", "media_spent"],
     })

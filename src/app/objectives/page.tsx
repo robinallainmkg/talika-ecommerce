@@ -64,7 +64,7 @@ export default function ObjectivesPage() {
       const res = await fetch("/api/objectives/sync", { method: "POST" })
       const json = await res.json()
       if (json.success) {
-        setSyncResult(`${json.orders_2026} commandes 2026 — générosité mise à jour`)
+        setSyncResult(`${json.orders_fetched} commandes (${json.cached_months?.length || 0} mois en cache) — générosité mise à jour`)
         // Re-fetch full data from DB (sync only updates generosite,
         // CA and media_spent are preserved in DB)
         const freshRes = await fetch("/api/objectives")
