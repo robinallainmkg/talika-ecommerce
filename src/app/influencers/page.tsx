@@ -130,6 +130,7 @@ interface FixedFee {
 
 // ─── Page ────────────────────────────────────────────────────────
 export default function InfluencersPage() {
+  const [activeTab, setActiveTab] = useState<"influenceurs" | "codes">("influenceurs")
   const [influencers, setInfluencers] = useState<Influencer[]>([])
   const [allCodes, setAllCodes] = useState<CodeWithInfluencer[]>([])
   const [unassignedCodes, setUnassignedCodes] = useState<UnassignedCode[]>([])
@@ -507,6 +508,20 @@ export default function InfluencersPage() {
           </div>
         ) : (
           <>
+            {/* ── Tab Bar ──────────────────────────────────── */}
+            <div className="flex gap-1 bg-zinc-100 rounded-lg p-1 w-fit">
+              <button onClick={() => setActiveTab("influenceurs")} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === "influenceurs" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"}`}>
+                <Users className="h-4 w-4 inline mr-1.5" />
+                Influenceurs
+              </button>
+              <button onClick={() => setActiveTab("codes")} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === "codes" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-700"}`}>
+                <Tag className="h-4 w-4 inline mr-1.5" />
+                Codes promo
+                {unassignedCodes.length > 0 && <span className="ml-1.5 inline-flex items-center justify-center h-5 min-w-[20px] rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5">{unassignedCodes.length}</span>}
+              </button>
+            </div>
+
+            {activeTab === "influenceurs" && (<>
             {/* ── KPI Cards ─────────────────────────────────── */}
             <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               <KPICard
@@ -875,7 +890,9 @@ export default function InfluencersPage() {
                 </div>
               </CardContent>
             </Card>
+            </>)}
 
+            {activeTab === "codes" && (<>
             {/* ── Codes Non Attribués ──────────────────────── */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
@@ -1204,6 +1221,7 @@ export default function InfluencersPage() {
                 </div>
               </CardContent>
             </Card>
+            </>)}
           </>
         )}
       </div>
