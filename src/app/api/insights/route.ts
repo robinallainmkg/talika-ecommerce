@@ -231,6 +231,183 @@ export async function GET(request: Request) {
       }
     }
 
+    // ── Klaviyo insights (deep order analysis) ──
+    if (page === "klaviyo" || page === "all") {
+      // Load multiple months for repeat purchase & churn analysis
+      const allMonthOrders: any[][] = []
+      for (let m = 1; m <= month; m++) {
+        const monthOrders = await getOrders(year, m)
+        allMonthOrders.push(monthOrders)
+      }
+      const allOrders = allMonthOrders.flat()
+
+      // ── 1. Repeat purchase rate ──
+      const customerOrders: Record<string, { count: number; months: Set<number>; total: number }> = {}
+      for (let m = 0; m < allMonthOrders.length; m++) {
+        for (const order of allMonthOrders[m]) {
+          if (order.cancelled_at) continue
+          const email = (order.email || "").toLowerCase().trim()
+          if (!email) continue
+          if (!customerOrders[email]) {
+            customerOrders[email] = { count: 0, months: new Set(), total: 0 }
+          }
+          customerOrders[email].count += 1
+          customerOrders[email].months.add(m + 1)
+          customerOrders[email].total += parseFloat(order.total_price || "0")
+        }
+      }
+
+      const totalCustomers = Object.keys(customerOrders).length
+      const repeatCustomers = Object.values(customerOrders).filter((c) => c.count > 1).length
+      const repeatRate = totalCustomers > 0 ? Math.round((repeatCustomers / totalCustomers) * 100) : 0
+
+      if (totalCustomers > 0) {
+        insights.push({
+          id: "klaviyo-repeat-rate",
+          title: `Taux de réachat ${year} : ${repeatRate}% (${repeatCustomers} clients)`,
+          description: repeatRate < 20
+            ? `Seulement ${repeatRate}% des clients rachètent. Benchmark e-commerce beauté : 25-35%. Opportunité de flow post-achat + winback à J30/J60.`
+            : repeatRate < 30
+            ? `${repeatRate}% de réachat, proche du benchmark beauté (25-35%). Un flow post-achat ciblé par produit pourrait pousser à 30%+.`
+            : `${repeatRate}% de réachat, au-dessus du benchmark beauté (25-35%). Excellente fidélisation.`,
+          severity: repeatRate < 20 ? "warning" : repeatRate < 30 ? "info" : "success",
+          category: "retention",
+          page: "klaviyo",
+        })
+      }
+
+      // ── 2. Churn detection (bought prev months, not this month) ──
+      const currentMonthEmails = new Set(
+        currentOrders.filter((o: any) => !o.cancelled_at).map((o: any) => (o.email || "").toLowerCase().trim()).filter(Boolean)
+      )
+      const prevMonthEmails = new Set(
+        prevOrders.filter((o: any) => !o.cancelled_at).map((o: any) => (o.email || "").toLowerCase().trim()).filter(Boolean)
+      )
+      const churned = [...prevMonthEmails].filter((e) => !currentMonthEmails.has(e))
+      const churnRate = prevMonthEmails.size > 0 ? Math.round((churned.length / prevMonthEmails.size) * 100) : 0
+
+      if (prevMonthEmails.size > 20) {
+        insights.push({
+          id: "klaviyo-churn",
+          title: `${churned.length} clients du mois dernier n'ont pas racheté (${churnRate}%)`,
+          description: churnRate > 85
+            ? `${churnRate}% de churn mois-sur-mois. Le flow anti-churn ne fonctionne pas assez. Testez un winback plus agressif (offre -15% à J45, reminder à J60).`
+            : `${churnRate}% de churn mensuel. C'est normal en beauté (cycle de rachat ~60-90j). Un flow winback à J60 avec offre ciblée peut récupérer 5-10% de ces clients.`,
+          severity: churnRate > 85 ? "critical" : "info",
+          category: "retention",
+          page: "klaviyo",
+        })
+      }
+
+      // ── 3. Cross-sell patterns (products bought together) ──
+      const productPairs: Record<string, { count: number; products: [string, string] }> = {}
+      for (const order of allOrders) {
+        if (order.cancelled_at) continue
+        const items: string[] = (order.line_items || []).map((li: any) => li.title || "").filter(Boolean)
+        const uniqueItems: string[] = [...new Set(items)]
+        for (let i = 0; i < uniqueItems.length; i++) {
+          for (let j = i + 1; j < uniqueItems.length; j++) {
+            const key = [uniqueItems[i], uniqueItems[j]].sort().join(" + ")
+            if (!productPairs[key]) {
+              productPairs[key] = { count: 0, products: [uniqueItems[i], uniqueItems[j]] }
+            }
+            productPairs[key].count += 1
+          }
+        }
+      }
+
+      const topPairs = Object.values(productPairs)
+        .filter((p) => p.count >= 5)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 3)
+
+      if (topPairs.length > 0) {
+        const pair = topPairs[0]
+        insights.push({
+          id: "klaviyo-crosssell-1",
+          title: `Cross-sell : "${pair.products[0]}" + "${pair.products[1]}" (${pair.count} commandes)`,
+          description: `Ces 2 produits sont achetés ensemble dans ${pair.count} commandes. Créez un flow post-achat : quand quelqu'un achète l'un, proposer l'autre à J+3.`,
+          severity: "info",
+          category: "cross-sell",
+          page: "klaviyo",
+        })
+
+        if (topPairs.length > 1) {
+          const pair2 = topPairs[1]
+          insights.push({
+            id: "klaviyo-crosssell-2",
+            title: `Cross-sell #2 : "${pair2.products[0]}" + "${pair2.products[1]}" (${pair2.count}x)`,
+            description: `${pair2.count} commandes contiennent ces 2 produits ensemble. Autre opportunité de flow post-achat ciblé.`,
+            severity: "info",
+            category: "cross-sell",
+            page: "klaviyo",
+          })
+        }
+      }
+
+      // ── 4. Single-product orders (upsell opportunity) ──
+      const singleItemOrders = currentOrders.filter(
+        (o: any) => !o.cancelled_at && (o.line_items || []).length === 1
+      )
+      const singleItemRate = currentOrders.length > 0
+        ? Math.round((singleItemOrders.length / currentOrders.length) * 100)
+        : 0
+
+      if (currentOrders.length > 20 && singleItemRate > 40) {
+        insights.push({
+          id: "klaviyo-single-item",
+          title: `${singleItemRate}% des commandes = 1 seul produit`,
+          description: `${singleItemOrders.length} commandes sur ${currentOrders.length} ne contiennent qu'un produit. Opportunité d'upsell dans le flow de confirmation : recommander un produit complémentaire.`,
+          severity: "warning",
+          category: "upsell",
+          page: "klaviyo",
+        })
+      }
+
+      // ── 5. Top product needing a post-purchase flow ──
+      const productBuyers: Record<string, { buyers: Set<string>; total: number }> = {}
+      for (const order of allOrders) {
+        if (order.cancelled_at) continue
+        const email = (order.email || "").toLowerCase().trim()
+        if (!email) continue
+        for (const item of (order.line_items || [])) {
+          const title = item.title || ""
+          if (!title) continue
+          if (!productBuyers[title]) {
+            productBuyers[title] = { buyers: new Set(), total: 0 }
+          }
+          productBuyers[title].buyers.add(email)
+          productBuyers[title].total += (item.quantity || 1)
+        }
+      }
+
+      // Find product with most unique buyers but low repeat rate
+      const productStats = Object.entries(productBuyers)
+        .map(([title, data]) => {
+          const buyers = data.buyers.size
+          const repeatBuyers = [...data.buyers].filter((email) => {
+            const c = customerOrders[email]
+            return c && c.count > 1
+          }).length
+          const repeatPct = buyers > 0 ? Math.round((repeatBuyers / buyers) * 100) : 0
+          return { title, buyers, repeatPct, total: data.total }
+        })
+        .filter((p) => p.buyers >= 10)
+        .sort((a, b) => b.buyers - a.buyers)
+
+      const lowRepeatProduct = productStats.find((p) => p.repeatPct < 20)
+      if (lowRepeatProduct) {
+        insights.push({
+          id: "klaviyo-product-flow",
+          title: `"${lowRepeatProduct.title}" : ${lowRepeatProduct.buyers} acheteurs mais ${lowRepeatProduct.repeatPct}% de réachat`,
+          description: `Ce produit a beaucoup d'acheteurs uniques mais peu rachètent. Flow post-achat spécifique recommandé : conseils d'utilisation à J+7, cross-sell complémentaire à J+14, offre fidélité à J+30.`,
+          severity: "warning",
+          category: "retention",
+          page: "klaviyo",
+        })
+      }
+    }
+
     return NextResponse.json({ insights, page, generated_at: new Date().toISOString() })
   } catch (error) {
     console.error("Insights API error:", error)
