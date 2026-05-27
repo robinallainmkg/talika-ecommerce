@@ -14,8 +14,11 @@ export async function POST(request: Request) {
     const results: Record<string, any> = {}
 
     const now = new Date()
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString()
+    // Allow specifying year/month for targeted syncs (e.g. from generosite page)
+    const targetYear = body.year || now.getFullYear()
+    const targetMonth = body.month || (now.getMonth() + 1) // 1-based
+    const monthStart = new Date(targetYear, targetMonth - 1, 1).toISOString()
+    const monthEnd = new Date(targetYear, targetMonth, 0, 23, 59, 59).toISOString()
 
     // --- Sync Analytics (KPIs) ---
     if (syncType === "all" || syncType === "analytics") {
@@ -103,7 +106,7 @@ export async function POST(request: Request) {
       }))
 
       await supabase.from("data_cache").upsert({
-        key: `shopify_orders_${now.getFullYear()}_${now.getMonth() + 1}`,
+        key: `shopify_orders_${targetYear}_${targetMonth}`,
         data: { orders, count: orders.length },
         source: "shopify",
         expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30min TTL

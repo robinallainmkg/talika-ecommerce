@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { formatCurrency } from "@/lib/utils"
 import { DataInsights } from "@/components/data-insights"
+import { Button } from "@/components/ui/button"
 import {
   Gift,
   Users,
@@ -20,6 +21,8 @@ import {
   HelpCircle,
   Package,
   ArrowUpDown,
+  RefreshCw,
+  Loader2,
 } from "lucide-react"
 
 interface CodeDetail {
@@ -34,6 +37,7 @@ interface CategoryData {
   discount: number
   orders: number
   generosite_pct: number
+  excluded?: boolean
   codes: CodeDetail[]
 }
 
@@ -89,6 +93,7 @@ const CATEGORY_ICONS: Record<string, typeof Gift> = {
   influence: Users,
   welcome: Tag,
   offre_site: ShoppingBag,
+  auto_discounts: Percent,
   logistique: Truck,
   service_client: Headphones,
   autre: HelpCircle,
@@ -99,8 +104,9 @@ const CATEGORY_COLORS: Record<string, string> = {
   influence: "bg-blue-500",
   welcome: "bg-emerald-500",
   offre_site: "bg-amber-500",
+  auto_discounts: "bg-cyan-500",
   logistique: "bg-red-500",
-  service_client: "bg-orange-500",
+  service_client: "bg-zinc-400",
   autre: "bg-zinc-400",
 }
 
@@ -109,8 +115,9 @@ const CATEGORY_BG: Record<string, string> = {
   influence: "bg-blue-50 border-blue-200",
   welcome: "bg-emerald-50 border-emerald-200",
   offre_site: "bg-amber-50 border-amber-200",
+  auto_discounts: "bg-cyan-50 border-cyan-200",
   logistique: "bg-red-50 border-red-200",
-  service_client: "bg-orange-50 border-orange-200",
+  service_client: "bg-zinc-50 border-zinc-300 opacity-60",
   autre: "bg-zinc-50 border-zinc-200",
 }
 
@@ -131,7 +138,10 @@ function CategoryCard({ cat }: { cat: CategoryData }) {
             <Icon className="h-4 w-4" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-zinc-800">{cat.label}</h3>
+            <h3 className="text-sm font-semibold text-zinc-800">
+              {cat.label}
+              {cat.excluded && <span className="ml-2 text-[10px] font-normal text-zinc-400 uppercase">exclu du taux</span>}
+            </h3>
             <p className="text-xs text-zinc-500">{cat.orders} commandes</p>
           </div>
         </div>
@@ -195,6 +205,7 @@ export default function GenerositePage() {
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
   const [tab, setTab] = useState<"categories" | "products">("categories")
   const [productSort, setProductSort] = useState<"generosite" | "revenue" | "quantity">("generosite")
+  const [syncing, setSyncing] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -223,6 +234,23 @@ export default function GenerositePage() {
       setProductsLoading(false)
     }
   }, [selectedYear, selectedMonth])
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true)
+    try {
+      await fetch("/api/shopify/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "orders", year: selectedYear, month: selectedMonth }),
+      })
+      await fetchData()
+      if (tab === "products") await fetchProducts()
+    } catch (err) {
+      console.error("Sync failed:", err)
+    } finally {
+      setSyncing(false)
+    }
+  }, [selectedYear, selectedMonth, tab, fetchData, fetchProducts])
 
   useEffect(() => {
     fetchData()
@@ -266,6 +294,10 @@ export default function GenerositePage() {
               <option value={2025}>2025</option>
               <option value={2026}>2026</option>
             </select>
+            <Button variant="secondary" size="sm" onClick={handleSync} disabled={syncing}>
+              {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {syncing ? "Sync..." : "Sync Shopify"}
+            </Button>
           </div>
         }
       />
@@ -321,7 +353,7 @@ export default function GenerositePage() {
                 changeLabel={`${Math.round((data.orders_with_discount / data.total_orders) * 100)}% des commandes`}
               />
               <KPICard
-                label="CA Mars"
+                label={`CA ${MONTHS[selectedMonth - 1]}`}
                 value={formatCurrency(data.total_revenue)}
                 icon={<Gift className="h-5 w-5" />}
               />

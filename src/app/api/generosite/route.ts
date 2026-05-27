@@ -10,7 +10,7 @@ const supabase = createClient(
 )
 
 // ─── Code classification rules ──────────────────────────────
-type Category = "gifting" | "influence" | "welcome" | "logistique" | "service_client" | "offre_site" | "autre"
+type Category = "gifting" | "influence" | "welcome" | "logistique" | "service_client" | "offre_site" | "auto_discounts" | "autre"
 
 const CODE_RULES: { pattern: RegExp; category: Category }[] = [
   // Gifting / MKG
@@ -50,14 +50,18 @@ function classifyCode(code: string, influencerCodes: Set<string>): Category {
 }
 
 const CATEGORY_LABELS: Record<Category, string> = {
-  gifting: "Gifting (MKG)",
-  influence: "Discounts Influence",
-  welcome: "Discounts Génériques (Welcome)",
-  offre_site: "Offres Site (prix barrés, promos)",
+  gifting: "Dotations (MKG)",
+  influence: "Codes Influenceurs",
+  welcome: "Codes Génériques (Welcome)",
+  offre_site: "Offres Site (promos)",
+  auto_discounts: "Remises automatiques (volume)",
   logistique: "Erreurs Logistiques (LA Poste)",
-  service_client: "Service Client (CS, retours)",
+  service_client: "Retours / SAV (exclu)",
   autre: "Autres codes",
 }
+
+// Categories excluded from the generosity rate (SAV = not real generosity)
+const EXCLUDED_CATEGORIES: Category[] = ["service_client"]
 
 export async function GET(request: Request) {
   try {
@@ -91,6 +95,7 @@ export async function GET(request: Request) {
       influence: { discount: 0, orders: 0, codes: {} },
       welcome: { discount: 0, orders: 0, codes: {} },
       offre_site: { discount: 0, orders: 0, codes: {} },
+      auto_discounts: { discount: 0, orders: 0, codes: {} },
       logistique: { discount: 0, orders: 0, codes: {} },
       service_client: { discount: 0, orders: 0, codes: {} },
       autre: { discount: 0, orders: 0, codes: {} },
@@ -119,14 +124,15 @@ export async function GET(request: Request) {
 
       // Classify discount codes
       const discountCodes = order.discount_codes || []
-      if (discountCodes.length === 0) continue
 
-      ordersWithDiscount++
+      if (orderDiscount > 0) ordersWithDiscount++
 
+      let codeAmountSum = 0
       for (const dc of discountCodes) {
         const code = (typeof dc === "string" ? dc : dc.code || "").toUpperCase().trim()
         const amount = parseFloat(typeof dc === "string" ? "0" : dc.amount || "0")
         if (!code) continue
+        codeAmountSum += amount
 
         const category = classifyCode(code, influencerCodeSet)
         categoryTotals[category].discount += amount
@@ -138,10 +144,20 @@ export async function GET(request: Request) {
         categoryTotals[category].codes[code].discount += amount
         categoryTotals[category].codes[code].count += 1
       }
+
+      // Auto discounts = gap between total_discounts and code amounts
+      // Catches volume discounts, auto promos applied alongside or without codes
+      const autoGap = orderDiscount - codeAmountSum
+      if (autoGap > 0) {
+        categoryTotals.auto_discounts.discount += autoGap
+        categoryTotals.auto_discounts.orders += 1
+      }
     }
 
     // Build response — share = % de générosité spécifique par rapport au CA brut
     const caBrut = totalRevenue + totalDiscount + totalLineItemDiscounts
+    const excludedDiscount = EXCLUDED_CATEGORIES.reduce((sum, cat) => sum + categoryTotals[cat].discount, 0)
+
     const categories = Object.entries(categoryTotals)
       .map(([key, val]) => ({
         id: key,
@@ -149,14 +165,16 @@ export async function GET(request: Request) {
         discount: Math.round(val.discount * 100) / 100,
         orders: val.orders,
         generosite_pct: caBrut > 0 ? Math.round((val.discount / caBrut) * 1000) / 10 : 0,
+        excluded: EXCLUDED_CATEGORIES.includes(key as Category),
         codes: Object.entries(val.codes)
           .map(([code, data]) => ({ code, ...data }))
           .sort((a, b) => b.discount - a.discount),
       }))
       .sort((a, b) => b.discount - a.discount)
 
-    const generositeRate = totalRevenue > 0
-      ? Math.round(((totalDiscount + totalLineItemDiscounts) / (totalRevenue + totalDiscount + totalLineItemDiscounts)) * 1000) / 10
+    // Generosity rate EXCLUDES retours/SAV (not real generosity)
+    const generositeRate = caBrut > 0
+      ? Math.round(((totalDiscount + totalLineItemDiscounts - excludedDiscount) / caBrut) * 1000) / 10
       : 0
 
     // ─── Shipping analysis (separate from générosité) ───
