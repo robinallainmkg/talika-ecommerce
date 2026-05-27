@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -19,7 +19,6 @@ import {
   Gift,
   Menu,
   X,
-  Settings,
 } from "lucide-react"
 
 const navigation = [
@@ -36,9 +35,45 @@ const navigation = [
   { name: "P&L", href: "/pnl", icon: FileSpreadsheet },
 ]
 
+interface RoutineCheck {
+  id: string
+  label: string
+  status: "done" | "pending" | "warning"
+  detail?: string
+  link?: string
+}
+
 export function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [badges, setBadges] = useState<Record<string, { count: number; labels: string[] }>>({})
+
+  // Fetch routine to compute badges
+  const fetchBadges = useCallback(async () => {
+    try {
+      const res = await fetch("/api/routine")
+      const data = await res.json()
+      if (!data.checks) return
+
+      const pending = (data.checks as RoutineCheck[]).filter(
+        (c) => c.status === "pending" && c.link
+      )
+      const grouped: Record<string, { count: number; labels: string[] }> = {}
+      for (const check of pending) {
+        const link = check.link!
+        if (!grouped[link]) grouped[link] = { count: 0, labels: [] }
+        grouped[link].count += 1
+        grouped[link].labels.push(check.label)
+      }
+      setBadges(grouped)
+    } catch {
+      // silent fail
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchBadges()
+  }, [fetchBadges])
 
   // Close sidebar on route change
   useEffect(() => {
@@ -104,10 +139,12 @@ export function Sidebar() {
           <ul className="space-y-1">
             {navigation.map((item) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
+              const badge = badges[item.href]
               return (
                 <li key={item.name}>
                   <Link
                     href={item.href}
+                    title={badge ? badge.labels.join(", ") : undefined}
                     className={cn(
                       "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                       isActive
@@ -116,7 +153,17 @@ export function Sidebar() {
                     )}
                   >
                     <item.icon className="h-5 w-5" />
-                    {item.name}
+                    <span className="flex-1">{item.name}</span>
+                    {badge && (
+                      <span className={cn(
+                        "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold",
+                        isActive
+                          ? "bg-amber-400 text-zinc-900"
+                          : "bg-amber-100 text-amber-700"
+                      )}>
+                        {badge.count}
+                      </span>
+                    )}
                   </Link>
                 </li>
               )
@@ -124,19 +171,12 @@ export function Sidebar() {
           </ul>
         </nav>
 
-        {/* Agent status footer */}
+        {/* Status footer */}
         <div className="border-t border-zinc-200 p-4">
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-zinc-500">Agents actifs</span>
+            <span className="text-xs text-zinc-500">Sync actif</span>
           </div>
-          <Link
-            href="/agents"
-            className="mt-2 flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            Gérer les agents
-          </Link>
         </div>
       </aside>
     </>
