@@ -173,7 +173,7 @@ export async function GET(request: Request) {
         .from("influencer_product_sales")
         .select("line_price, influencer_id")
         .gte("order_date", `${year}-${String(month).padStart(2, "0")}-01`)
-        .lt("order_date", `${year}-${String(month + 1 > 12 ? 1 : month + 1).padStart(2, "0")}-01`)
+        .lt("order_date", `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, "0")}-01`)
 
       if (influenceData && influenceData.length > 0) {
         const infRevenue = influenceData.reduce((s, r) => s + parseFloat(r.line_price), 0)

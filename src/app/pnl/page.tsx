@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatCurrency } from "@/lib/utils"
 import { Loader2, Plus, Trash2, TrendingUp, TrendingDown, Minus } from "lucide-react"
-import { DataInsights } from "@/components/data-insights"
 
 // ─── Types ────────────────────────────────────────────────────────
 interface PnLLine {
@@ -253,8 +252,6 @@ export default function PnLPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        <DataInsights page="pnl" />
-
         {loading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />

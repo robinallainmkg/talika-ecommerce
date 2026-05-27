@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import {
   LayoutDashboard,
-  ShoppingCart,
   Megaphone,
   Mail,
   Calendar,
@@ -24,7 +23,7 @@ import {
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Acquisition", href: "/acquisition", icon: Radar },
-  { name: "Ventes", href: "/sales", icon: ShoppingCart },
+
   { name: "Meta Ads", href: "/ads", icon: Megaphone },
   { name: "Klaviyo", href: "/klaviyo", icon: Mail },
   { name: "Influenceurs", href: "/influencers", icon: Users },

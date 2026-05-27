@@ -135,12 +135,12 @@ export default function AcquisitionPage() {
             {/* Global KPIs */}
             <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
               <KPICard
-                label={`CA Total ${monthName}`}
+                label="CA Total"
                 value={formatCurrency(data.total_revenue)}
                 icon={<DollarSign className="h-5 w-5" />}
               />
               <KPICard
-                label="Dépenses Acquisition"
+                label="Dépenses"
                 value={formatCurrency(data.total_spend)}
                 icon={<Target className="h-5 w-5" />}
               />
@@ -150,7 +150,7 @@ export default function AcquisitionPage() {
                 icon={<TrendingUp className="h-5 w-5" />}
               />
               <KPICard
-                label="Commandes Totales"
+                label="Commandes"
                 value={formatNumber(data.total_orders)}
                 icon={<Users className="h-5 w-5" />}
               />

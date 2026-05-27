@@ -20,7 +20,7 @@ export async function GET() {
       .eq("key", `shopify_analytics_${monthKey}`)
       .single()
 
-    const analytics = analyticsRow?.data || null
+    let analytics = analyticsRow?.data || null
 
     // 2. Build daily chart data server-side from orders (aggregated, not raw)
     const { data: ordersRow } = await supabase
@@ -30,9 +30,9 @@ export async function GET() {
       .single()
 
     const dailyChart: { date: string; revenue: number; orders: number }[] = []
+    const orders = (ordersRow?.data as any)?.orders || []
 
-    if (ordersRow?.data) {
-      const orders = (ordersRow.data as any)?.orders || []
+    if (orders.length > 0) {
       const dailyMap = new Map<string, { revenue: number; orders: number }>()
 
       for (const order of orders) {
@@ -55,12 +55,25 @@ export async function GET() {
           orders: data.orders,
         })
       }
+
+      // Fallback: compute analytics from orders if analytics cache is empty
+      if (!analytics) {
+        const totalRevenue = orders.reduce((s: number, o: any) => s + parseFloat(o.total_price || "0"), 0)
+        const totalOrders = orders.length
+        const uniqueEmails = new Set(orders.map((o: any) => (o.email || "").toLowerCase().trim()).filter(Boolean))
+        analytics = {
+          total_revenue: Math.round(totalRevenue * 100) / 100,
+          total_orders: totalOrders,
+          aov: totalOrders > 0 ? Math.round((totalRevenue / totalOrders) * 100) / 100 : 0,
+          unique_customers: uniqueEmails.size,
+        }
+      }
     }
 
     return NextResponse.json({
       analytics,
       dailyChart,
-      cachedAt: analyticsRow ? new Date().toISOString() : null,
+      cachedAt: new Date().toISOString(),
     })
   } catch (error) {
     console.error("Dashboard stats error:", error)
