@@ -145,18 +145,22 @@ export async function GET(request: Request) {
 
     // ── 4. Trigger objectives generosite sync ──
     log.push("Updating objectives generosite...")
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000"
-    const objRes = await fetch(`${baseUrl}/api/objectives/sync`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    })
-    const objData = await objRes.json()
-    if (objData.success) {
-      log.push(`Objectives updated: ${objData.orders_fetched} orders processed`)
-    } else {
-      log.push(`Objectives sync warning: ${objData.error || "unknown"}`)
+    try {
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000"
+      const objRes = await fetch(`${baseUrl}/api/objectives/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const objData = await objRes.json()
+      if (objData.success) {
+        log.push(`Objectives updated: ${objData.orders_fetched} orders processed`)
+      } else {
+        log.push(`Objectives sync warning: ${objData.error || "unknown"}`)
+      }
+    } catch (objErr) {
+      log.push(`Objectives sync skipped: ${objErr instanceof Error ? objErr.message : "unknown error"}`)
     }
 
     // ── 5. Log sync result ──
