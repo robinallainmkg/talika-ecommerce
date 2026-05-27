@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { formatCurrency, formatNumber } from "@/lib/utils"
 import { DataInsights } from "@/components/data-insights"
 import type { AgentInsight } from "@/types"
+import Link from "next/link"
 import {
   ShoppingCart,
   TrendingUp,
@@ -23,6 +24,10 @@ import {
   Calendar,
   FolderKanban,
   DollarSign,
+  ClipboardCheck,
+  CircleDot,
+  AlertTriangle,
+  ArrowRight,
 } from "lucide-react"
 
 // --- Status helpers ---
@@ -79,6 +84,23 @@ interface CalendarEventRow {
   assignee?: string
 }
 
+interface RoutineCheck {
+  id: string
+  label: string
+  description: string
+  status: "done" | "pending" | "warning"
+  detail?: string
+  link?: string
+}
+
+interface RoutineData {
+  period: string
+  progress: number
+  done: number
+  total: number
+  checks: RoutineCheck[]
+}
+
 interface ShopifyAnalytics {
   total_revenue: number
   total_orders: number
@@ -117,6 +139,7 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<CalendarEventRow[]>([])
   const [shopifyAnalytics, setShopifyAnalytics] = useState<ShopifyAnalytics | null>(null)
   const [chartData, setChartData] = useState<DailyChartData[]>([])
+  const [routine, setRoutine] = useState<RoutineData | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -125,7 +148,7 @@ export default function DashboardPage() {
     setLoading(true)
 
     // Fetch lightweight data in parallel
-    const [proposalsRes, projectsRes, eventsRes, statsRes] = await Promise.all([
+    const [proposalsRes, projectsRes, eventsRes, statsRes, routineRes] = await Promise.all([
       supabase
         .from("agent_proposals")
         .select("*")
@@ -143,6 +166,7 @@ export default function DashboardPage() {
         .limit(5),
       // Use server-side API to avoid fetching 5MB orders blob client-side
       fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
+      fetch("/api/routine").then(r => r.json()).catch(() => null),
     ])
 
     if (proposalsRes.data) setProposals(proposalsRes.data)
@@ -164,6 +188,7 @@ export default function DashboardPage() {
     if (statsRes?.dailyChart && Array.isArray(statsRes.dailyChart)) {
       setChartData(statsRes.dailyChart)
     }
+    if (routineRes?.checks) setRoutine(routineRes)
 
     setLoading(false)
   }, [])
@@ -212,6 +237,74 @@ export default function DashboardPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+        {/* Monthly Routine Checklist */}
+        {routine && (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardCheck className="h-5 w-5" />
+                  Routine {routine.period}
+                </CardTitle>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-zinc-500">
+                    {routine.done}/{routine.total} complété
+                  </span>
+                  <div className="w-24 h-2 rounded-full bg-zinc-100">
+                    <div
+                      className="h-2 rounded-full transition-all"
+                      style={{
+                        width: `${routine.progress}%`,
+                        backgroundColor: routine.progress === 100 ? "#22c55e" : routine.progress >= 50 ? "#f59e0b" : "#ef4444",
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {routine.checks.map((check) => (
+                  <div
+                    key={check.id}
+                    className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      check.status === "done"
+                        ? "border-emerald-200 bg-emerald-50/50"
+                        : check.status === "warning"
+                        ? "border-amber-200 bg-amber-50/50"
+                        : "border-zinc-200 bg-white hover:border-zinc-300"
+                    }`}
+                  >
+                    <div className="mt-0.5">
+                      {check.status === "done" ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      ) : check.status === "warning" ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      ) : (
+                        <CircleDot className="h-4 w-4 text-zinc-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-zinc-900 truncate">{check.label}</p>
+                        {check.link && check.status !== "done" && (
+                          <Link
+                            href={check.link}
+                            className="shrink-0 text-zinc-400 hover:text-zinc-700 transition-colors"
+                          >
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </Link>
+                        )}
+                      </div>
+                      <p className="text-xs text-zinc-500 mt-0.5">{check.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Data Insights */}
         <DataInsights page="dashboard" />
 
