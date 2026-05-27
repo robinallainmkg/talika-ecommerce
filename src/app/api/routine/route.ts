@@ -48,6 +48,7 @@ export async function GET() {
       detail: hoursAgo < 48
         ? `Dernier sync il y a ${hoursAgo}h (${lastSync.orders_count} commandes)`
         : `Dernier sync il y a ${hoursAgo}h — vérifier le cron`,
+      link: "/dashboard",
     })
   } else {
     checks.push({
@@ -56,6 +57,7 @@ export async function GET() {
       description: "Cron quotidien Shopify (orders, codes, influenceurs, objectifs)",
       status: "warning",
       detail: "Aucun sync automatique détecté. Configurer CRON_SECRET dans Vercel.",
+      link: "/dashboard",
     })
   }
 

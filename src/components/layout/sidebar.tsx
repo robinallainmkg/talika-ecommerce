@@ -56,7 +56,7 @@ export function Sidebar() {
       if (!data.checks) return
 
       const pending = (data.checks as RoutineCheck[]).filter(
-        (c) => c.status === "pending" && c.link
+        (c) => (c.status === "pending" || c.status === "warning") && c.link
       )
       const grouped: Record<string, { count: number; labels: string[] }> = {}
       for (const check of pending) {
