@@ -125,28 +125,34 @@ export async function POST() {
         months[month].discounts += orderDiscount
 
         // Categorize discount by code type
+        // total_discounts = codes + auto discounts (volume, etc.)
+        // discount_codes[].amount only covers code-based discounts
+        // The gap (total_discounts - sum of codes) = auto discounts on same order
         const codes = o.discount_codes || []
-        if (codes.length === 0 && orderDiscount > 0) {
-          // No code = automatic discount (volume, etc.)
-          months[month].auto_discounts += orderDiscount
-        } else {
-          for (const dc of codes) {
-            const code = (dc.code || "").toUpperCase()
-            const amount = parseFloat(dc.amount || "0")
-            if (code === "MKG") {
-              months[month].dotations += amount
-            } else if (code.startsWith("CS-") || code.includes("RETOUR") || code.includes("RETURN")) {
-              months[month].retours += amount
+        let codeAmountSum = 0
+        for (const dc of codes) {
+          const code = (dc.code || "").toUpperCase()
+          const amount = parseFloat(dc.amount || "0")
+          codeAmountSum += amount
+          if (code === "MKG") {
+            months[month].dotations += amount
+          } else if (code.startsWith("CS-") || code.includes("RETOUR") || code.includes("RETURN")) {
+            months[month].retours += amount
+          } else {
+            // Check if influencer code (name + percentage pattern)
+            const isInfluencer = /^[A-Z]+\d{1,2}$/.test(code) || /^[A-Z]+-?\d{1,2}$/.test(code)
+            if (isInfluencer) {
+              months[month].codes_influenceurs += amount
             } else {
-              // Check if influencer code (name + percentage pattern)
-              const isInfluencer = /^[A-Z]+\d{1,2}$/.test(code) || /^[A-Z]+-?\d{1,2}$/.test(code)
-              if (isInfluencer) {
-                months[month].codes_influenceurs += amount
-              } else {
-                months[month].codes_promo += amount
-              }
+              months[month].codes_promo += amount
             }
           }
+        }
+        // Auto discounts = gap between total_discounts and sum of code amounts
+        // This catches volume discounts applied alongside promo codes
+        const autoGap = orderDiscount - codeAmountSum
+        if (autoGap > 0) {
+          months[month].auto_discounts += autoGap
         }
 
         // Prix barrés from line items
