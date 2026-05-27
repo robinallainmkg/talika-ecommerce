@@ -9,6 +9,8 @@
  * 2. Sync discount codes from Shopify (for unassigned code detection)
  * 3. Sync influencer product sales
  * 4. Update objectives generosite rates
+ * 5. Sync Klaviyo (campaigns, flows, lists)
+ * 6. Sync Google Ads (campaigns + metrics)
  *
  * Protected by CRON_SECRET to prevent unauthorized access.
  */
@@ -194,7 +196,47 @@ export async function GET(request: Request) {
       log.push(`Objectives sync skipped: ${objErr instanceof Error ? objErr.message : "unknown error"}`)
     }
 
-    // ── 5. Log sync result ──
+    // ── 5. Sync Klaviyo (campaigns, flows, lists) ──
+    log.push("Syncing Klaviyo...")
+    try {
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000"
+      const klavRes = await fetch(`${baseUrl}/api/klaviyo/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const klavData = await klavRes.json()
+      if (klavData.success) {
+        log.push(`Klaviyo synced: ${klavData.results.campaigns_count} campaigns, ${klavData.results.flows_count} flows, ${klavData.results.lists_count} lists`)
+      } else {
+        log.push(`Klaviyo sync warning: ${klavData.error || "unknown"}`)
+      }
+    } catch (klavErr) {
+      log.push(`Klaviyo sync skipped: ${klavErr instanceof Error ? klavErr.message : "unknown error"}`)
+    }
+
+    // ── 6. Sync Google Ads (if configured) ──
+    log.push("Syncing Google Ads...")
+    try {
+      const baseUrl2 = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000"
+      const gRes = await fetch(`${baseUrl2}/api/google/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const gData = await gRes.json()
+      if (gData.success) {
+        log.push(`Google Ads synced: ${gData.campaigns} campaigns, ROAS ${gData.summary?.roas || "—"}`)
+      } else {
+        log.push(`Google Ads sync warning: ${gData.error || "unknown"}`)
+      }
+    } catch (gErr) {
+      log.push(`Google Ads sync skipped: ${gErr instanceof Error ? gErr.message : "unknown error"}`)
+    }
+
+    // ── 7. Log sync result ──
     await supabase.from("data_cache").upsert({
       key: "last_cron_sync",
       data: {
