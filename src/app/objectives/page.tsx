@@ -665,6 +665,7 @@ export default function ObjectivesPage() {
         const d = row?.generosite_detail
         if (!d || !d.total) return null
         const t = d.total
+        const caBrut = d.ca_brut || 1
         const lines: { label: string; amount: number; bg: string }[] = []
         if (d.dotations) lines.push({ label: "Dotations (MKG)", amount: d.dotations, bg: "bg-purple-400" })
         if (d.codes_influenceurs) lines.push({ label: "Codes influenceurs", amount: d.codes_influenceurs, bg: "bg-blue-400" })
@@ -678,22 +679,25 @@ export default function ObjectivesPage() {
             style={{ top: tooltipPos.y - 8, left: tooltipPos.x - 288, transform: "translateY(-100%)" }}
           >
             <div className="font-semibold mb-2 text-zinc-300 flex justify-between">
-              <span>{MONTHS_FR[tooltipMonth - 1]}</span>
-              <span>{formatCurrency(t)} / {formatCurrency(d.ca_brut || 0)} brut</span>
+              <span>{MONTHS_FR[tooltipMonth - 1]} — {row?.generosite}%</span>
+              <span className="text-zinc-500">{formatCurrency(d.ca_brut || 0)} brut</span>
             </div>
             <div className="space-y-1.5">
-              {lines.map((l) => (
-                <div key={l.label} className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`inline-block w-2 h-2 rounded-full ${l.bg}`} />
-                    <span>{l.label}</span>
+              {lines.map((l) => {
+                const pctOfCaBrut = caBrut > 0 ? (l.amount / caBrut * 100) : 0
+                return (
+                  <div key={l.label} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`inline-block w-2 h-2 rounded-full ${l.bg}`} />
+                      <span>{l.label}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-400">{formatCurrency(l.amount)}</span>
+                      <span className="font-medium w-12 text-right">{pctOfCaBrut.toFixed(1)}%</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{formatCurrency(l.amount)}</span>
-                    <span className="text-zinc-400 w-10 text-right">{Math.round((l.amount / t) * 100)}%</span>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             {/* Mini bar chart */}
             <div className="mt-2 flex h-2 rounded-full overflow-hidden bg-zinc-700">
