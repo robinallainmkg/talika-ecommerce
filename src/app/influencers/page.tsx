@@ -385,7 +385,10 @@ export default function InfluencersPage() {
     const entries = Object.entries(codeSelections).filter((entry) => {
       const sel = entry[1]
       if (!sel.category) return false
-      if (sel.category === "influence" && !sel.influencerId && !sel.newInfluencerName) return false
+      if (sel.category === "influence") {
+        if (!sel.influencerId) return false // no influencer selected
+        if (sel.influencerId === "__new__" && !sel.newInfluencerName?.trim()) return false // new but no name typed
+      }
       return true
     })
     if (entries.length === 0) return
@@ -401,7 +404,7 @@ export default function InfluencersPage() {
         const discount = discountMatch ? parseInt(discountMatch[1]) : 0
 
         // Create new influencer if needed
-        if (sel.category === "influence" && sel.newInfluencerName && !sel.influencerId) {
+        if (sel.category === "influence" && sel.influencerId === "__new__" && sel.newInfluencerName?.trim()) {
           const createRes = await fetch("/api/influencers", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1003,7 +1006,14 @@ export default function InfluencersPage() {
                   {Object.keys(codeSelections).length > 0 && (
                     <div className="mt-4 flex items-center justify-between border-t pt-4">
                       <p className="text-sm text-zinc-500">
-                        {Object.values(codeSelections).filter((s) => s.category && (s.category !== "influence" || s.influencerId || s.newInfluencerName)).length} code(s) prêt(s) à enregistrer
+                        {Object.values(codeSelections).filter((s) => {
+                          if (!s.category) return false
+                          if (s.category === "influence") {
+                            if (!s.influencerId) return false
+                            if (s.influencerId === "__new__" && !s.newInfluencerName?.trim()) return false
+                          }
+                          return true
+                        }).length} code(s) prêt(s) à enregistrer
                       </p>
                       <Button
                         onClick={handleSaveClassifications}
