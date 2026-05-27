@@ -197,12 +197,12 @@ const MONTHS = [
 
 export default function GenerositePage() {
   const now = new Date()
+  const currentYear = now.getFullYear()
+  const currentMonth = now.getMonth() + 1
   const [data, setData] = useState<GenerositeData | null>(null)
   const [productsData, setProductsData] = useState<ProductsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [productsLoading, setProductsLoading] = useState(false)
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear())
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
   const [tab, setTab] = useState<"categories" | "products">("categories")
   const [productSort, setProductSort] = useState<"generosite" | "revenue" | "quantity">("generosite")
   const [syncing, setSyncing] = useState(false)
@@ -210,7 +210,7 @@ export default function GenerositePage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/generosite?year=${selectedYear}&month=${selectedMonth}`)
+      const res = await fetch(`/api/generosite?year=${currentYear}&month=${currentMonth}`)
       const json = await res.json()
       if (!json.error) setData(json)
       else setData(null)
@@ -219,12 +219,12 @@ export default function GenerositePage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedYear, selectedMonth])
+  }, [currentYear, currentMonth])
 
   const fetchProducts = useCallback(async () => {
     setProductsLoading(true)
     try {
-      const res = await fetch(`/api/generosite/products?year=${selectedYear}&month=${selectedMonth}`)
+      const res = await fetch(`/api/generosite/products?year=${currentYear}&month=${currentMonth}`)
       const json = await res.json()
       if (!json.error) setProductsData(json)
       else setProductsData(null)
@@ -233,7 +233,7 @@ export default function GenerositePage() {
     } finally {
       setProductsLoading(false)
     }
-  }, [selectedYear, selectedMonth])
+  }, [currentYear, currentMonth])
 
   const handleSync = useCallback(async () => {
     setSyncing(true)
@@ -241,7 +241,7 @@ export default function GenerositePage() {
       await fetch("/api/shopify/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "orders", year: selectedYear, month: selectedMonth }),
+        body: JSON.stringify({ type: "orders", year: currentYear, month: currentMonth }),
       })
       await fetchData()
       if (tab === "products") await fetchProducts()
@@ -250,7 +250,7 @@ export default function GenerositePage() {
     } finally {
       setSyncing(false)
     }
-  }, [selectedYear, selectedMonth, tab, fetchData, fetchProducts])
+  }, [currentYear, currentMonth, tab, fetchData, fetchProducts])
 
   useEffect(() => {
     fetchData()
@@ -274,31 +274,12 @@ export default function GenerositePage() {
     <div>
       <Header
         title="Générosité"
-        subtitle="Décomposition des discounts, gifting et coûts par catégorie"
+        subtitle={`${MONTHS[currentMonth - 1]} ${currentYear} — Décomposition des discounts, gifting et coûts par catégorie`}
         actions={
-          <div className="flex items-center gap-2">
-            <select
-              className="text-sm border border-zinc-200 rounded-lg px-3 py-1.5 bg-white"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-            >
-              {MONTHS.map((m, i) => (
-                <option key={i} value={i + 1}>{m}</option>
-              ))}
-            </select>
-            <select
-              className="text-sm border border-zinc-200 rounded-lg px-3 py-1.5 bg-white"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-            >
-              <option value={2025}>2025</option>
-              <option value={2026}>2026</option>
-            </select>
-            <Button variant="secondary" size="sm" onClick={handleSync} disabled={syncing}>
-              {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              {syncing ? "Sync..." : "Sync Shopify"}
-            </Button>
-          </div>
+          <Button variant="secondary" size="sm" onClick={handleSync} disabled={syncing}>
+            {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {syncing ? "Sync..." : "Sync Shopify"}
+          </Button>
         }
       />
 
@@ -353,7 +334,7 @@ export default function GenerositePage() {
                 changeLabel={`${Math.round((data.orders_with_discount / data.total_orders) * 100)}% des commandes`}
               />
               <KPICard
-                label={`CA ${MONTHS[selectedMonth - 1]}`}
+                label={`CA ${MONTHS[currentMonth - 1]}`}
                 value={formatCurrency(data.total_revenue)}
                 icon={<Gift className="h-5 w-5" />}
               />
