@@ -232,10 +232,11 @@ export async function POST() {
     }
 
     // 5. Compute generosity + breakdown per month
+    // EXCLUDES retours (CS-Retour) — these are SAV replacements, not real generosity
     const updateErrors: string[] = []
     for (let m = 1; m <= 12; m++) {
       const a = aggByMonth[m]
-      const totalGenerosite = a.discounts + a.prix_barres
+      const totalGenerosite = a.discounts + a.prix_barres - a.retours
       const pct = a.ca_brut > 0
         ? Math.round((totalGenerosite / a.ca_brut) * 10000) / 100
         : 0

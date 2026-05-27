@@ -672,7 +672,7 @@ export default function ObjectivesPage() {
         if (d.codes_promo) lines.push({ label: "Codes promo", amount: d.codes_promo, bg: "bg-amber-400" })
         if (d.auto_discounts) lines.push({ label: "Auto discounts", amount: d.auto_discounts, bg: "bg-cyan-400" })
         if (d.prix_barres) lines.push({ label: "Prix barres", amount: d.prix_barres, bg: "bg-pink-400" })
-        if (d.retours) lines.push({ label: "Retours (SAV)", amount: d.retours, bg: "bg-red-400" })
+        const retours = d.retours || 0
         return (
           <div
             className="fixed z-[9999] w-72 bg-zinc-900 text-white text-xs rounded-lg shadow-2xl p-3 pointer-events-none"
@@ -709,6 +709,18 @@ export default function ObjectivesPage() {
                 />
               ))}
             </div>
+            {retours > 0 && (
+              <div className="mt-2 pt-2 border-t border-zinc-700 flex items-center justify-between text-zinc-500">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-zinc-600" />
+                  <span>Retours (SAV) — exclu</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span>{formatCurrency(retours)}</span>
+                  <span className="w-12 text-right">{(retours / caBrut * 100).toFixed(1)}%</span>
+                </div>
+              </div>
+            )}
           </div>
         )
       })()}
