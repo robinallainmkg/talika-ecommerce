@@ -79,25 +79,26 @@ const MONTHS_FR = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ]
 
-// ─── Labels for code types (matching generosite categories) ─────
-const CODE_TYPE_LABELS: Record<string, string> = {
-  site: "Code site",
-  internal: "Interne",
-  gifting: "Gifting (MKG)",
-  welcome: "Welcome / Générique",
-  offre_site: "Offre Site / Promo",
-  presse: "Presse / RP",
-  auto_discount: "Réduction auto",
-  logistique: "Logistique",
-  service_client: "Service Client",
-  autre: "Autre",
-  influencer: "Influenceur",
+// ─── Categories matching the Générosité page exactly ─────
+const GENEROSITE_CATEGORIES: Record<string, string> = {
+  influence: "Codes Influenceurs",
+  gifting: "Dotations (MKG)",
+  welcome: "Codes Génériques (Welcome)",
+  offre_site: "Offres Site (promos)",
+  auto_discounts: "Remises automatiques (volume)",
+  logistique: "Erreurs Logistiques (LA Poste)",
+  service_client: "Retours / SAV",
+  autre: "Autres codes",
 }
 
-// Categories available for classifying unassigned codes (excludes "influencer")
-const CLASSIFY_CATEGORIES = Object.entries(CODE_TYPE_LABELS).filter(
-  ([key]) => key !== "influencer"
-)
+// Labels for displaying code types in the codes table
+const CODE_TYPE_LABELS: Record<string, string> = {
+  ...GENEROSITE_CATEGORIES,
+  influencer: "Influenceur",
+  site: "Code site",
+  internal: "Interne",
+  presse: "Presse / RP",
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────
 function getType(inf: Influencer): string {
@@ -132,8 +133,8 @@ export default function InfluencersPage() {
   const [influencers, setInfluencers] = useState<Influencer[]>([])
   const [allCodes, setAllCodes] = useState<CodeWithInfluencer[]>([])
   const [unassignedCodes, setUnassignedCodes] = useState<UnassignedCode[]>([])
-  const [assigningCode, setAssigningCode] = useState<string | null>(null)
-  const [assignTarget, setAssignTarget] = useState<string>("")
+  const [codeSelections, setCodeSelections] = useState<Record<string, { category: string; influencerId?: string }>>({})
+  const [savingCodes, setSavingCodes] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedYear, setSelectedYear] = useState(2026)
@@ -351,66 +352,72 @@ export default function InfluencersPage() {
     }
   }
 
+  // Re-assign a single code (used in the existing codes table)
   async function handleQuickAssign(code: string, influencerId: string) {
     if (!influencerId) return
-    setAssigningCode(code)
-    try {
-      const discountMatch = code.match(/(\d+)$/)
-      const discount = discountMatch ? parseInt(discountMatch[1]) : 15
-      const res = await fetch("/api/influencers/codes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ influencer_id: influencerId, code, discount_percent: discount }),
-      })
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      setAssigningCode(null)
-      setAssignTarget("")
-      await fetchData()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Erreur")
-      setAssigningCode(null)
-    }
+    const discountMatch = code.match(/(\d+)$/)
+    const discount = discountMatch ? parseInt(discountMatch[1]) : 15
+    const res = await fetch("/api/influencers/codes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ influencer_id: influencerId, code, discount_percent: discount }),
+    })
+    const json = await res.json()
+    if (json.error) alert(json.error)
+    else await fetchData()
   }
 
   async function handleMarkAsCategory(code: string, category: string) {
-    setAssigningCode(code)
-    try {
-      const discountMatch = code.match(/(\d+)$/)
-      const discount = discountMatch ? parseInt(discountMatch[1]) : 0
-      const res = await fetch("/api/influencers/codes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, discount_percent: discount, code_type: category }),
-      })
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      setAssigningCode(null)
-      await fetchData()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Erreur")
-      setAssigningCode(null)
-    }
+    const discountMatch = code.match(/(\d+)$/)
+    const discount = discountMatch ? parseInt(discountMatch[1]) : 0
+    const res = await fetch("/api/influencers/codes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, discount_percent: discount, code_type: category }),
+    })
+    const json = await res.json()
+    if (json.error) alert(json.error)
+    else await fetchData()
   }
 
-  async function handleClassifyCode(code: string, category: string) {
-    setAssigningCode(code)
-    try {
-      const discountMatch = code.match(/(\d+)$/)
-      const discount = discountMatch ? parseInt(discountMatch[1]) : 0
-      const res = await fetch("/api/influencers/codes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, discount_percent: discount, code_type: category }),
-      })
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      setAssigningCode(null)
-      await fetchData()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Erreur")
-      setAssigningCode(null)
+  // Batch save for unassigned codes classification
+  async function handleSaveClassifications() {
+    const entries = Object.entries(codeSelections).filter(
+      (entry) => entry[1].category && (entry[1].category !== "influence" || entry[1].influencerId)
+    )
+    if (entries.length === 0) return
+
+    setSavingCodes(true)
+    const errors: string[] = []
+    const saved: string[] = []
+
+    for (const [code, sel] of entries) {
+      try {
+        const discountMatch = code.match(/(\d+)$/)
+        const discount = discountMatch ? parseInt(discountMatch[1]) : 0
+        const body = sel.category === "influence"
+          ? { code, influencer_id: sel.influencerId, discount_percent: discount || 15 }
+          : { code, discount_percent: discount, code_type: sel.category }
+        const res = await fetch("/api/influencers/codes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+        const json = await res.json()
+        if (json.error) { errors.push(code + ": " + json.error) }
+        else { saved.push(code) }
+      } catch (err) {
+        errors.push(code + ": " + (err instanceof Error ? err.message : "Erreur"))
+      }
     }
+
+    if (errors.length > 0) alert("Erreurs: " + errors.join(", "))
+
+    // Remove saved codes from local list without full page refresh
+    const savedSet = new Set(saved)
+    setUnassignedCodes((prev) => prev.filter((uc) => !savedSet.has(uc.code)))
+    setCodeSelections({})
+    setSavingCodes(false)
   }
 
   async function handleToggleCode(codeId: string) {
@@ -877,58 +884,90 @@ export default function InfluencersPage() {
                         <tr className="border-b-2 border-zinc-300">
                           <th className="pb-3 text-left font-medium text-zinc-500">Code</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">Commandes</th>
-                          <th className="pb-3 text-right font-medium text-zinc-500">CA genere</th>
+                          <th className="pb-3 text-right font-medium text-zinc-500">CA</th>
                           <th className="pb-3 text-right font-medium text-zinc-500">Remises</th>
-                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[200px]">Attribuer à influenceur</th>
-                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[150px]">Ou catégoriser</th>
+                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[200px]">Catégorie générosité</th>
+                          <th className="pb-3 text-left font-medium text-zinc-500 min-w-[200px]">Influenceur</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {unassignedCodes.map((uc) => (
-                          <tr key={uc.code} className="border-b border-zinc-100 hover:bg-amber-50/30 transition-colors">
+                        {unassignedCodes.map((uc) => {
+                          const sel = codeSelections[uc.code]
+                          return (
+                          <tr key={uc.code} className={
+                            sel?.category
+                              ? "border-b border-zinc-100 bg-emerald-50/40"
+                              : "border-b border-zinc-100 hover:bg-amber-50/30 transition-colors"
+                          }>
                             <td className="py-2.5">
-                              <Badge variant="warning" className="font-mono">{uc.code}</Badge>
+                              <Badge variant={sel?.category ? "success" : "warning"} className="font-mono">{uc.code}</Badge>
                             </td>
                             <td className="py-2.5 text-right font-medium text-zinc-700">{uc.orders}</td>
                             <td className="py-2.5 text-right font-medium text-zinc-700">{formatCurrency(uc.revenue)}</td>
                             <td className="py-2.5 text-right text-zinc-500">{formatCurrency(uc.discount)}</td>
                             <td className="py-2.5">
                               <select
-                                className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                value={assigningCode === uc.code ? assignTarget : ""}
+                                className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
+                                value={sel?.category || ""}
                                 onChange={(e) => {
-                                  setAssigningCode(uc.code)
-                                  setAssignTarget(e.target.value)
-                                  if (e.target.value) handleQuickAssign(uc.code, e.target.value)
+                                  setCodeSelections((prev) => ({
+                                    ...prev,
+                                    [uc.code]: { category: e.target.value, influencerId: undefined },
+                                  }))
                                 }}
                               >
-                                <option value="">Choisir un influenceur...</option>
-                                {influencers.map((inf) => (
-                                  <option key={inf.id} value={inf.id}>{inf.name}</option>
+                                <option value="">Choisir...</option>
+                                {Object.entries(GENEROSITE_CATEGORIES).map(([key, label]) => (
+                                  <option key={key} value={key}>{label}</option>
                                 ))}
                               </select>
                             </td>
                             <td className="py-2.5">
-                              <select
-                                className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600 focus:border-zinc-900 focus:outline-none"
-                                value=""
-                                onChange={(e) => {
-                                  if (e.target.value) handleClassifyCode(uc.code, e.target.value)
-                                }}
-                              >
-                                <option value="">Catégoriser...</option>
-                                {CLASSIFY_CATEGORIES.map(function(entry) {
-                                  return (
-                                    <option key={entry[0]} value={entry[0]}>{entry[1]}</option>
-                                  )
-                                })}
-                              </select>
+                              {sel?.category === "influence" ? (
+                                <select
+                                  className="w-full rounded-md border-2 border-blue-300 bg-blue-50 px-2 py-1.5 text-sm text-zinc-700 focus:border-blue-500 focus:outline-none"
+                                  value={sel?.influencerId || ""}
+                                  onChange={(e) => {
+                                    setCodeSelections((prev) => ({
+                                      ...prev,
+                                      [uc.code]: { ...prev[uc.code], influencerId: e.target.value },
+                                    }))
+                                  }}
+                                >
+                                  <option value="">Choisir l&apos;influenceur...</option>
+                                  {influencers.map((inf) => (
+                                    <option key={inf.id} value={inf.id}>{inf.name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="text-xs text-zinc-400 px-2">—</span>
+                              )}
                             </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
+                  {/* Save button */}
+                  {Object.keys(codeSelections).length > 0 && (
+                    <div className="mt-4 flex items-center justify-between border-t pt-4">
+                      <p className="text-sm text-zinc-500">
+                        {Object.values(codeSelections).filter((s) => s.category && (s.category !== "influence" || s.influencerId)).length} code(s) prêt(s) à enregistrer
+                      </p>
+                      <Button
+                        onClick={handleSaveClassifications}
+                        disabled={savingCodes}
+                        className="gap-2"
+                      >
+                        {savingCodes ? (
+                          <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</>
+                        ) : (
+                          <><Save className="h-4 w-4" /> Enregistrer</>
+                        )}
+                      </Button>
+                    </div>
+                  )}
                   </>
                   )}
                 </CardContent>
@@ -1058,12 +1097,9 @@ export default function InfluencersPage() {
                                   ))}
                                 </optgroup>
                                 <optgroup label="Catégorie générosité">
-                                  <option value="cat:gifting">Gifting (MKG)</option>
-                                  <option value="cat:welcome">Welcome / Générique</option>
-                                  <option value="cat:offre_site">Offre Site / Promo</option>
-                                  <option value="cat:logistique">Logistique (LA Poste)</option>
-                                  <option value="cat:service_client">Service Client (CS)</option>
-                                  <option value="cat:autre">Autre</option>
+                                  {Object.entries(GENEROSITE_CATEGORIES).filter(([k]) => k !== "influence").map(([key, label]) => (
+                                    <option key={key} value={"cat:" + key}>{label}</option>
+                                  ))}
                                 </optgroup>
                               </select>
                             )}
