@@ -5,21 +5,16 @@ import { supabase } from "@/lib/supabase/client"
 import { Header } from "@/components/layout/header"
 import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { AgentInsightCard } from "@/components/ui/agent-insight-card"
 import { LineChart } from "@/components/charts/line-chart"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { formatCurrency, formatNumber } from "@/lib/utils"
 import { DataInsights } from "@/components/data-insights"
-import type { AgentInsight } from "@/types"
 import Link from "next/link"
 import {
   ShoppingCart,
   TrendingUp,
   Users,
-  Bot,
   CheckCircle2,
-  XCircle,
   Loader2,
   Calendar,
   FolderKanban,
@@ -47,20 +42,6 @@ const projectStatusLabels: Record<string, string> = {
 }
 
 // --- Supabase row types ---
-
-interface AgentProposalRow {
-  id: string
-  agent_type: string
-  title: string
-  description: string
-  severity: "info" | "warning" | "success" | "critical"
-  category: string
-  actionable: boolean
-  suggested_action?: string
-  status: "pending" | "approved" | "rejected"
-  created_at: string
-  data?: Record<string, unknown>
-}
 
 interface ProjectRow {
   id: string
@@ -116,25 +97,7 @@ interface DailyChartData {
   orders: number
 }
 
-// --- Helpers ---
-
-function proposalToInsight(row: AgentProposalRow): AgentInsight {
-  return {
-    id: row.id,
-    agentType: (row.agent_type || "coach") as AgentInsight["agentType"],
-    title: row.title,
-    description: row.description,
-    severity: row.severity,
-    category: row.category,
-    actionable: row.actionable,
-    suggestedAction: row.suggested_action,
-    createdAt: row.created_at,
-    data: row.data,
-  }
-}
-
 export default function DashboardPage() {
-  const [proposals, setProposals] = useState<AgentProposalRow[]>([])
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [events, setEvents] = useState<CalendarEventRow[]>([])
   const [shopifyAnalytics, setShopifyAnalytics] = useState<ShopifyAnalytics | null>(null)
@@ -142,18 +105,12 @@ export default function DashboardPage() {
   const [routine, setRoutine] = useState<RoutineData | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
 
     // Fetch lightweight data in parallel
-    const [proposalsRes, projectsRes, eventsRes, statsRes, routineRes] = await Promise.all([
-      supabase
-        .from("agent_proposals")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(5),
+    const [projectsRes, eventsRes, statsRes, routineRes] = await Promise.all([
       supabase
         .from("projects")
         .select("*")
@@ -169,7 +126,6 @@ export default function DashboardPage() {
       fetch("/api/routine").then(r => r.json()).catch(() => null),
     ])
 
-    if (proposalsRes.data) setProposals(proposalsRes.data)
     if (projectsRes.data) setProjects(projectsRes.data)
     if (eventsRes.data) setEvents(eventsRes.data)
 
@@ -211,23 +167,6 @@ export default function DashboardPage() {
       setSyncing(false)
     }
   }
-
-  async function handleProposalAction(id: string, action: "approved" | "rejected") {
-    setActionLoading(id)
-    const { error } = await supabase
-      .from("agent_proposals")
-      .update({ status: action })
-      .eq("id", id)
-
-    if (!error) {
-      setProposals((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, status: action } : p))
-      )
-    }
-    setActionLoading(null)
-  }
-
-  const pendingProposals = proposals.filter((p) => p.status === "pending")
 
   return (
     <div>
@@ -348,112 +287,36 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Charts + Insights */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* Revenue Chart */}
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Évolution du CA</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {chartData.length > 0 ? (
-                <LineChart
-                  data={chartData}
-                  xKey="date"
-                  lines={[
-                    { key: "revenue", color: "#18181b", name: "CA (€)" },
-                    { key: "orders", color: "#a1a1aa", name: "Commandes" },
-                  ]}
-                  height={280}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-[280px] text-zinc-400 text-sm">
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                      Chargement...
-                    </>
-                  ) : (
-                    "Aucune donnée de commandes disponible. Lancez une sync Shopify."
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Agent Insights -- real data from Supabase */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Bot className="h-5 w-5" />
-                  Insights Agents
-                </CardTitle>
-                <Badge variant="info">
-                  {loading ? "…" : `${pendingProposals.length} en attente`}
-                </Badge>
+        {/* Revenue Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Évolution du CA</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {chartData.length > 0 ? (
+              <LineChart
+                data={chartData}
+                xKey="date"
+                lines={[
+                  { key: "revenue", color: "#18181b", name: "CA (€)" },
+                  { key: "orders", color: "#a1a1aa", name: "Commandes" },
+                ]}
+                height={280}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-[280px] text-zinc-400 text-sm">
+                {loading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    Chargement...
+                  </>
+                ) : (
+                  "Aucune donnée de commandes disponible. Lancez une sync Shopify."
+                )}
               </div>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center py-8 text-zinc-400">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                  Chargement…
-                </div>
-              ) : proposals.length === 0 ? (
-                <p className="text-sm text-zinc-500 py-4 text-center">
-                  Aucune proposition d&apos;agent pour le moment.
-                </p>
-              ) : (
-                <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
-                  {proposals.map((proposal) => (
-                    <div key={proposal.id}>
-                      <AgentInsightCard insight={proposalToInsight(proposal)} />
-                      {proposal.status === "pending" && (
-                        <div className="mt-1.5 flex items-center gap-2 pl-8">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 h-7 text-xs"
-                            disabled={actionLoading === proposal.id}
-                            onClick={() => handleProposalAction(proposal.id, "approved")}
-                          >
-                            {actionLoading === proposal.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                            ) : (
-                              <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                            )}
-                            Approuver
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 text-xs"
-                            disabled={actionLoading === proposal.id}
-                            onClick={() => handleProposalAction(proposal.id, "rejected")}
-                          >
-                            <XCircle className="h-3.5 w-3.5 mr-1" />
-                            Rejeter
-                          </Button>
-                        </div>
-                      )}
-                      {proposal.status === "approved" && (
-                        <div className="mt-1 pl-8">
-                          <Badge variant="success">Approuvé</Badge>
-                        </div>
-                      )}
-                      {proposal.status === "rejected" && (
-                        <div className="mt-1 pl-8">
-                          <Badge variant="default">Rejeté</Badge>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Upcoming Calendar Events */}
         <Card>

@@ -842,18 +842,27 @@ export default function InfluencersPage() {
             </Card>
 
             {/* ── Codes Non Attribués ──────────────────────── */}
-            {unassignedCodes.length > 0 && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <Tag className="h-5 w-5 text-amber-500" />
-                    Codes promo non attribues
+                    Codes promo non attribués
                   </CardTitle>
-                  <Badge variant="warning">{unassignedCodes.length} a attribuer</Badge>
+                  {unassignedCodes.length > 0 ? (
+                    <Badge variant="warning">{unassignedCodes.length} à attribuer</Badge>
+                  ) : (
+                    <Badge variant="success">Tout est catégorisé</Badge>
+                  )}
                 </CardHeader>
                 <CardContent>
+                  {unassignedCodes.length === 0 ? (
+                    <p className="text-sm text-zinc-500 py-4 text-center">
+                      Tous les codes promo Shopify sont attribués ou catégorisés. Les nouveaux codes apparaîtront ici automatiquement après chaque sync.
+                    </p>
+                  ) : (
+                  <>
                   <p className="text-sm text-zinc-500 mb-4">
-                    Ces codes generent des ventes sur Shopify mais ne sont pas encore associes a un influenceur ou classes comme code site/interne.
+                    Ces codes génèrent des ventes sur Shopify mais ne sont pas encore associés à un influenceur ou classés comme code site/interne.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -906,9 +915,10 @@ export default function InfluencersPage() {
                       </tbody>
                     </table>
                   </div>
+                  </>
+                  )}
                 </CardContent>
               </Card>
-            )}
 
             {/* ── Codes Promo Section ───────────────────────── */}
             <Card>
