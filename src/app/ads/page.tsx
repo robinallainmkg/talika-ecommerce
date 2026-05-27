@@ -22,6 +22,7 @@ import {
   Sparkles,
   Check,
   AlertCircle,
+  Package,
 } from "lucide-react"
 
 interface Campaign {
@@ -129,6 +130,21 @@ export default function MetaAdsPage() {
   const [mappingLoading, setMappingLoading] = useState(false)
   const [manualProduct, setManualProduct] = useState<Record<string, string>>({})
 
+  // Product performance aggregation
+  interface ProductPerf {
+    name: string
+    spend: number
+    purchases: number
+    roas: number
+    cpa: number
+    impressions: number
+    clicks: number
+    ctr: number
+    budgetShare: number
+    adCount: number
+  }
+  const [productPerf, setProductPerf] = useState<ProductPerf[]>([])
+
   const fetchMappings = useCallback(async () => {
     setMappingLoading(true)
     try {
@@ -171,8 +187,15 @@ export default function MetaAdsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch("/api/meta")
-      const json = await res.json()
+      const [metaRes, mapRes] = await Promise.all([
+        fetch("/api/meta"),
+        fetch("/api/meta/ad-mappings"),
+      ])
+      const json = await metaRes.json()
+      const mapJson = await mapRes.json()
+
+      const adsData: Ad[] = json.ads?.ads || []
+      const summaryData: MonthlySummary | null = json.monthly?.summary || null
 
       if (json.campaigns?.campaigns) {
         setCampaigns(json.campaigns.campaigns)
@@ -180,14 +203,54 @@ export default function MetaAdsPage() {
       if (json.adsets?.adsets) {
         setAdsets(json.adsets.adsets)
       }
-      if (json.ads?.ads) {
-        setAds(json.ads.ads)
-      }
-      if (json.monthly?.summary) {
-        setSummary(json.monthly.summary)
+      setAds(adsData)
+      if (summaryData) {
+        setSummary(summaryData)
       }
       if (json.monthly?.trend) {
         setTrend(json.monthly.trend)
+      }
+      setMappingData(mapJson)
+
+      // ── Compute product-level performance ──
+      if (adsData.length > 0 && summaryData) {
+        const mappedAds = new Map<string, string>()
+        for (const m of [...(mapJson.mapped || []), ...(mapJson.autoMappable || [])]) {
+          mappedAds.set(m.ad_id, m.product_title || m.suggested_product || "")
+        }
+
+        const perfMap: Record<string, { spend: number; purchases: number; revenue: number; impressions: number; clicks: number; adCount: number }> = {}
+        const totalAdSpend = adsData.reduce((s: number, a: Ad) => s + a.spend, 0)
+
+        for (const ad of adsData) {
+          const product = mappedAds.get(ad.ad_id) || "Non associé"
+          if (!perfMap[product]) {
+            perfMap[product] = { spend: 0, purchases: 0, revenue: 0, impressions: 0, clicks: 0, adCount: 0 }
+          }
+          perfMap[product].spend += ad.spend
+          perfMap[product].purchases += ad.purchases
+          perfMap[product].revenue += ad.spend * ad.roas
+          perfMap[product].impressions += ad.impressions
+          perfMap[product].clicks += ad.clicks
+          perfMap[product].adCount += 1
+        }
+
+        const perfList: ProductPerf[] = Object.entries(perfMap)
+          .map(([name, data]) => ({
+            name,
+            spend: data.spend,
+            purchases: data.purchases,
+            roas: data.spend > 0 ? data.revenue / data.spend : 0,
+            cpa: data.purchases > 0 ? data.spend / data.purchases : 0,
+            impressions: data.impressions,
+            clicks: data.clicks,
+            ctr: data.impressions > 0 ? (data.clicks / data.impressions) * 100 : 0,
+            budgetShare: totalAdSpend > 0 ? (data.spend / totalAdSpend) * 100 : 0,
+            adCount: data.adCount,
+          }))
+          .sort((a, b) => b.spend - a.spend)
+
+        setProductPerf(perfList)
       }
     } catch (err) {
       console.error("Failed to fetch Meta data:", err)
@@ -232,7 +295,7 @@ export default function MetaAdsPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        <DataInsights page="acquisition" />
+        <DataInsights page="ads" />
 
         {/* Sync error */}
         {syncError && (
@@ -288,6 +351,100 @@ export default function MetaAdsPage() {
               pour afficher les KPIs.
             </p>
           </div>
+        )}
+
+        {/* Product Performance Card */}
+        {!loading && productPerf.length > 0 && productPerf.some((p) => p.name !== "Non associé") && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5 text-violet-500" />
+                  Performance par produit
+                </CardTitle>
+                <Badge variant="info">
+                  {productPerf.filter((p) => p.name !== "Non associé").length} produits
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Visual budget allocation bar */}
+              <div className="mb-4">
+                <p className="text-xs font-medium text-zinc-500 mb-2">Répartition du budget</p>
+                <div className="flex rounded-lg overflow-hidden h-6 bg-zinc-100">
+                  {productPerf.filter((p) => p.name !== "Non associé" && p.budgetShare > 2).map((p, i) => {
+                    const colors = ["bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500", "bg-cyan-500", "bg-orange-500", "bg-pink-500"]
+                    return (
+                      <div
+                        key={p.name}
+                        className={`${colors[i % colors.length]} flex items-center justify-center text-[10px] font-medium text-white transition-all`}
+                        style={{ width: `${Math.max(p.budgetShare, 3)}%` }}
+                        title={`${p.name}: ${Math.round(p.budgetShare)}%`}
+                      >
+                        {p.budgetShare > 10 ? `${p.name.substring(0, 12)} ${Math.round(p.budgetShare)}%` : ""}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-zinc-300">
+                      <th className="pb-3 text-left font-medium text-zinc-500 min-w-[160px]">Produit</th>
+                      <th className="pb-3 text-right font-medium text-zinc-500 min-w-[90px]">Budget</th>
+                      <th className="pb-3 text-right font-medium text-zinc-500 min-w-[60px]">% Budget</th>
+                      <th className="pb-3 text-right font-medium text-zinc-500 min-w-[70px]">ROAS</th>
+                      <th className="pb-3 text-right font-medium text-zinc-500 min-w-[70px]">Achats</th>
+                      <th className="pb-3 text-right font-medium text-zinc-500 min-w-[80px]">CPA</th>
+                      <th className="pb-3 text-right font-medium text-zinc-500 min-w-[70px]">CTR</th>
+                      <th className="pb-3 text-center font-medium text-zinc-500 min-w-[60px]">Annonces</th>
+                      <th className="pb-3 text-center font-medium text-zinc-500 min-w-[80px]">Verdict</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productPerf.map((p) => {
+                      const verdict = p.name === "Non associé"
+                        ? { label: "—", variant: "default" as const }
+                        : p.roas >= 5
+                        ? { label: "Scaler", variant: "success" as const }
+                        : p.roas >= 3
+                        ? { label: "Maintenir", variant: "info" as const }
+                        : p.roas >= 2
+                        ? { label: "Optimiser", variant: "warning" as const }
+                        : p.purchases === 0
+                        ? { label: "Couper", variant: "danger" as const }
+                        : { label: "Tester", variant: "danger" as const }
+                      return (
+                        <tr key={p.name} className={`border-b border-zinc-100 hover:bg-zinc-50/50 transition-colors ${p.name === "Non associé" ? "opacity-50" : ""}`}>
+                          <td className="py-2.5">
+                            <span className="font-medium text-zinc-900">{p.name}</span>
+                          </td>
+                          <td className="py-2.5 text-right text-zinc-700">{formatCurrency(p.spend)}</td>
+                          <td className="py-2.5 text-right text-zinc-500">{Math.round(p.budgetShare)}%</td>
+                          <td className="py-2.5 text-right">
+                            <Badge variant={p.roas >= 5 ? "success" : p.roas >= 3 ? "info" : p.roas >= 2 ? "warning" : p.roas > 0 ? "danger" : "default"}>
+                              {p.roas.toFixed(1)}x
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 text-right text-zinc-700">{p.purchases}</td>
+                          <td className="py-2.5 text-right text-zinc-600">
+                            {p.cpa > 0 ? formatCurrency(p.cpa) : "—"}
+                          </td>
+                          <td className="py-2.5 text-right text-zinc-600">{p.ctr.toFixed(2)}%</td>
+                          <td className="py-2.5 text-center text-zinc-500">{p.adCount}</td>
+                          <td className="py-2.5 text-center">
+                            <Badge variant={verdict.variant}>{verdict.label}</Badge>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Ad Groups (Adsets) Breakdown Table */}

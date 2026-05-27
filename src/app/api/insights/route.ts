@@ -231,6 +231,190 @@ export async function GET(request: Request) {
       }
     }
 
+    // ── Meta Ads insights (deep product-level analysis) ──
+    if (page === "ads" || page === "all") {
+      // Load ads data + product mappings
+      const [adsCache, mappingsRes, monthlyCache] = await Promise.all([
+        supabase.from("data_cache").select("data").eq("key", `meta_ads_${year}_${month}`).single(),
+        supabase.from("ad_product_mappings").select("ad_id, product_title"),
+        supabase.from("data_cache").select("data").eq("key", `meta_monthly_${year}_${month}`).single(),
+      ])
+
+      const metaAds: Array<{ ad_id: string; ad_name: string; spend: number; purchases: number; roas: number; impressions: number; clicks: number; ctr: number; cpc: number }> = (adsCache.data?.data as any)?.ads || []
+      const mappingMap = new Map((mappingsRes.data || []).map((m: any) => [m.ad_id, m.product_title]))
+      const metaSummary = (monthlyCache.data?.data as any)?.summary || {}
+      const totalSpend = parseFloat(metaSummary.spend || "0")
+      const totalPurchases = parseInt(metaSummary.purchases || "0", 10)
+
+      if (metaAds.length > 0 && totalSpend > 0) {
+        // ── 1. Aggregate by product ──
+        const productPerf: Record<string, { spend: number; purchases: number; revenue: number; impressions: number; clicks: number; adCount: number; ads: Array<{ name: string; spend: number; roas: number; purchases: number }> }> = {}
+
+        for (const ad of metaAds) {
+          const product = mappingMap.get(ad.ad_id) || "Non associé"
+          if (!productPerf[product]) {
+            productPerf[product] = { spend: 0, purchases: 0, revenue: 0, impressions: 0, clicks: 0, adCount: 0, ads: [] }
+          }
+          productPerf[product].spend += ad.spend
+          productPerf[product].purchases += ad.purchases
+          productPerf[product].revenue += ad.spend * ad.roas // revenue = spend × roas
+          productPerf[product].impressions += ad.impressions
+          productPerf[product].clicks += ad.clicks
+          productPerf[product].adCount += 1
+          productPerf[product].ads.push({ name: ad.ad_name, spend: ad.spend, roas: ad.roas, purchases: ad.purchases })
+        }
+
+        const products = Object.entries(productPerf)
+          .filter(([name]) => name !== "Non associé")
+          .map(([name, data]) => ({
+            name,
+            ...data,
+            roas: data.spend > 0 ? data.revenue / data.spend : 0,
+            cpa: data.purchases > 0 ? data.spend / data.purchases : Infinity,
+            budgetShare: totalSpend > 0 ? (data.spend / totalSpend) * 100 : 0,
+          }))
+          .sort((a, b) => b.spend - a.spend)
+
+        // ── 2. Top performing product ──
+        const bestRoas = [...products].filter((p) => p.spend > totalSpend * 0.05).sort((a, b) => b.roas - a.roas)[0]
+        if (bestRoas && bestRoas.roas > 3) {
+          insights.push({
+            id: "ads-best-product",
+            title: `Top produit : ${bestRoas.name} (ROAS ${bestRoas.roas.toFixed(1)}x)`,
+            description: `${Math.round(bestRoas.spend).toLocaleString("fr-FR")}€ investis (${Math.round(bestRoas.budgetShare)}% du budget) → ${bestRoas.purchases} achats. ${
+              bestRoas.budgetShare < 30
+                ? `Seulement ${Math.round(bestRoas.budgetShare)}% du budget pour le meilleur ROAS — opportunité de scaler ce produit.`
+                : `Bonne allocation de budget sur ce top performer.`
+            }`,
+            severity: "success",
+            category: "product-perf",
+            page: "ads",
+          })
+        }
+
+        // ── 3. Scaling opportunity: high ROAS + low budget share ──
+        const scalingOpps = products.filter((p) => p.roas > 4 && p.budgetShare < 25 && p.purchases >= 3)
+        for (const opp of scalingOpps.slice(0, 2)) {
+          if (opp.name === bestRoas?.name) continue // skip if already mentioned
+          insights.push({
+            id: `ads-scale-${opp.name.replace(/\s/g, "-").toLowerCase()}`,
+            title: `Scaling : ${opp.name} — ${opp.roas.toFixed(1)}x ROAS avec ${Math.round(opp.budgetShare)}% du budget`,
+            description: `Ce produit performe à ${opp.roas.toFixed(1)}x mais ne reçoit que ${Math.round(opp.budgetShare)}% du budget (${Math.round(opp.spend).toLocaleString("fr-FR")}€). Augmenter le budget pourrait multiplier les ${opp.purchases} achats actuels.`,
+            severity: "info",
+            category: "scaling",
+            page: "ads",
+          })
+        }
+
+        // ── 4. Worst product: high spend, low ROAS ──
+        const worstProduct = [...products].filter((p) => p.spend > totalSpend * 0.1).sort((a, b) => a.roas - b.roas)[0]
+        if (worstProduct && worstProduct.roas < 2 && worstProduct.spend > 100) {
+          insights.push({
+            id: "ads-worst-product",
+            title: `${worstProduct.name} : ${Math.round(worstProduct.spend).toLocaleString("fr-FR")}€ dépensés pour seulement ${worstProduct.roas.toFixed(1)}x ROAS`,
+            description: `Ce produit représente ${Math.round(worstProduct.budgetShare)}% du budget avec un ROAS faible. ${
+              worstProduct.purchases === 0
+                ? "Aucun achat — envisagez de couper ces annonces."
+                : `CPA de ${Math.round(worstProduct.cpa).toLocaleString("fr-FR")}€ par achat. Testez de nouvelles créas ou réallouez le budget.`
+            }`,
+            severity: "warning",
+            category: "product-perf",
+            page: "ads",
+          })
+        }
+
+        // ── 5. Ads à couper (spend > 50€, 0 achat) ──
+        const deadAds = metaAds.filter((ad) => ad.spend > 50 && ad.purchases === 0)
+        if (deadAds.length > 0) {
+          const deadSpend = deadAds.reduce((s, a) => s + a.spend, 0)
+          const topDead = deadAds.sort((a, b) => b.spend - a.spend).slice(0, 3)
+          insights.push({
+            id: "ads-dead-spend",
+            title: `${deadAds.length} annonce(s) sans achat = ${Math.round(deadSpend).toLocaleString("fr-FR")}€ de budget gaspillé`,
+            description: `${topDead.map((a) => `"${a.ad_name.substring(0, 30)}…" (${Math.round(a.spend)}€)`).join(", ")}. Ces créas génèrent des impressions mais aucune conversion. Coupez-les ou testez un nouveau visuel.`,
+            severity: "critical",
+            category: "waste",
+            page: "ads",
+          })
+        }
+
+        // ── 6. Creative spread: same product, big ROAS difference between ads ──
+        for (const product of products.slice(0, 5)) {
+          if (product.adCount < 2) continue
+          const adsWithSpend = product.ads.filter((a) => a.spend > 20)
+          if (adsWithSpend.length < 2) continue
+
+          const roasValues = adsWithSpend.map((a) => a.roas)
+          const maxRoas = Math.max(...roasValues)
+          const minRoas = Math.min(...roasValues)
+
+          if (maxRoas > 3 && minRoas < 1.5 && maxRoas - minRoas > 3) {
+            const bestAd = adsWithSpend.find((a) => a.roas === maxRoas)
+            const worstAd = adsWithSpend.find((a) => a.roas === minRoas)
+            insights.push({
+              id: `ads-spread-${product.name.replace(/\s/g, "-").toLowerCase()}`,
+              title: `${product.name} : écart créatif — ROAS de ${minRoas.toFixed(1)}x à ${maxRoas.toFixed(1)}x`,
+              description: `La meilleure créa fait ${maxRoas.toFixed(1)}x ROAS${bestAd ? ` ("${bestAd.name.substring(0, 25)}…")` : ""} vs ${minRoas.toFixed(1)}x pour la pire${worstAd ? ` ("${worstAd.name.substring(0, 25)}…")` : ""}. Coupez les mauvaises créas et dupliquez le format gagnant.`,
+              severity: "warning",
+              category: "creative",
+              page: "ads",
+            })
+            break // only show 1 spread insight
+          }
+        }
+
+        // ── 7. CPA vs AOV analysis ──
+        const currentAOV = currentOrders.length > 0 ? currentRevenue / currentOrders.length : 0
+        if (currentAOV > 0) {
+          const globalCPA = totalPurchases > 0 ? totalSpend / totalPurchases : 0
+          if (globalCPA > currentAOV * 0.5) {
+            insights.push({
+              id: "ads-cpa-vs-aov",
+              title: `CPA Meta (${Math.round(globalCPA)}€) vs Panier moyen (${Math.round(currentAOV)}€)`,
+              description: globalCPA > currentAOV
+                ? `Le CPA dépasse le panier moyen — chaque acquisition coûte plus qu'elle ne rapporte en première commande. Réduisez le CPA ou augmentez le panier moyen (bundles, upsell).`
+                : `CPA à ${Math.round((globalCPA / currentAOV) * 100)}% du panier moyen. ${
+                  globalCPA > currentAOV * 0.7
+                    ? "Marge serrée — optimisez les audiences ou augmentez l'AOV."
+                    : "Ratio sain mais surveillez l'évolution."
+                }`,
+              severity: globalCPA > currentAOV ? "critical" : globalCPA > currentAOV * 0.7 ? "warning" : "info",
+              category: "profitability",
+              page: "ads",
+            })
+          }
+        }
+
+        // ── 8. Budget concentration analysis ──
+        if (products.length >= 3) {
+          const topProduct = products[0]
+          if (topProduct.budgetShare > 70) {
+            insights.push({
+              id: "ads-concentration",
+              title: `${Math.round(topProduct.budgetShare)}% du budget concentré sur ${topProduct.name}`,
+              description: `Risque de dépendance à un seul produit. Si ce produit sature (fatigue d'audience), le ROAS global chutera. Diversifiez avec des tests sur ${products[1]?.name || "d'autres produits"}.`,
+              severity: "warning",
+              category: "strategy",
+              page: "ads",
+            })
+          }
+        }
+
+        // ── 9. Unmapped ads (can't analyze product perf without mappings) ──
+        const unmappedCount = metaAds.filter((ad) => !mappingMap.has(ad.ad_id)).length
+        if (unmappedCount > 3) {
+          insights.push({
+            id: "ads-unmapped",
+            title: `${unmappedCount} annonces non associées à un produit`,
+            description: `Cliquez "Associer produits" pour lier ces annonces. Sans association, l'analyse par produit est incomplète.`,
+            severity: "info",
+            category: "setup",
+            page: "ads",
+          })
+        }
+      }
+    }
+
     // ── Klaviyo insights (deep order analysis) ──
     if (page === "klaviyo" || page === "all") {
       // Load multiple months for repeat purchase & churn analysis
