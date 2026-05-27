@@ -16,12 +16,14 @@ import {
   Target,
   Radar,
   Gift,
+  Lightbulb,
   Menu,
   X,
 } from "lucide-react"
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Opportunités", href: "/opportunities", icon: Lightbulb },
   { name: "Acquisition", href: "/acquisition", icon: Radar },
 
   { name: "Meta Ads", href: "/ads", icon: Megaphone },
