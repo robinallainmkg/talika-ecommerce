@@ -11,6 +11,7 @@
  * 4. Update objectives generosite rates
  * 5. Sync Klaviyo (campaigns, flows, lists)
  * 6. Sync Google Ads (campaigns + metrics)
+ * 7. Sync Meta Ads (campaigns, adsets, ads, monthly trend)
  *
  * Protected by CRON_SECRET to prevent unauthorized access.
  */
@@ -236,7 +237,27 @@ export async function GET(request: Request) {
       log.push(`Google Ads sync skipped: ${gErr instanceof Error ? gErr.message : "unknown error"}`)
     }
 
-    // ── 7. Log sync result ──
+    // ── 7. Sync Meta Ads (campaigns, adsets, ads, monthly) ──
+    log.push("Syncing Meta Ads...")
+    try {
+      const baseUrl3 = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000"
+      const metaRes = await fetch(`${baseUrl3}/api/meta/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const metaData = await metaRes.json()
+      if (metaData.success) {
+        log.push(`Meta Ads synced: ${metaData.results.campaigns_count} campaigns, ${metaData.results.ads_count} ads, ROAS ${metaData.results.summary?.roas || "—"}`)
+      } else {
+        log.push(`Meta Ads sync warning: ${metaData.error || "unknown"}`)
+      }
+    } catch (metaErr) {
+      log.push(`Meta Ads sync skipped: ${metaErr instanceof Error ? metaErr.message : "unknown error"}`)
+    }
+
+    // ── 8. Log sync result ──
     await supabase.from("data_cache").upsert({
       key: "last_cron_sync",
       data: {

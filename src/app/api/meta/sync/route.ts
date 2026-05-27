@@ -37,7 +37,7 @@ function extractROAS(purchaseRoas?: Array<{ action_type: string; value: string }
   return parseFloat(purchaseRoas[0].value) || 0
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     if (!META_ACCESS_TOKEN || !META_AD_ACCOUNT_ID) {
       return NextResponse.json(
@@ -46,11 +46,14 @@ export async function POST() {
       )
     }
 
+    const body = await request.json().catch(() => ({}))
     const now = new Date()
-    const year = now.getFullYear()
-    const month = now.getMonth() + 1
+    const year = body.year || now.getFullYear()
+    const month = body.month || (now.getMonth() + 1)
+    const isCurrentMonth = year === now.getFullYear() && month === (now.getMonth() + 1)
+    const lastDay = isCurrentMonth ? now.getDate() : new Date(year, month, 0).getDate()
     const since = `${year}-${String(month).padStart(2, "0")}-01`
-    const until = `${year}-${String(month).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+    const until = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`
 
     // --- Fetch campaign-level insights for current month ---
     const campaignData = await metaFetch(`/act_${META_AD_ACCOUNT_ID}/insights`, {

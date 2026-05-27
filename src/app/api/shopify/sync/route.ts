@@ -124,7 +124,7 @@ export async function POST(request: Request) {
         data: products,
         source: "shopify",
         expires_at: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(), // 6h TTL
-      })
+      }, { onConflict: "key" })
 
       results.products = { count: (products.products || []).length }
     }
