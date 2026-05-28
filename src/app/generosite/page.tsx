@@ -183,6 +183,21 @@ export default function GenerositePage() {
     return cat ? cat.discount : 0
   }
 
+  // Get category discount as % of revenue for that month
+  const getCategoryPct = (catId: string, month: number): number => {
+    const d = monthlyData[month]
+    if (!d || d.total_revenue === 0) return 0
+    const cat = d.categories.find((c) => c.id === catId)
+    if (!cat) return 0
+    return Math.round((cat.discount / d.total_revenue) * 1000) / 10
+  }
+
+  // Get month revenue
+  const getMonthRevenue = (month: number): number => {
+    const d = monthlyData[month]
+    return d ? d.total_revenue : 0
+  }
+
   // Filter categories: only show those with at least one non-zero month
   const visibleCategories = CATEGORY_ORDER.filter((catId) => {
     if (!categoryLabels[catId]) return false
@@ -287,15 +302,33 @@ export default function GenerositePage() {
                               </div>
                             </td>
                             {activeMonths.map((m) => {
-                              const val = getCategoryDiscount(catId, m)
+                              const pct = getCategoryPct(catId, m)
+                              const prevPct = m > 1 ? getCategoryPct(catId, m - 1) : 0
+                              const hasPrev = m > 1 && prevPct > 0
+                              const delta = hasPrev ? pct - prevPct : 0
+                              // For generosity: going UP is bad (red), going DOWN is good (green)
+                              const trendColor = !hasPrev || pct === 0
+                                ? "text-zinc-500"
+                                : delta > 0.3
+                                  ? "text-red-600"
+                                  : delta < -0.3
+                                    ? "text-emerald-600"
+                                    : "text-zinc-600"
                               return (
                                 <td
                                   key={m}
-                                  className={`py-2.5 text-right text-zinc-600 ${
+                                  className={`py-2.5 text-right ${trendColor} ${
                                     m === currentMonth ? "bg-zinc-50" : ""
                                   }`}
+                                  title={pct > 0 ? `${formatCurrency(getCategoryDiscount(catId, m))}${hasPrev ? ` (${delta > 0 ? "+" : ""}${delta.toFixed(1)}pts)` : ""}` : ""}
                                 >
-                                  {val > 0 ? formatCurrency(val) : "—"}
+                                  {pct > 0 ? (
+                                    <span className="flex items-center justify-end gap-1">
+                                      {hasPrev && delta > 0.3 && <span className="text-[10px]">▲</span>}
+                                      {hasPrev && delta < -0.3 && <span className="text-[10px]">▼</span>}
+                                      {pct.toFixed(1)}%
+                                    </span>
+                                  ) : "—"}
                                 </td>
                               )
                             })}
@@ -303,9 +336,9 @@ export default function GenerositePage() {
                         )
                       })}
 
-                      {/* Total row */}
+                      {/* Total € row */}
                       <tr className="border-t-2 border-zinc-300 font-bold">
-                        <td className="py-2.5 pr-4 text-zinc-900">Total</td>
+                        <td className="py-2.5 pr-4 text-zinc-900">Total €</td>
                         {activeMonths.map((m) => {
                           const total = getMonthTotal(m)
                           return (
@@ -321,11 +354,32 @@ export default function GenerositePage() {
                         })}
                       </tr>
 
-                      {/* Taux row */}
+                      {/* CA row for context */}
+                      <tr className="text-zinc-400 text-xs">
+                        <td className="py-1.5 pr-4">CA du mois</td>
+                        {activeMonths.map((m) => {
+                          const rev = getMonthRevenue(m)
+                          return (
+                            <td
+                              key={m}
+                              className={`py-1.5 text-right ${
+                                m === currentMonth ? "bg-zinc-50" : ""
+                              }`}
+                            >
+                              {rev > 0 ? formatCurrency(rev) : "—"}
+                            </td>
+                          )
+                        })}
+                      </tr>
+
+                      {/* Taux global row */}
                       <tr className="font-semibold">
-                        <td className="py-2.5 pr-4 text-zinc-500">Taux (%)</td>
+                        <td className="py-2.5 pr-4 text-zinc-500">Taux global (%)</td>
                         {activeMonths.map((m) => {
                           const rate = getMonthRate(m)
+                          const prevRate = m > 1 ? getMonthRate(m - 1) : 0
+                          const hasPrev = m > 1 && prevRate > 0
+                          const delta = hasPrev ? rate - prevRate : 0
                           const isOver = rate > 20
                           return (
                             <td
@@ -335,12 +389,19 @@ export default function GenerositePage() {
                               } ${
                                 rate > 0
                                   ? isOver
-                                    ? "text-red-600"
+                                    ? "text-red-600 font-bold"
                                     : "text-emerald-600"
                                   : "text-zinc-400"
                               }`}
+                              title={hasPrev ? `${delta > 0 ? "+" : ""}${delta.toFixed(1)}pts vs mois précédent` : ""}
                             >
-                              {rate > 0 ? `${rate}%` : "—"}
+                              {rate > 0 ? (
+                                <span className="flex items-center justify-end gap-1">
+                                  {hasPrev && delta > 0.5 && <span className="text-[10px]">▲</span>}
+                                  {hasPrev && delta < -0.5 && <span className="text-[10px]">▼</span>}
+                                  {rate}%
+                                </span>
+                              ) : "—"}
                             </td>
                           )
                         })}
