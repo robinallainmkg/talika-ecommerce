@@ -12,28 +12,38 @@ interface CalendarEvent {
   id: string
   title: string
   description: string | null
-  event_type: "email" | "social" | "ad_launch" | "content" | "meeting" | "launch"
+  event_type: string
   scheduled_at: string
   end_at?: string | null
   channel?: string | null
+  status?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 const typeColors: Record<string, string> = {
+  promo: "bg-amber-100 text-amber-800 border-amber-200",
+  campaign: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  launch: "bg-emerald-100 text-emerald-800 border-emerald-200",
   email: "bg-blue-100 text-blue-800 border-blue-200",
+  newsletter: "bg-blue-100 text-blue-800 border-blue-200",
   social: "bg-pink-100 text-pink-800 border-pink-200",
-  ad_launch: "bg-amber-100 text-amber-800 border-amber-200",
+  influence: "bg-rose-100 text-rose-800 border-rose-200",
+  ad_launch: "bg-orange-100 text-orange-800 border-orange-200",
   content: "bg-purple-100 text-purple-800 border-purple-200",
   meeting: "bg-zinc-100 text-zinc-800 border-zinc-200",
-  launch: "bg-emerald-100 text-emerald-800 border-emerald-200",
 }
 
 const typeLabels: Record<string, string> = {
+  promo: "Promo",
+  campaign: "Campagne",
+  launch: "Lancement",
   email: "Email",
+  newsletter: "Newsletter",
   social: "Social",
+  influence: "Influence",
   ad_launch: "Pub",
   content: "Contenu",
   meeting: "Réunion",
-  launch: "Lancement",
 }
 
 const months = [
@@ -101,7 +111,12 @@ export default function CalendarPage() {
           .order("scheduled_at", { ascending: true })
 
         if (error) throw error
-        setEvents(data || [])
+        // Map metadata.end_date → end_at for multi-day event display
+        const mapped = (data || []).map((e: CalendarEvent & { metadata?: Record<string, unknown> | null }) => ({
+          ...e,
+          end_at: e.end_at || (e.metadata?.end_date as string | undefined) || null,
+        }))
+        setEvents(mapped)
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Erreur lors du chargement"
@@ -135,9 +150,12 @@ export default function CalendarPage() {
 
   // Filter upcoming events (from today onward)
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
-  const upcomingEvents = events.filter(
-    (e) => e.scheduled_at.slice(0, 10) >= todayStr
-  )
+  const upcomingEvents = events
+    .filter((e) => {
+      const endDate = e.end_at?.slice(0, 10) || e.scheduled_at.slice(0, 10)
+      return endDate >= todayStr
+    })
+    .slice(0, 15)
 
   return (
     <div>
@@ -297,10 +315,11 @@ export default function CalendarPage() {
                         )}
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <div className="text-sm text-zinc-600">
-                        {new Date(event.scheduled_at).toLocaleDateString(
-                          "fr-FR"
+                        {new Date(event.scheduled_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                        {event.end_at && event.end_at.slice(0, 10) !== event.scheduled_at.slice(0, 10) && (
+                          <span> → {new Date(event.end_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
                         )}
                       </div>
                       {event.channel && (
