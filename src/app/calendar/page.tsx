@@ -5,7 +5,6 @@ import { Header } from "@/components/layout/header"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { supabase } from "@/lib/supabase/client"
 import { ChevronLeft, ChevronRight, Plus, Loader2 } from "lucide-react"
 
 interface CalendarEvent {
@@ -105,18 +104,10 @@ export default function CalendarPage() {
     async function fetchEvents() {
       try {
         setLoading(true)
-        const { data, error } = await supabase
-          .from("calendar_events")
-          .select("*")
-          .order("scheduled_at", { ascending: true })
-
-        if (error) throw error
-        // Map metadata.end_date → end_at for multi-day event display
-        const mapped = (data || []).map((e: CalendarEvent & { metadata?: Record<string, unknown> | null }) => ({
-          ...e,
-          end_at: e.end_at || (e.metadata?.end_date as string | undefined) || null,
-        }))
-        setEvents(mapped)
+        const res = await fetch("/api/calendar/events")
+        const json = await res.json()
+        if (json.error) throw new Error(json.error)
+        setEvents(json.events || [])
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Erreur lors du chargement"

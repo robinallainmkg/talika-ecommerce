@@ -7,7 +7,6 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { LineChart } from "@/components/charts/line-chart"
 import { formatCurrency, formatNumber } from "@/lib/utils"
-import { supabase } from "@/lib/supabase/client"
 import { DataInsights } from "@/components/data-insights"
 import {
   ShoppingCart,
@@ -42,76 +41,23 @@ export default function SalesPage() {
 
   const now = new Date()
   const currentYear = now.getFullYear()
-  const currentMonth = now.getMonth() + 1
   const monthName = now.toLocaleDateString("fr-FR", { month: "long" })
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      // 1. Analytics KPIs
-      const { data: cacheData } = await supabase
-        .from("data_cache")
-        .select("key, data")
-        .eq("source", "shopify")
-        .in("key", [
-          `shopify_analytics_${currentYear}_${currentMonth}`,
-          `shopify_orders_${currentYear}_${currentMonth}`,
-        ])
-
-      const cacheMap = new Map((cacheData || []).map(e => [e.key, e.data]))
-      const analyticsData = cacheMap.get(`shopify_analytics_${currentYear}_${currentMonth}`)
-      if (analyticsData) {
-        setAnalytics(analyticsData as any)
-      }
-
-      // 2. Build chart + products from orders
-      const ordersData = cacheMap.get(`shopify_orders_${currentYear}_${currentMonth}`) as any
-      const orders = ordersData?.orders || []
-
-      if (orders.length > 0) {
-        // Daily chart data
-        const dailyMap: Record<string, { date: string; revenue: number; orders: number }> = {}
-        for (const o of orders) {
-          const day = o.created_at?.split("T")[0]
-          if (!day) continue
-          if (!dailyMap[day]) dailyMap[day] = { date: day, revenue: 0, orders: 0 }
-          dailyMap[day].revenue += parseFloat(o.total_price || "0")
-          dailyMap[day].orders += 1
-        }
-        setChartData(Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date)))
-
-        // Top products from line_items
-        const productMap: Record<string, ProductSale> = {}
-        for (const o of orders) {
-          for (const item of o.line_items || []) {
-            const title = item.title || "Inconnu"
-            if (!productMap[title]) productMap[title] = { title, quantity: 0, revenue: 0, orders: 0 }
-            productMap[title].quantity += item.quantity || 1
-            productMap[title].revenue += parseFloat(item.price || "0") * (item.quantity || 1)
-            productMap[title].orders += 1
-          }
-        }
-        setTopProducts(Object.values(productMap).sort((a, b) => b.revenue - a.revenue).slice(0, 15))
-
-        // Discount code breakdown
-        const codeMap: Record<string, { code: string; orders: number; revenue: number; discount: number }> = {}
-        for (const o of orders) {
-          for (const dc of o.discount_codes || []) {
-            const code = dc.code || "?"
-            if (!codeMap[code]) codeMap[code] = { code, orders: 0, revenue: 0, discount: 0 }
-            codeMap[code].orders += 1
-            codeMap[code].revenue += parseFloat(o.total_price || "0")
-            codeMap[code].discount += parseFloat(dc.amount || "0")
-          }
-        }
-        setDiscountBreakdown(Object.values(codeMap).sort((a, b) => b.orders - a.orders).slice(0, 15))
-      }
+      const res = await fetch("/api/sales")
+      const json = await res.json()
+      if (json.analytics) setAnalytics(json.analytics)
+      if (json.chartData) setChartData(json.chartData)
+      if (json.topProducts) setTopProducts(json.topProducts)
+      if (json.discountBreakdown) setDiscountBreakdown(json.discountBreakdown)
     } catch (err) {
       console.error("Sales load error:", err)
     } finally {
       setLoading(false)
     }
-  }, [currentYear, currentMonth])
+  }, [])
 
   useEffect(() => { loadData() }, [loadData])
 

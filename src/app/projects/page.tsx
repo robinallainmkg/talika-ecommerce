@@ -5,7 +5,6 @@ import { Header } from "@/components/layout/header"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { supabase } from "@/lib/supabase/client"
 import {
   Plus,
   CheckCircle2,
@@ -525,13 +524,10 @@ export default function ProjectsPage() {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const { data, error: err } = await supabase
-        .from("projects")
-        .select(`*, project_tasks (*)`)
-        .order("created_at", { ascending: false })
-
-      if (err) throw err
-      setProjects(data || [])
+      const res = await fetch("/api/projects")
+      const json = await res.json()
+      if (json.error) throw new Error(json.error)
+      setProjects(json.projects || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors du chargement")
     } finally {
@@ -544,12 +540,14 @@ export default function ProjectsPage() {
   // ─── Task CRUD ─────────────────────────────────────────────
 
   const updateTask = async (taskId: string, field: string, value: string | null) => {
-    const { error: err } = await supabase
-      .from("project_tasks")
-      .update({ [field]: value, updated_at: new Date().toISOString() })
-      .eq("id", taskId)
+    const res = await fetch("/api/projects/tasks", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: taskId, [field]: value }),
+    })
+    const json = await res.json()
 
-    if (!err) {
+    if (json.ok) {
       setProjects(prev => prev.map(p => ({
         ...p,
         project_tasks: p.project_tasks.map(t => t.id === taskId ? { ...t, [field]: value } : t),
@@ -558,10 +556,13 @@ export default function ProjectsPage() {
   }
 
   const deleteTask = async (taskId: string) => {
-    // Also delete subtasks
-    await supabase.from("project_tasks").delete().eq("parent_task_id", taskId)
-    const { error: err } = await supabase.from("project_tasks").delete().eq("id", taskId)
-    if (!err) {
+    const res = await fetch("/api/projects/tasks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: taskId }),
+    })
+    const json = await res.json()
+    if (json.ok) {
       setProjects(prev => prev.map(p => ({
         ...p,
         project_tasks: p.project_tasks.filter(t => t.id !== taskId && t.parent_task_id !== taskId),
@@ -573,13 +574,15 @@ export default function ProjectsPage() {
     const title = newTaskTitle[projectId]?.trim()
     if (!title) return
 
-    const { data, error: err } = await supabase
-      .from("project_tasks")
-      .insert({ project_id: projectId, title, status: "todo", priority: "medium" })
-      .select()
-      .single()
+    const res = await fetch("/api/projects/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId, title }),
+    })
+    const json = await res.json()
+    const data = json.task
 
-    if (!err && data) {
+    if (data) {
       setProjects(prev => prev.map(p =>
         p.id === projectId ? { ...p, project_tasks: [...p.project_tasks, data] } : p
       ))
@@ -596,19 +599,15 @@ export default function ProjectsPage() {
     const parentProject = projects.find(p => p.project_tasks.some(t => t.id === parentId))
     if (!parentProject) return
 
-    const { data, error: err } = await supabase
-      .from("project_tasks")
-      .insert({
-        project_id: parentProject.id,
-        parent_task_id: parentId,
-        title,
-        status: "todo",
-        priority: "medium",
-      })
-      .select()
-      .single()
+    const res = await fetch("/api/projects/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: parentProject.id, parent_task_id: parentId, title }),
+    })
+    const json = await res.json()
+    const data = json.task
 
-    if (!err && data) {
+    if (data) {
       setProjects(prev => prev.map(p =>
         p.id === parentProject.id ? { ...p, project_tasks: [...p.project_tasks, data] } : p
       ))
@@ -664,40 +663,36 @@ export default function ProjectsPage() {
     }
 
     if (dragOverPosition === "inside") {
-      // Make dragged task a subtask of target (only if target is a root task)
       if (!targetTask.parent_task_id) {
-        await supabase
-          .from("project_tasks")
-          .update({ parent_task_id: targetId, updated_at: new Date().toISOString() })
-          .eq("id", draggedTaskId)
+        await fetch("/api/projects/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: draggedTaskId, parent_task_id: targetId }),
+        })
       }
     } else {
-      // Reorder: place above or below target
       const allTasks = projects.find(p => p.id === projectId)?.project_tasks || []
       const sameLevel = allTasks
         .filter(t => t.parent_task_id === targetTask!.parent_task_id)
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
 
-      // Also update parent_task_id if moving between levels
       const newParentId = targetTask.parent_task_id
-
       const targetIdx = sameLevel.findIndex(t => t.id === targetId)
       const insertIdx = dragOverPosition === "above" ? targetIdx : targetIdx + 1
 
-      // Remove dragged from list, insert at position
       const reordered = sameLevel.filter(t => t.id !== draggedTaskId)
       reordered.splice(insertIdx, 0, { ...draggedTask, parent_task_id: newParentId })
 
-      // Batch update sort_order + parent
       for (let i = 0; i < reordered.length; i++) {
-        await supabase
-          .from("project_tasks")
-          .update({
+        await fetch("/api/projects/tasks", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: reordered[i].id,
             sort_order: i,
-            parent_task_id: reordered[i].id === draggedTaskId ? newParentId : reordered[i].parent_task_id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", reordered[i].id)
+            ...(reordered[i].id === draggedTaskId ? { parent_task_id: newParentId } : {}),
+          }),
+        })
       }
     }
 
