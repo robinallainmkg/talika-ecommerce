@@ -140,9 +140,26 @@ export async function GET() {
 
   // Statut du dernier cron + par étape (depuis le log)
   const log: string[] = Array.isArray(cron?.log) ? cron.log : []
+  const frenchify = (l: string): string => {
+    let m: RegExpMatchArray | null
+    if ((m = l.match(/Cached (\d+) orders for (\S+)/))) return `Commandes Shopify : ${m[1]} enregistrées (${m[2]})`
+    if ((m = l.match(/Cached (\d+) discount codes/))) return `Codes promo : ${m[1]} récupérés`
+    if ((m = l.match(/Auto-classified (\d+)/))) return `${m[1]} codes auto-classés (remises automatiques)`
+    if ((m = l.match(/Influencer sales: (\d+) matched orders, (\d+) new products/)))
+      return `Ventes influenceurs : ${m[1]} commandes, ${m[2]} produits`
+    if (/Objectives updated/.test(l)) return "Objectifs : mis à jour ✓"
+    if (/Objectives sync/.test(l)) return "Objectifs : échec du sync"
+    if (/Klaviyo synced/.test(l)) return "Klaviyo : synchronisé ✓"
+    if (/Klaviyo sync/.test(l)) return "Klaviyo : échec du sync"
+    if (/Google Ads synced/.test(l)) return "Google Ads : synchronisé ✓"
+    if (/Google Ads sync/.test(l)) return "Google Ads : échec (Python indisponible sur Vercel — à réécrire en Node)"
+    if (/Meta Ads synced/.test(l)) return "Meta Ads : synchronisé ✓"
+    if (/Meta Ads sync/.test(l)) return "Meta Ads : échec du sync"
+    return l
+  }
   const steps = log
-    .filter((l) => /skipped|cached|matched|error|not valid/i.test(l))
-    .map((l) => ({ line: l, failed: /skipped|error|not valid/i.test(l) }))
+    .filter((l) => /skipped|cached|matched|error|not valid|synced|updated/i.test(l))
+    .map((l) => ({ line: frenchify(l), failed: /skipped|error|not valid/i.test(l) }))
   const cronRanAt = cron?.ran_at || null
   const cronAge = cronRanAt
     ? Math.round((now.getTime() - new Date(cronRanAt).getTime()) / 3600000)
