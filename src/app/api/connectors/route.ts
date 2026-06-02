@@ -215,8 +215,8 @@ export async function GET() {
       status: filled.length >= curM ? "ok" : filled.length > 0 ? "warning" : "broken",
       detail: `${filled.length}/12 mois renseignés. Générosité sync = POST /api/objectives/sync.`,
       doc: {
-        refresh_prompt: "Mets à jour les objectifs 2026 : synchronise la générosité depuis Shopify et vérifie que les CA et media_spent sont à jour",
-        how_to_refresh: "POST /api/objectives/sync met à jour la générosité. Les colonnes ca_2025, ca_2026, media_spent sont saisies manuellement depuis le Reporting Global Excel.",
+        refresh_prompt: "Mets à jour les objectifs 2026 depuis le Reporting Global Excel ci-joint. Colonnes à remplir : ca_2025, ca_2026, media_spent par mois. La générosité est calculée automatiquement depuis Shopify.",
+        how_to_refresh: "Bouton Sync = met à jour la générosité (auto, depuis Shopify). Pour ca_2025, ca_2026, media_spent → donne le Reporting Global Excel à Claude Code.",
       },
       counts: { mois_renseignes: filled.length },
     })
