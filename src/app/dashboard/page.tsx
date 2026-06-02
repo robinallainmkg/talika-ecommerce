@@ -88,7 +88,7 @@ export default function DashboardPage() {
             <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
           </div>
         ) : !data ? (
-          <p className="text-red-600">Impossible de charger l'état des connecteurs.</p>
+          <p className="text-red-600">Impossible de charger l&apos;état des connecteurs.</p>
         ) : (
           <>
             {/* ── Cron banner ── */}
