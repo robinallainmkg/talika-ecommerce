@@ -53,6 +53,7 @@ const SYNC_ENDPOINTS: Record<string, string> = {
   google_ads: "/api/google/sync",
   klaviyo: "/api/klaviyo/sync",
   objectives: "/api/objectives/sync",
+  calendar: "/api/calendar/sync",
 }
 
 function CopyButton({ text, label }: { text: string; label: string }) {

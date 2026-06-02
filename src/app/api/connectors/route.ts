@@ -239,7 +239,7 @@ export async function GET() {
         : `${eventsCount || 0} événements.`,
       doc: {
         refresh_prompt: "Synchronise le calendrier marketing depuis le planning Canva (DAG7BX1zTgs) vers Supabase calendar_events",
-        how_to_refresh: "Donne le lien Canva du planning à Claude Code ou ajoute des événements manuellement via la page Calendrier.",
+        how_to_refresh: "POST /api/calendar/sync (sans body = planning 2026 intégré). Pour mettre à jour depuis le Canva, demande à Claude Code de lire le Canva et sync.",
       },
       counts: { evenements: eventsCount || 0 },
     })
