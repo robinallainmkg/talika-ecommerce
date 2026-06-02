@@ -195,11 +195,9 @@ export default function InfluencersPage() {
       const cacheRes = await fetch("/api/influencers/unassigned")
       const cacheJson = await cacheRes.json()
       if (cacheJson.codes) {
-        const assignedCodeNames = new Set(codes.map((c: CodeWithInfluencer) => c.code.toUpperCase()))
-        const unassigned = (cacheJson.codes as UnassignedCode[]).filter(
-          (c) => !assignedCodeNames.has(c.code.toUpperCase())
-        )
-        setUnassignedCodes(unassigned)
+        // L'endpoint /api/influencers/unassigned exclut déjà les codes catégorisés
+        // (matching normalisé, source de vérité = influencer_codes.code_type).
+        setUnassignedCodes(cacheJson.codes as UnassignedCode[])
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors du chargement")

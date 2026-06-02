@@ -1,431 +1,174 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { supabase } from "@/lib/supabase/client"
 import { Header } from "@/components/layout/header"
-import { KPICard } from "@/components/ui/kpi-card"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { LineChart } from "@/components/charts/line-chart"
-import { Badge } from "@/components/ui/badge"
-import { formatCurrency, formatNumber } from "@/lib/utils"
-import { DataInsights } from "@/components/data-insights"
-import Link from "next/link"
-import {
-  ShoppingCart,
-  TrendingUp,
-  Users,
-  CheckCircle2,
-  Loader2,
-  Calendar,
-  FolderKanban,
-  DollarSign,
-  ClipboardCheck,
-  CircleDot,
-  AlertTriangle,
-  ArrowRight,
-} from "lucide-react"
+import { CheckCircle2, AlertTriangle, XCircle, Loader2, RefreshCw, Clock, Database } from "lucide-react"
 
-// --- Status helpers ---
-
-const projectStatusColors: Record<string, "default" | "success" | "warning" | "info"> = {
-  not_started: "default",
-  in_progress: "info",
-  on_hold: "warning",
-  completed: "success",
-}
-
-const projectStatusLabels: Record<string, string> = {
-  not_started: "Non démarré",
-  in_progress: "En cours",
-  on_hold: "En pause",
-  completed: "Terminé",
-}
-
-// --- Supabase row types ---
-
-interface ProjectRow {
-  id: string
-  name: string
-  description: string
-  status: string
-  progress: number
-  start_date?: string
-  end_date?: string
-}
-
-interface CalendarEventRow {
-  id: string
-  title: string
-  type: string
-  date: string
-  end_date?: string
-  channel: string[]
-  status: string
-  description?: string
-  assignee?: string
-}
-
-interface RoutineCheck {
+interface Connector {
   id: string
   label: string
-  description: string
-  status: "done" | "pending" | "warning"
-  detail?: string
-  link?: string
+  source: string
+  realtime: boolean
+  last_updated: string | null
+  age_hours: number | null
+  latest_period: string | null
+  covers_through: string | null
+  covers_yesterday: boolean | null
+  status: "ok" | "warning" | "broken"
+  detail: string
 }
 
-interface RoutineData {
-  period: string
-  progress: number
-  done: number
-  total: number
-  checks: RoutineCheck[]
+interface CronStep {
+  line: string
+  failed: boolean
 }
 
-interface ShopifyAnalytics {
-  total_revenue: number
-  total_orders: number
-  aov: number
-  unique_customers: number
-  total_refunds?: number
-  total_discounts?: number
+interface ConnectorsResponse {
+  generated_at: string
+  yesterday: string
+  cron: {
+    ran_at: string | null
+    age_hours: number | null
+    orders_count: number | null
+    failed_count: number
+    steps: CronStep[]
+  }
+  connectors: Connector[]
 }
 
-interface DailyChartData {
-  date: string
-  revenue: number
-  orders: number
+function ago(hours: number | null): string {
+  if (hours === null) return "jamais"
+  if (hours < 1) return "à l'instant"
+  if (hours < 48) return `il y a ${hours}h`
+  return `il y a ${Math.round(hours / 24)} j`
+}
+
+const STATUS = {
+  ok: { color: "text-emerald-700 bg-emerald-50 border-emerald-200", Icon: CheckCircle2, label: "À jour" },
+  warning: { color: "text-amber-700 bg-amber-50 border-amber-200", Icon: AlertTriangle, label: "À surveiller" },
+  broken: { color: "text-red-700 bg-red-50 border-red-200", Icon: XCircle, label: "Bloqué" },
 }
 
 export default function DashboardPage() {
-  const [projects, setProjects] = useState<ProjectRow[]>([])
-  const [events, setEvents] = useState<CalendarEventRow[]>([])
-  const [shopifyAnalytics, setShopifyAnalytics] = useState<ShopifyAnalytics | null>(null)
-  const [chartData, setChartData] = useState<DailyChartData[]>([])
-  const [routine, setRoutine] = useState<RoutineData | null>(null)
+  const [data, setData] = useState<ConnectorsResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
 
-  const fetchData = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true)
-
-    // Fetch lightweight data in parallel
-    const [projectsRes, eventsRes, statsRes, routineRes] = await Promise.all([
-      supabase
-        .from("projects")
-        .select("*")
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("calendar_events")
-        .select("*")
-        .gte("date", new Date().toISOString().split("T")[0])
-        .order("date", { ascending: true })
-        .limit(5),
-      // Use server-side API to avoid fetching 5MB orders blob client-side
-      fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
-      fetch("/api/routine").then(r => r.json()).catch(() => null),
-    ])
-
-    if (projectsRes.data) setProjects(projectsRes.data)
-    if (eventsRes.data) setEvents(eventsRes.data)
-
-    // Process stats from server-side aggregation
-    if (statsRes?.analytics) {
-      const a = statsRes.analytics
-      setShopifyAnalytics({
-        total_revenue: a.total_revenue ?? 0,
-        total_orders: a.total_orders ?? 0,
-        aov: a.aov ?? 0,
-        unique_customers: a.unique_customers ?? 0,
-        total_refunds: a.total_refunds,
-        total_discounts: a.total_discounts,
-      })
+    try {
+      const res = await fetch("/api/connectors")
+      setData(await res.json())
+    } finally {
+      setLoading(false)
     }
-    if (statsRes?.dailyChart && Array.isArray(statsRes.dailyChart)) {
-      setChartData(statsRes.dailyChart)
-    }
-    if (routineRes?.checks) setRoutine(routineRes)
-
-    setLoading(false)
   }, [])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
-
-  async function handleSync() {
-    setSyncing(true)
-    try {
-      const res = await fetch("/api/shopify/sync", { method: "POST" })
-      if (res.ok) {
-        // Refresh data after sync
-        await fetchData()
-      }
-    } catch (err) {
-      console.error("Sync failed:", err)
-    } finally {
-      setSyncing(false)
-    }
-  }
+    load()
+  }, [load])
 
   return (
-    <div>
+    <div className="min-h-screen bg-zinc-50">
       <Header
-        title="Dashboard"
-        subtitle="Vue d'ensemble de l'activité Talika"
+        title="Connecteurs & données"
+        subtitle="Santé des sources : à jour ou pas, jusqu'à quelle date"
+        actions={
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Rafraîchir
+          </button>
+        }
       />
 
-      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* Monthly Routine Checklist */}
-        {routine && (
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <ClipboardCheck className="h-5 w-5" />
-                  Routine {routine.period}
-                </CardTitle>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-zinc-500">
-                    {routine.done}/{routine.total} complété
-                  </span>
-                  <div className="w-24 h-2 rounded-full bg-zinc-100">
-                    <div
-                      className="h-2 rounded-full transition-all"
-                      style={{
-                        width: `${routine.progress}%`,
-                        backgroundColor: routine.progress === 100 ? "#22c55e" : routine.progress >= 50 ? "#f59e0b" : "#ef4444",
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {routine.checks.map((check) => (
-                  <div
-                    key={check.id}
-                    className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
-                      check.status === "done"
-                        ? "border-emerald-200 bg-emerald-50/50"
-                        : check.status === "warning"
-                        ? "border-amber-200 bg-amber-50/50"
-                        : "border-zinc-200 bg-white hover:border-zinc-300"
-                    }`}
-                  >
-                    <div className="mt-0.5">
-                      {check.status === "done" ? (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      ) : check.status === "warning" ? (
-                        <AlertTriangle className="h-4 w-4 text-amber-500" />
-                      ) : (
-                        <CircleDot className="h-4 w-4 text-zinc-400" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-zinc-900 truncate">{check.label}</p>
-                        {check.link && check.status !== "done" && (
-                          <Link
-                            href={check.link}
-                            className="shrink-0 text-zinc-400 hover:text-zinc-700 transition-colors"
-                          >
-                            <ArrowRight className="h-3.5 w-3.5" />
-                          </Link>
-                        )}
-                      </div>
-                      <p className="text-xs text-zinc-500 mt-0.5">{check.detail}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Data Insights */}
-        <DataInsights page="dashboard" />
-
-        {/* KPIs - Shopify real data */}
-        {shopifyAnalytics ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            <KPICard
-              label={`CA ${new Date().toLocaleDateString("fr-FR", { month: "long" }).replace(/^\w/, c => c.toUpperCase())}`}
-              value={formatCurrency(shopifyAnalytics.total_revenue)}
-              icon={<ShoppingCart className="h-5 w-5" />}
-            />
-            <KPICard
-              label="Commandes"
-              value={formatNumber(shopifyAnalytics.total_orders)}
-              icon={<TrendingUp className="h-5 w-5" />}
-            />
-            <KPICard
-              label="Panier moyen"
-              value={formatCurrency(shopifyAnalytics.aov)}
-              icon={<DollarSign className="h-5 w-5" />}
-            />
-            <KPICard
-              label="Clients uniques"
-              value={formatNumber(shopifyAnalytics.unique_customers)}
-              icon={<Users className="h-5 w-5" />}
-            />
+      <div className="mx-auto max-w-4xl p-4 sm:p-6 space-y-6">
+        {loading && !data ? (
+          <div className="flex items-center gap-2 text-zinc-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
           </div>
+        ) : !data ? (
+          <p className="text-red-600">Impossible de charger l'état des connecteurs.</p>
         ) : (
-          <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center">
-            <p className="text-sm text-zinc-500">
-              Aucune donnée Shopify en cache.{" "}
-              <button
-                onClick={handleSync}
-                disabled={syncing}
-                className="text-zinc-900 underline underline-offset-2 hover:text-zinc-700"
-              >
-                Lancer une synchronisation
-              </button>{" "}
-              pour afficher les KPIs.
-            </p>
-          </div>
-        )}
-
-        {/* Revenue Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Évolution du CA</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {chartData.length > 0 ? (
-              <LineChart
-                data={chartData}
-                xKey="date"
-                lines={[
-                  { key: "revenue", color: "#18181b", name: "CA (€)" },
-                  { key: "orders", color: "#a1a1aa", name: "Commandes" },
-                ]}
-                height={280}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-[280px] text-zinc-400 text-sm">
-                {loading ? (
-                  <>
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Chargement...
-                  </>
-                ) : (
-                  "Aucune donnée de commandes disponible. Lancez une sync Shopify."
+          <>
+            {/* ── Cron banner ── */}
+            <div
+              className={`rounded-xl border p-4 ${
+                data.cron.failed_count > 0
+                  ? "border-red-200 bg-red-50"
+                  : "border-emerald-200 bg-emerald-50"
+              }`}
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                <Clock className="h-4 w-4" />
+                Sync automatique (cron 7h Paris) — {ago(data.cron.age_hours)}
+                {data.cron.failed_count > 0 && (
+                  <span className="ml-auto rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                    {data.cron.failed_count} en échec
+                  </span>
                 )}
               </div>
-            )}
-          </CardContent>
-        </Card>
+              {data.cron.steps.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs">
+                  {data.cron.steps.map((s, i) => (
+                    <li key={i} className={`flex items-start gap-1.5 ${s.failed ? "text-red-700" : "text-emerald-700"}`}>
+                      {s.failed ? <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                      <span className="font-mono">{s.line}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
-        {/* Upcoming Calendar Events */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Événements à venir
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-6 text-zinc-400">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                Chargement…
-              </div>
-            ) : events.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-4 text-center">
-                Aucun événement à venir.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
-                {events.map((event) => (
-                  <div
-                    key={event.id}
-                    className="rounded-lg border border-zinc-200 p-3 hover:border-zinc-300 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <Badge variant="info">{event.type}</Badge>
-                      <span className="text-xs text-zinc-400">
-                        {new Date(event.date).toLocaleDateString("fr-FR", {
-                          day: "numeric",
-                          month: "short",
-                        })}
+            {/* ── Connectors list ── */}
+            <div className="space-y-3">
+              {data.connectors.map((c) => {
+                const st = STATUS[c.status]
+                return (
+                  <div key={c.id} className="rounded-xl border border-zinc-200 bg-white p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Database className="h-4 w-4 text-zinc-400" />
+                          <h3 className="font-semibold text-zinc-900">{c.label}</h3>
+                        </div>
+                        <p className="mt-0.5 text-xs text-zinc-500">{c.source}</p>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${st.color}`}>
+                        <st.Icon className="h-3.5 w-3.5" /> {st.label}
                       </span>
                     </div>
-                    <h4 className="mt-2 text-sm font-medium text-zinc-900 line-clamp-2">
-                      {event.title}
-                    </h4>
-                    {event.channel && event.channel.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {event.channel.map((ch) => (
-                          <span
-                            key={ch}
-                            className="text-[10px] rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-500"
-                          >
-                            {ch}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* Projects Overview -- from Supabase */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FolderKanban className="h-5 w-5" />
-              Projets en cours
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-6 text-zinc-400">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                Chargement…
-              </div>
-            ) : projects.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-4 text-center">
-                Aucun projet trouvé.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {projects.map((project) => (
-                  <div
-                    key={project.id}
-                    className="rounded-lg border border-zinc-200 p-4 hover:border-zinc-300 transition-colors"
-                  >
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-medium text-zinc-900">{project.name}</h4>
-                      <Badge variant={projectStatusColors[project.status] || "default"}>
-                        {projectStatusLabels[project.status] || project.status}
-                      </Badge>
+                    <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
+                      <div>
+                        <div className="text-xs text-zinc-400">Type</div>
+                        <div className="text-zinc-700">{c.realtime ? "Temps réel" : "Cache"}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-zinc-400">Dernière maj</div>
+                        <div className="text-zinc-700">{ago(c.age_hours)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-zinc-400">Période couverte</div>
+                        <div className="text-zinc-700">
+                          {c.covers_through || c.latest_period || "—"}
+                        </div>
+                      </div>
                     </div>
-                    <p className="mt-1 text-sm text-zinc-500 line-clamp-1">
-                      {project.description}
+
+                    <p className={`mt-3 text-sm ${c.status === "broken" ? "text-red-700" : c.status === "warning" ? "text-amber-700" : "text-zinc-500"}`}>
+                      {c.detail}
                     </p>
-                    <div className="mt-3">
-                      <div className="flex items-center justify-between text-xs text-zinc-500">
-                        <span>Progression</span>
-                        <span>{project.progress}%</span>
-                      </div>
-                      <div className="mt-1 h-1.5 rounded-full bg-zinc-100">
-                        <div
-                          className="h-1.5 rounded-full bg-zinc-900 transition-all"
-                          style={{ width: `${project.progress}%` }}
-                        />
-                      </div>
-                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                )
+              })}
+            </div>
+
+            <p className="text-center text-xs text-zinc-400">
+              Toutes les sources sont en cache (aucune temps réel). « Période couverte » = donnée la plus récente réellement présente.
+            </p>
+          </>
+        )}
       </div>
     </div>
   )

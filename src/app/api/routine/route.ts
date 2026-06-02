@@ -6,6 +6,7 @@
  */
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { getUncategorizedCodes } from "@/lib/codes-server"
 
 export const dynamic = "force-dynamic"
 
@@ -88,20 +89,8 @@ export async function GET() {
     })
   }
 
-  // ── 3. Check unassigned discount codes ──
-  const { data: discountCache } = await supabase
-    .from("data_cache")
-    .select("data")
-    .eq("key", `shopify_discount_codes_${year}`)
-    .single()
-
-  const { data: knownCodes } = await supabase
-    .from("influencer_codes")
-    .select("code")
-
-  const knownSet = new Set((knownCodes || []).map(c => c.code.toUpperCase()))
-  const shopifyCodes = Array.isArray(discountCache?.data) ? discountCache.data : []
-  const unassigned = shopifyCodes.filter((c: any) => !knownSet.has((c.code || "").toUpperCase()))
+  // ── 3. Check unassigned discount codes (matching normalisé — cf src/lib/codes-server) ──
+  const unassigned = await getUncategorizedCodes(year, month)
 
   checks.push({
     id: "classify_codes",
@@ -110,7 +99,7 @@ export async function GET() {
     status: unassigned.length === 0 ? "done" : "pending",
     detail: unassigned.length === 0
       ? "Tous les codes sont catégorisés"
-      : `${unassigned.length} code(s) non attribué(s)`,
+      : `${unassigned.length} code(s) non catégorisé(s)`,
     link: "/influencers",
   })
 
@@ -156,10 +145,10 @@ export async function GET() {
     .eq("is_active", true)
 
   const { data: fees } = await supabase
-    .from("influencer_fees")
+    .from("influencer_fixed_fees")
     .select("influencer_id")
-    .gte("period_start", `${year}-${String(month).padStart(2, "0")}-01`)
-    .lte("period_start", `${year}-${String(month).padStart(2, "0")}-28`)
+    .eq("month", month)
+    .eq("year", year)
 
   const feeInfluencerIds = new Set((fees || []).map(f => f.influencer_id))
   const influencersWithoutFees = (influencers || []).filter(i => !feeInfluencerIds.has(i.id))
