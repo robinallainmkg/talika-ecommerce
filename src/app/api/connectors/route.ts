@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
 export const dynamic = "force-dynamic"
+export const fetchCache = "force-no-store"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,7 +57,6 @@ export async function GET() {
     { id: "shopify_orders", label: "Shopify — Commandes", prefix: "shopify_orders_" },
     { id: "meta_ads", label: "Meta Ads", prefix: "meta_ads_" },
     { id: "google_ads", label: "Google Ads", prefix: "google_ads_" },
-    { id: "klaviyo", label: "Klaviyo", prefix: "klaviyo_campaigns_" },
   ]
 
   const connectors: ConnectorStatus[] = []
@@ -135,6 +135,38 @@ export async function GET() {
       covers_yesterday: coversThrough ? coversThrough >= yesterday : monthsBehind <= 0 ? null : false,
       status,
       detail,
+    })
+  }
+
+  // Klaviyo : pas de clé mensuelle — fraîcheur lue sur "klaviyo_campaigns" (écrite par le sync)
+  {
+    const { data: kRow } = await supabase
+      .from("data_cache")
+      .select("data, updated_at")
+      .eq("key", "klaviyo_campaigns")
+      .single()
+    const fetchedAt =
+      (kRow?.data as { fetched_at?: string } | null)?.fetched_at || kRow?.updated_at || null
+    const ageH = fetchedAt
+      ? Math.round((now.getTime() - new Date(fetchedAt).getTime()) / 3600000)
+      : null
+    connectors.push({
+      id: "klaviyo",
+      label: "Klaviyo",
+      source: "Cache (cron 7h + sync manuel)",
+      realtime: false,
+      last_updated: fetchedAt,
+      age_hours: ageH,
+      latest_period: fetchedAt ? fetchedAt.slice(0, 10) : null,
+      covers_through: null,
+      covers_yesterday: null,
+      status: ageH === null ? "broken" : ageH > 48 ? "warning" : "ok",
+      detail:
+        ageH === null
+          ? "Jamais synchronisé"
+          : ageH > 48
+            ? `Pas rafraîchi depuis ${ageH}h.`
+            : "À jour (campagnes, flows, listes).",
     })
   }
 

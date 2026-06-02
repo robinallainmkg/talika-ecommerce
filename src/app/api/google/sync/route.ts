@@ -22,7 +22,7 @@ config = {
     'use_proto_plus': True,
 }
 
-client = GoogleAdsClient.load_from_dict(config, version='v20')
+client = GoogleAdsClient.load_from_dict(config)
 ga_service = client.get_service('GoogleAdsService')
 cid = '${process.env.GOOGLE_ADS_CUSTOMER_ID}'
 
