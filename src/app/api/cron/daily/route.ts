@@ -18,6 +18,13 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { getAllOrders, getDiscountCodes } from "@/lib/integrations/shopify"
+// Appels IN-PROCESS des syncs (PAS de fetch HTTP : VERCEL_URL est protégé par la
+// Deployment Protection → renvoie du HTML, d'où "Unexpected token '<'"). On invoque
+// directement les handlers POST dans le même lambda.
+import { POST as syncObjectivesRoute } from "@/app/api/objectives/sync/route"
+import { POST as syncKlaviyoRoute } from "@/app/api/klaviyo/sync/route"
+import { POST as syncGoogleRoute } from "@/app/api/google/sync/route"
+import { POST as syncMetaRoute } from "@/app/api/meta/sync/route"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300 // 5 min max for Vercel Pro
@@ -180,16 +187,9 @@ export async function GET(request: Request) {
     // ── 4. Trigger objectives generosite sync ──
     log.push("Updating objectives generosite...")
     try {
-      const baseUrl = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000"
-      const objRes = await fetch(`${baseUrl}/api/objectives/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      })
-      const objData = await objRes.json()
+      const objData = await (await syncObjectivesRoute()).json()
       if (objData.success) {
-        log.push(`Objectives updated: ${objData.orders_fetched} orders processed`)
+        log.push(`Objectives updated: ${objData.orders_fetched ?? "ok"} orders processed`)
       } else {
         log.push(`Objectives sync warning: ${objData.error || "unknown"}`)
       }
@@ -200,14 +200,7 @@ export async function GET(request: Request) {
     // ── 5. Sync Klaviyo (campaigns, flows, lists) ──
     log.push("Syncing Klaviyo...")
     try {
-      const baseUrl = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000"
-      const klavRes = await fetch(`${baseUrl}/api/klaviyo/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      })
-      const klavData = await klavRes.json()
+      const klavData = await (await syncKlaviyoRoute()).json()
       if (klavData.success) {
         log.push(`Klaviyo synced: ${klavData.results.campaigns_count} campaigns, ${klavData.results.flows_count} flows, ${klavData.results.lists_count} lists`)
       } else {
@@ -218,36 +211,26 @@ export async function GET(request: Request) {
     }
 
     // ── 6. Sync Google Ads (if configured) ──
+    // ⚠️ Google Ads sync utilise execSync("python3" + lib google-ads) → NE TOURNE PAS
+    // sur Vercel (pas de Python dans le runtime serverless). Marche uniquement en local.
+    // À réécrire en Node (API REST Google Ads) pour fonctionner via le cron. Voir CLAUDE.md.
     log.push("Syncing Google Ads...")
     try {
-      const baseUrl2 = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000"
-      const gRes = await fetch(`${baseUrl2}/api/google/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      })
-      const gData = await gRes.json()
+      const gData = await (await syncGoogleRoute()).json()
       if (gData.success) {
         log.push(`Google Ads synced: ${gData.campaigns} campaigns, ROAS ${gData.summary?.roas || "—"}`)
       } else {
         log.push(`Google Ads sync warning: ${gData.error || "unknown"}`)
       }
     } catch (gErr) {
-      log.push(`Google Ads sync skipped: ${gErr instanceof Error ? gErr.message : "unknown error"}`)
+      log.push(`Google Ads sync skipped (Python indispo sur Vercel — à réécrire en Node): ${gErr instanceof Error ? gErr.message : "unknown error"}`)
     }
 
     // ── 7. Sync Meta Ads (campaigns, adsets, ads, monthly) ──
     log.push("Syncing Meta Ads...")
     try {
-      const baseUrl3 = process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000"
-      const metaRes = await fetch(`${baseUrl3}/api/meta/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      })
-      const metaData = await metaRes.json()
+      const metaReq = new Request("http://internal/api/meta/sync", { method: "POST" })
+      const metaData = await (await syncMetaRoute(metaReq)).json()
       if (metaData.success) {
         log.push(`Meta Ads synced: ${metaData.results.campaigns_count} campaigns, ${metaData.results.ads_count} ads, ROAS ${metaData.results.summary?.roas || "—"}`)
       } else {
