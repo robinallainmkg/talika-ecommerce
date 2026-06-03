@@ -9,17 +9,20 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
-interface ProductStats {
+interface VariantStats {
   product_id: number
+  variant_id: number
   title: string
+  variant_title: string
+  sku: string
   quantity_sold: number
-  revenue: number // prix payé
-  ca_brut: number // prix catalogue (compare_at_price ou price)
-  discount_allocated: number // part des discounts allouée
+  revenue: number
+  ca_brut: number
+  discount_allocated: number
+  prix_barre_discount: number
   generosite_pct: number
   avg_price: number
   avg_compare_at: number
-  prix_barre_discount: number // compare_at - price
   orders: number
 }
 
@@ -27,13 +30,10 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const year = parseInt(searchParams.get("year") || "2026")
-    const month = searchParams.get("month") // optional - if null, all months of year
+    const month = searchParams.get("month")
 
-    // Determine which months to fetch
     const months = month ? [parseInt(month)] : Array.from({ length: 12 }, (_, i) => i + 1)
 
-    // Fetch all orders for the period
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const allOrders: any[] = []
     for (const m of months) {
       const { data: cacheEntry } = await supabase
@@ -41,7 +41,6 @@ export async function GET(request: Request) {
         .select("data")
         .eq("key", `shopify_orders_${year}_${m}`)
         .single()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const orders = (cacheEntry?.data as any)?.orders || []
       allOrders.push(...orders)
     }
@@ -50,14 +49,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ products: [], period: { year, month: month ? parseInt(month) : null } })
     }
 
-    // Aggregate per product
-    const productMap = new Map<string, ProductStats>()
+    const variantMap = new Map<string, VariantStats>()
 
     for (const order of allOrders) {
+      if (order.financial_status === "voided" || order.cancelled_at) continue
       const orderDiscount = parseFloat(order.total_discounts || "0")
       const lineItems = order.line_items || []
 
-      // Calculate total line item value (for proportional discount allocation)
       let orderLineTotal = 0
       for (const item of lineItems) {
         orderLineTotal += parseFloat(item.price || "0") * (item.quantity || 1)
@@ -67,36 +65,34 @@ export async function GET(request: Request) {
         const price = parseFloat(item.price || "0")
         const compareAt = parseFloat(item.compare_at_price || "0")
         const qty = item.quantity || 1
-        const productId = item.product_id || 0
-        const title = item.title || "Inconnu"
-        const key = `${productId}_${title}`
+        const variantId = item.variant_id || 0
+        const sku = item.sku || ""
+        const key = variantId ? String(variantId) : `${item.product_id}_${sku}`
 
-        // Prix barré discount
-        const prixBarreDiscount = (compareAt > price && compareAt > 0)
-          ? (compareAt - price) * qty
-          : 0
+        const catalogPrice = (compareAt > price && compareAt > 0) ? compareAt : price
+        const prixBarreDiscount = (compareAt > price && compareAt > 0) ? (compareAt - price) * qty : 0
 
-        // Proportional allocation of order-level discount to this line item
         const lineValue = price * qty
-        const discountShare = orderLineTotal > 0
-          ? (lineValue / orderLineTotal) * orderDiscount
-          : 0
+        const discountShare = orderLineTotal > 0 ? (lineValue / orderLineTotal) * orderDiscount : 0
 
-        const existing = productMap.get(key)
+        const existing = variantMap.get(key)
         if (existing) {
           existing.quantity_sold += qty
           existing.revenue += lineValue
-          existing.ca_brut += (compareAt > 0 ? compareAt : price) * qty
+          existing.ca_brut += catalogPrice * qty
           existing.discount_allocated += discountShare
           existing.prix_barre_discount += prixBarreDiscount
           existing.orders += 1
         } else {
-          productMap.set(key, {
-            product_id: productId,
-            title,
+          variantMap.set(key, {
+            product_id: item.product_id || 0,
+            variant_id: variantId,
+            title: item.title || "Inconnu",
+            variant_title: item.variant_title || "",
+            sku,
             quantity_sold: qty,
             revenue: lineValue,
-            ca_brut: (compareAt > 0 ? compareAt : price) * qty,
+            ca_brut: catalogPrice * qty,
             discount_allocated: discountShare,
             prix_barre_discount: prixBarreDiscount,
             generosite_pct: 0,
@@ -108,53 +104,42 @@ export async function GET(request: Request) {
       }
     }
 
-    // Compute final stats
-    const products: ProductStats[] = []
-    for (const p of productMap.values()) {
-      const totalGenerosite = p.discount_allocated + p.prix_barre_discount
-      p.generosite_pct = p.ca_brut > 0
-        ? Math.round((totalGenerosite / p.ca_brut) * 1000) / 10
-        : 0
-      p.avg_price = p.quantity_sold > 0
-        ? Math.round((p.revenue / p.quantity_sold) * 100) / 100
-        : 0
-      p.avg_compare_at = p.quantity_sold > 0
-        ? Math.round((p.ca_brut / p.quantity_sold) * 100) / 100
-        : 0
+    const products: VariantStats[] = []
+    for (const p of variantMap.values()) {
+      const totalGen = p.discount_allocated + p.prix_barre_discount
+      p.generosite_pct = p.ca_brut > 0 ? Math.round((totalGen / p.ca_brut) * 1000) / 10 : 0
+      p.avg_price = p.quantity_sold > 0 ? Math.round((p.revenue / p.quantity_sold) * 100) / 100 : 0
+      p.avg_compare_at = p.quantity_sold > 0 ? Math.round((p.ca_brut / p.quantity_sold) * 100) / 100 : 0
+      p.discount_allocated = Math.round(p.discount_allocated * 100) / 100
+      p.prix_barre_discount = Math.round(p.prix_barre_discount * 100) / 100
+      p.revenue = Math.round(p.revenue * 100) / 100
+      p.ca_brut = Math.round(p.ca_brut * 100) / 100
       products.push(p)
     }
 
-    // Sort by total generosity amount (highest first)
     products.sort((a, b) =>
       (b.discount_allocated + b.prix_barre_discount) - (a.discount_allocated + a.prix_barre_discount)
     )
 
-    // Summary stats
     const totalRevenue = products.reduce((s, p) => s + p.revenue, 0)
     const totalCaBrut = products.reduce((s, p) => s + p.ca_brut, 0)
-    const totalDiscountAllocated = products.reduce((s, p) => s + p.discount_allocated, 0)
+    const totalDiscount = products.reduce((s, p) => s + p.discount_allocated, 0)
     const totalPrixBarre = products.reduce((s, p) => s + p.prix_barre_discount, 0)
-    const overallGenerosite = totalCaBrut > 0
-      ? Math.round(((totalDiscountAllocated + totalPrixBarre) / totalCaBrut) * 1000) / 10
-      : 0
 
     return NextResponse.json({
       period: { year, month: month ? parseInt(month) : null },
       summary: {
-        total_products: products.length,
+        total_variants: products.length,
         total_revenue: Math.round(totalRevenue),
         total_ca_brut: Math.round(totalCaBrut),
-        total_discount_codes: Math.round(totalDiscountAllocated),
+        total_discount_codes: Math.round(totalDiscount),
         total_prix_barres: Math.round(totalPrixBarre),
-        overall_generosite_pct: overallGenerosite,
+        overall_generosite_pct: totalCaBrut > 0 ? Math.round(((totalDiscount + totalPrixBarre) / totalCaBrut) * 1000) / 10 : 0,
       },
-      products: products.slice(0, 50), // Top 50
+      products,
     })
   } catch (error) {
     console.error("Generosite products error:", error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 })
   }
 }
