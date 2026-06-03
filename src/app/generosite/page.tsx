@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/layout/header"
-import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { formatCurrency } from "@/lib/utils"
-import { DataInsights } from "@/components/data-insights"
 import { Button } from "@/components/ui/button"
 import {
   Gift,
@@ -96,10 +94,6 @@ const CATEGORY_ORDER = [
 ]
 
 const MONTH_LABELS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-const MONTHS_FULL = [
-  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
-]
 
 // ─── Page ─────────────────────────────────────────────────────────
 
@@ -170,9 +164,6 @@ export default function GenerositePage() {
   useEffect(() => {
     fetchAllMonths()
   }, [fetchAllMonths])
-
-  // Current month data for KPIs
-  const currentData = monthlyData[currentMonth] || null
 
   // Build list of active months (1..currentMonth)
   const activeMonths = Array.from({ length: currentMonth }, (_, i) => i + 1)
