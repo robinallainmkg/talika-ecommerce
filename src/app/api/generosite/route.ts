@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { loadCodeCategoryMap, computeGenerosite } from "@/lib/generosite"
+import { loadCodeCategoryMap, computeGenerosite, PromoPeriod } from "@/lib/generosite"
 import { normalizeCode, CODE_TYPE_LABELS, GENEROSITE_EXCLUDED_TYPES } from "@/lib/codes"
 
 export const dynamic = "force-dynamic"
@@ -19,6 +19,16 @@ export async function GET(request: Request) {
 
     const categoryMap = await loadCodeCategoryMap()
 
+    // Load promo periods from calendar_events (type = promo)
+    const { data: promoEvents } = await supabase
+      .from("calendar_events")
+      .select("scheduled_at, metadata")
+      .eq("event_type", "promo")
+    const promoPeriods: PromoPeriod[] = (promoEvents || []).map((e: any) => ({
+      start: (e.scheduled_at || "").slice(0, 10),
+      end: (e.metadata?.end_date || e.scheduled_at || "").slice(0, 10),
+    }))
+
     const { data: cacheEntry } = await supabase
       .from("data_cache")
       .select("data")
@@ -31,7 +41,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No orders data. Run Shopify sync first.", categories: [] })
     }
 
-    const result = computeGenerosite(orders, categoryMap)
+    const result = computeGenerosite(orders, categoryMap, promoPeriods)
 
     // Build detailed per-code breakdown for the UI
     const codeDetails: Record<string, { discount: number; orders: number; codes: Record<string, { discount: number; count: number }> }> = {}
@@ -60,9 +70,12 @@ export async function GET(request: Request) {
       }
       const autoGap = orderDiscount - codeSum
       if (autoGap > 0) {
-        if (!codeDetails["auto_discounts"]) codeDetails["auto_discounts"] = { discount: 0, orders: 0, codes: {} }
-        codeDetails["auto_discounts"].discount += autoGap
-        codeDetails["auto_discounts"].orders += 1
+        const orderDate = (o.created_at || "").slice(0, 10)
+        const isDuringPromo = promoPeriods.some(p => orderDate >= p.start && orderDate <= p.end)
+        const autoCat = isDuringPromo ? "offre_site" : "auto_discounts"
+        if (!codeDetails[autoCat]) codeDetails[autoCat] = { discount: 0, orders: 0, codes: {} }
+        codeDetails[autoCat].discount += autoGap
+        codeDetails[autoCat].orders += 1
       }
     }
 

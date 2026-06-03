@@ -17,6 +17,8 @@ import {
   HelpCircle,
   RefreshCw,
   Loader2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -109,6 +111,16 @@ export default function GenerositePage() {
   const [monthlyData, setMonthlyData] = useState<Record<number, GenerositeData>>({})
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set())
+
+  const toggleCat = (catId: string) => {
+    setExpandedCats(prev => {
+      const next = new Set(prev)
+      if (next.has(catId)) next.delete(catId)
+      else next.add(catId)
+      return next
+    })
+  }
 
   // Fetch all months 1..currentMonth in parallel
   const fetchAllMonths = useCallback(async () => {
@@ -196,6 +208,14 @@ export default function GenerositePage() {
   const getMonthRevenue = (month: number): number => {
     const d = monthlyData[month]
     return d ? d.total_revenue : 0
+  }
+
+  // Get codes detail for a category in a selected month
+  const getCodesForCategory = (catId: string): CodeDetail[] => {
+    const d = monthlyData[currentMonth]
+    if (!d) return []
+    const cat = d.categories.find(c => c.id === catId)
+    return cat?.codes || []
   }
 
   // Filter categories: only show those with at least one non-zero month
@@ -293,10 +313,18 @@ export default function GenerositePage() {
                       {visibleCategories.map((catId) => {
                         const Icon = CATEGORY_ICONS[catId] || HelpCircle
                         const colorClass = CATEGORY_COLORS[catId] || "text-zinc-500"
+                        const isExpanded = expandedCats.has(catId)
+                        const codes = getCodesForCategory(catId)
                         return (
-                          <tr key={catId} className="border-b border-zinc-50 hover:bg-zinc-50/50">
+                          <>
+                          <tr key={catId} className="border-b border-zinc-50 hover:bg-zinc-50/50 cursor-pointer" onClick={() => toggleCat(catId)}>
                             <td className="py-2.5 pr-4">
                               <div className="flex items-center gap-2">
+                                {codes.length > 0 ? (
+                                  isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-zinc-400" /> : <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
+                                ) : (
+                                  <Icon className={`h-4 w-4 ${colorClass}`} />
+                                )}
                                 <Icon className={`h-4 w-4 ${colorClass}`} />
                                 <span className="text-zinc-700">{categoryLabels[catId]}</span>
                               </div>
@@ -306,7 +334,6 @@ export default function GenerositePage() {
                               const prevPct = m > 1 ? getCategoryPct(catId, m - 1) : 0
                               const hasPrev = m > 1 && prevPct > 0
                               const delta = hasPrev ? pct - prevPct : 0
-                              // For generosity: going UP is bad (red), going DOWN is good (green)
                               const trendColor = !hasPrev || pct === 0
                                 ? "text-zinc-500"
                                 : delta > 0.3
@@ -333,6 +360,17 @@ export default function GenerositePage() {
                               )
                             })}
                           </tr>
+                          {isExpanded && codes.length > 0 && codes.map((code) => (
+                            <tr key={`${catId}-${code.code}`} className="bg-zinc-50/80 border-b border-zinc-50">
+                              <td className="py-1.5 pr-4 pl-10">
+                                <span className="font-mono text-xs text-zinc-500">{code.code}</span>
+                              </td>
+                              <td colSpan={activeMonths.length} className="py-1.5 text-right text-xs text-zinc-500 pr-4">
+                                {formatCurrency(code.discount)} — {code.count} utilisations
+                              </td>
+                            </tr>
+                          ))}
+                          </>
                         )
                       })}
 
