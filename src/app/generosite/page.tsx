@@ -201,12 +201,22 @@ export default function GenerositePage() {
     return d ? d.total_revenue : 0
   }
 
-  // Get codes detail for a category in a selected month
+  // Get codes detail for a category aggregated across all months
   const getCodesForCategory = (catId: string): CodeDetail[] => {
-    const d = monthlyData[currentMonth]
-    if (!d) return []
-    const cat = d.categories.find(c => c.id === catId)
-    return cat?.codes || []
+    const agg: Record<string, { discount: number; count: number }> = {}
+    for (const m of activeMonths) {
+      const d = monthlyData[m]
+      if (!d) continue
+      const cat = d.categories.find(c => c.id === catId)
+      for (const code of cat?.codes || []) {
+        if (!agg[code.code]) agg[code.code] = { discount: 0, count: 0 }
+        agg[code.code].discount += code.discount
+        agg[code.code].count += code.count
+      }
+    }
+    return Object.entries(agg)
+      .map(([code, data]) => ({ code, ...data }))
+      .sort((a, b) => b.discount - a.discount)
   }
 
   // Filter categories: only show those with at least one non-zero month
