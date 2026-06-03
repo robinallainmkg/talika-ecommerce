@@ -258,34 +258,12 @@ export default function GenerositePage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        <DataInsights page="generosite" />
-
         {loading ? (
           <div className="text-center py-12 text-zinc-400">Chargement...</div>
         ) : Object.keys(monthlyData).length === 0 ? (
           <div className="text-center py-12 text-zinc-400">Aucune donnée. Lancez une sync Shopify.</div>
         ) : (
           <>
-            {/* KPIs — current month */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <KPICard
-                label="Taux de Générosité"
-                value={currentData ? `${currentData.generosite_rate}%` : "—"}
-                icon={<Percent className="h-5 w-5" />}
-                changeLabel={`${MONTHS_FULL[currentMonth - 1]} ${currentYear}`}
-              />
-              <KPICard
-                label="Total Discounts"
-                value={currentData ? formatCurrency(currentData.total_generosite) : "—"}
-                icon={<Tag className="h-5 w-5" />}
-              />
-              <KPICard
-                label={`CA ${MONTHS_FULL[currentMonth - 1]}`}
-                value={currentData ? formatCurrency(currentData.total_revenue) : "—"}
-                icon={<Gift className="h-5 w-5" />}
-              />
-            </div>
-
             {/* Monthly table */}
             <Card>
               <CardHeader>
