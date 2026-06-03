@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { getAnalytics, getProducts, getAllOrders } from "@/lib/integrations/shopify"
+import { getAnalytics, getProducts, getAllOrders, getVariantPriceMap } from "@/lib/integrations/shopify"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -72,6 +72,9 @@ export async function POST(request: Request) {
         created_at_max: monthEnd,
       })
 
+      // Load variant compare_at_price map to enrich line items
+      const variantPriceMap = await getVariantPriceMap()
+
       // Strip to essential fields only (~500 bytes/order instead of ~12KB)
       const orders = rawOrders.map((o: any) => ({
         id: o.id,
@@ -97,7 +100,7 @@ export async function POST(request: Request) {
           sku: li.sku,
           quantity: li.quantity,
           price: li.price,
-          compare_at_price: li.compare_at_price,
+          compare_at_price: li.compare_at_price || variantPriceMap.get(li.variant_id) || null,
         })),
         shipping_lines: (o.shipping_lines || []).map((sl: any) => ({
           title: sl.title,

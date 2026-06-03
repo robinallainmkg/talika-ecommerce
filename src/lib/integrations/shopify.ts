@@ -61,6 +61,24 @@ export async function getProducts(limit = 250) {
   return shopifyFetch(`/products.json?limit=${limit}`)
 }
 
+export async function getVariantPriceMap(): Promise<Map<number, string>> {
+  const map = new Map<number, string>()
+  let nextUrl: string | null = `/products.json?limit=250&fields=id,variants`
+  let page = 0
+  while (nextUrl && page < 20) {
+    const { data, linkHeader } = await shopifyFetchWithHeaders(nextUrl)
+    for (const p of data.products || []) {
+      for (const v of p.variants || []) {
+        if (v.compare_at_price) map.set(v.id, v.compare_at_price)
+      }
+    }
+    page++
+    if ((data.products || []).length < 250) break
+    nextUrl = getNextPageUrl(linkHeader)
+  }
+  return map
+}
+
 export async function getOrdersByDiscountCode(code: string) {
   return shopifyFetch(`/orders.json?status=any&discount_codes=${code}`)
 }
