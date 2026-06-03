@@ -322,9 +322,7 @@ export default function GenerositePage() {
                               <div className="flex items-center gap-2">
                                 {codes.length > 0 ? (
                                   isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-zinc-400" /> : <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
-                                ) : (
-                                  <Icon className={`h-4 w-4 ${colorClass}`} />
-                                )}
+                                ) : null}
                                 <Icon className={`h-4 w-4 ${colorClass}`} />
                                 <span className="text-zinc-700">{categoryLabels[catId]}</span>
                               </div>
