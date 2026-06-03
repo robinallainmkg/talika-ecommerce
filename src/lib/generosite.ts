@@ -1,15 +1,14 @@
 import { createClient } from "@supabase/supabase-js"
 import { normalizeCode, GENEROSITE_EXCLUDED_TYPES } from "./codes"
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-)
-
 // Charge la table de catégorisation = SOURCE DE VÉRITÉ (influencer_codes.code_type).
 // Clé = code normalisé (cf normalizeCode) → catégorie. JAMAIS de regex en dur.
 export async function loadCodeCategoryMap(): Promise<Map<string, string>> {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false }, global: { fetch: (url, init) => fetch(url, { ...init, cache: "no-store" }) } }
+  )
   const { data } = await supabase.from("influencer_codes").select("code, code_type")
   const map = new Map<string, string>()
   for (const c of data || []) {
