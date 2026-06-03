@@ -71,11 +71,16 @@ export async function GET(request: Request) {
       const autoGap = orderDiscount - codeSum
       if (autoGap > 0) {
         const orderDate = (o.created_at || "").slice(0, 10)
-        const isDuringPromo = promoPeriods.some(p => orderDate >= p.start && orderDate <= p.end)
-        const autoCat = isDuringPromo ? "offre_site" : "auto_discounts"
+        const matchedPromo = promoPeriods.find(p => orderDate >= p.start && orderDate <= p.end)
+        const autoCat = matchedPromo ? "offre_site" : "auto_discounts"
         if (!codeDetails[autoCat]) codeDetails[autoCat] = { discount: 0, orders: 0, codes: {} }
         codeDetails[autoCat].discount += autoGap
         codeDetails[autoCat].orders += 1
+        // Track auto discounts as pseudo-codes so they show in the dropdown
+        const autoLabel = matchedPromo ? `[PROMO AUTO] ${matchedPromo.start}→${matchedPromo.end}` : "[REMISE VOLUME]"
+        if (!codeDetails[autoCat].codes[autoLabel]) codeDetails[autoCat].codes[autoLabel] = { discount: 0, count: 0 }
+        codeDetails[autoCat].codes[autoLabel].discount += autoGap
+        codeDetails[autoCat].codes[autoLabel].count += 1
       }
     }
 
