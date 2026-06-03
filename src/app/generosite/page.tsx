@@ -231,13 +231,12 @@ export default function GenerositePage() {
     return cat ? cat.discount : 0
   }
 
-  // Get category discount as % of revenue for that month
+  // Get category generosite % (from API, computed against ca_brut)
   const getCategoryPct = (catId: string, month: number): number => {
     const d = monthlyData[month]
-    if (!d || d.total_revenue === 0) return 0
+    if (!d) return 0
     const cat = d.categories.find((c) => c.id === catId)
-    if (!cat) return 0
-    return Math.round((cat.discount / d.total_revenue) * 1000) / 10
+    return cat?.generosite_pct || 0
   }
 
   // Get month revenue
