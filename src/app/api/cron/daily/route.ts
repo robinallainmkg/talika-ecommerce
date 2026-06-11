@@ -240,7 +240,17 @@ export async function GET(request: Request) {
       log.push(`Meta Ads sync skipped: ${metaErr instanceof Error ? metaErr.message : "unknown error"}`)
     }
 
-    // ── 8. Log sync result ──
+    // ── 8. Sync catalogue Shopify → KB chat IA ──
+    log.push("Syncing chat KB products...")
+    try {
+      const { syncProducts } = await import("@/lib/chat/shopify-products")
+      const kbResult = await syncProducts(supabase)
+      log.push(`Chat KB products synced: ${kbResult.total} total, ${kbResult.created} created, ${kbResult.updated} updated, ${kbResult.disabled} disabled`)
+    } catch (kbErr) {
+      log.push(`Chat KB sync skipped: ${kbErr instanceof Error ? kbErr.message : "unknown error"}`)
+    }
+
+    // ── 9. Log sync result ──
     await supabase.from("data_cache").upsert({
       key: "last_cron_sync",
       data: {

@@ -17,6 +17,7 @@ import {
   Radar,
   Gift,
   Lightbulb,
+  MessageCircle,
   Menu,
   X,
 } from "lucide-react"
@@ -29,6 +30,7 @@ const navigation = [
   { name: "Meta Ads", href: "/ads", icon: Megaphone },
   { name: "Klaviyo", href: "/klaviyo", icon: Mail },
   { name: "Influenceurs", href: "/influencers", icon: Users },
+  { name: "Chat IA", href: "/chat", icon: MessageCircle },
   { name: "Calendrier", href: "/calendar", icon: Calendar },
   { name: "Projets", href: "/projects", icon: FolderKanban },
   { name: "Objectifs 2026", href: "/objectives", icon: Target },

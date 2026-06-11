@@ -1,0 +1,50 @@
+import { NextResponse } from "next/server"
+import { chatDb } from "@/lib/chat/db"
+import { requireAdmin } from "@/lib/chat/admin-auth"
+
+export const dynamic = "force-dynamic"
+
+export async function GET(request: Request) {
+  const denied = requireAdmin(request)
+  if (denied) return denied
+  try {
+    const { searchParams } = new URL(request.url)
+    const status = searchParams.get("status")
+    const internal = searchParams.get("internal") === "true"
+    const limit = Math.min(Number(searchParams.get("limit")) || 50, 100)
+
+    const db = chatDb()
+    let query = db
+      .from("chat_conversations")
+      .select(
+        "id, status, is_internal, visitor_email, visitor_name, first_page_url, message_count, unread_count, last_message_at, created_at"
+      )
+      .eq("is_internal", internal)
+      .order("last_message_at", { ascending: false })
+      .limit(limit)
+    if (status && status !== "all") query = query.eq("status", status)
+
+    const { data: conversations, error } = await query
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    const enriched = await Promise.all(
+      (conversations || []).map(async (conv) => {
+        const { data: last } = await db
+          .from("chat_messages")
+          .select("content, role")
+          .eq("conversation_id", conv.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single()
+        return {
+          ...conv,
+          last_message_preview: last ? `${last.role === "user" ? "Visiteur : " : ""}${last.content.slice(0, 120)}` : "",
+        }
+      })
+    )
+
+    return NextResponse.json({ conversations: enriched })
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 })
+  }
+}
