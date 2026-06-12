@@ -15,15 +15,40 @@ export default function SetPasswordPage() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    // Le lien d'invitation Supabase dépose la session dans l'URL (#access_token…) ;
-    // le client la récupère automatiquement (detectSessionInUrl).
     const supabase = authClient()
-    const timer = setTimeout(async () => {
-      const { data } = await supabase.auth.getSession()
-      if (data.session) setReady(true)
-      else setInvalid(true)
-    }, 800)
-    return () => clearTimeout(timer)
+    let cancelled = false
+
+    async function establishSession() {
+      // Flow 1 : lien au format token_hash (template email personnalisé)
+      const params = new URLSearchParams(window.location.search)
+      const tokenHash = params.get("token_hash")
+      if (tokenHash) {
+        const type = (params.get("type") || "invite") as "invite" | "recovery"
+        const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash })
+        if (cancelled) return
+        if (!error) {
+          setReady(true)
+          return
+        }
+      }
+      // Flow 2 : jetons dans le hash (#access_token…) — detectSessionInUrl
+      // les consomme de façon asynchrone, on laisse plusieurs chances.
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const { data } = await supabase.auth.getSession()
+        if (cancelled) return
+        if (data.session) {
+          setReady(true)
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      if (!cancelled) setInvalid(true)
+    }
+
+    establishSession()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {

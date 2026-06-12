@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Suspense } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { authClient } from "@/lib/auth/client"
 import { Lock } from "lucide-react"
@@ -8,6 +8,15 @@ import { Lock } from "lucide-react"
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  useEffect(() => {
+    // Filet de sécurité : les liens d'invitation/récupération Supabase peuvent
+    // atterrir ici avec les jetons dans le hash — on les route vers set-password.
+    const hash = window.location.hash
+    if (hash.includes("access_token") && (hash.includes("type=invite") || hash.includes("type=recovery"))) {
+      window.location.replace("/auth/set-password" + hash)
+    }
+  }, [])
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
