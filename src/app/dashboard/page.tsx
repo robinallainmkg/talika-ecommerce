@@ -84,7 +84,14 @@ function ConnectorCard({ c, onSync }: { c: Connector; onSync: (id: string) => vo
     if (!endpoint) return
     setSyncing(true)
     try {
-      await fetch(endpoint, { method: "POST" })
+      const res = await fetch(endpoint, { method: "POST" })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(`Échec du sync ${c.label} : ${data.error || `HTTP ${res.status}`}`)
+      }
+      onSync(c.id)
+    } catch {
+      alert(`Échec du sync ${c.label} : erreur réseau ou délai dépassé.`)
       onSync(c.id)
     } finally {
       setSyncing(false)
