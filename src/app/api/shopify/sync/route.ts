@@ -35,6 +35,7 @@ export async function POST(request: Request) {
         data: analytics,
         source: "shopify",
         expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1h TTL
+        updated_at: new Date().toISOString(),
       })
 
       // Upsert P&L revenue entry (match real DB schema: category_id + date)
@@ -115,6 +116,7 @@ export async function POST(request: Request) {
         data: { orders, count: orders.length },
         source: "shopify",
         expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30min TTL
+        updated_at: new Date().toISOString(),
       }, { onConflict: "key" })
       if (ordersError) {
         console.error("[Shopify sync] orders upsert failed:", ordersError.message)
@@ -133,6 +135,7 @@ export async function POST(request: Request) {
         data: products,
         source: "shopify",
         expires_at: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(), // 6h TTL
+        updated_at: new Date().toISOString(),
       }, { onConflict: "key" })
 
       results.products = { count: (products.products || []).length }

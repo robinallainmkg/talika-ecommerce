@@ -95,6 +95,7 @@ export async function GET(request: Request) {
       data: { orders, count: orders.length },
       source: "shopify",
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
     }, { onConflict: "key" })
     log.push(`Cached ${orders.length} orders for ${year}-${month}`)
 
@@ -106,6 +107,7 @@ export async function GET(request: Request) {
       data: discountCodes,
       source: "shopify",
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
     }, { onConflict: "key" })
     log.push(`Cached ${discountCodes.length} discount codes`)
 
@@ -275,6 +277,7 @@ export async function GET(request: Request) {
       },
       source: "cron",
       expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date().toISOString(),
     }, { onConflict: "key" })
 
     return NextResponse.json({ success: true, log })
