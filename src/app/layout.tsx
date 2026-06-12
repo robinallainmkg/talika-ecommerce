@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import "./globals.css"
-import { Sidebar } from "@/components/layout/sidebar"
+import { AppShell } from "@/components/layout/app-shell"
 
 export const metadata: Metadata = {
   title: "Talika Admin - Plateforme de Gestion",
@@ -15,10 +15,7 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body className="antialiased font-sans">
-        <Sidebar />
-        <main className="min-h-screen bg-zinc-50 lg:ml-64">
-          {children}
-        </main>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   )
