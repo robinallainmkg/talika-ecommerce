@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 const LOOKUPS_PER_HOUR = 6
 
 const NOT_FOUND_MESSAGE =
-  "Je ne trouve aucune commande correspondant à ce numéro et cet email. Vérifiez le numéro (il figure dans votre email de confirmation, ex. #12345) et l'adresse email utilisée lors de l'achat — ou laissez un message à notre équipe via « Parler à un conseiller »."
+  "Je ne trouve aucune commande correspondant à ce numéro et cet email. Vérifiez le numéro (il figure dans votre email de confirmation, ex. #12345) et l'adresse email utilisée lors de l'achat. Si vous venez tout juste de passer commande, patientez quelques minutes puis réessayez — ou laissez un message à notre équipe via « Parler à un conseiller »."
 
 export async function OPTIONS(request: Request) {
   return handleOptions(request)

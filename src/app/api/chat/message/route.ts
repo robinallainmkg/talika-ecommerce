@@ -69,9 +69,18 @@ export async function POST(request: Request) {
             role: "user",
             content: message,
           })
+          const { data: conv } = await db
+            .from("chat_conversations")
+            .select("message_count, unread_count")
+            .eq("id", conversation.id)
+            .single()
           await db
             .from("chat_conversations")
-            .update({ last_message_at: new Date().toISOString() })
+            .update({
+              message_count: (conv?.message_count || 0) + 1,
+              unread_count: (conv?.unread_count || 0) + 1,
+              last_message_at: new Date().toISOString(),
+            })
             .eq("id", conversation.id)
           send("ack", {})
           send("done", { sources: [], status: conversation.status })
