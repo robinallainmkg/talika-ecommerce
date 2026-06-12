@@ -71,10 +71,14 @@ export default function ChatInboxPage() {
 
   async function deleteConversation(id: string) {
     if (!confirm("Supprimer définitivement cette conversation ?")) return
-    await adminFetch(`/api/chat/admin/conversations/${id}`, { method: "DELETE" })
+    setConversations((prev) => prev.filter((c) => c.id !== id))
     setSelectedId(null)
     setSelected(null)
     setMessages([])
+    const res = await adminFetch(`/api/chat/admin/conversations/${id}`, { method: "DELETE" })
+    if (!res.ok) {
+      alert("La suppression a échoué. Réessayez.")
+    }
     fetchList()
   }
 

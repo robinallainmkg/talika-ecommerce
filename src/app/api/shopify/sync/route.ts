@@ -7,6 +7,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}))
@@ -108,12 +110,16 @@ export async function POST(request: Request) {
         })),
       }))
 
-      await supabase.from("data_cache").upsert({
+      const { error: ordersError } = await supabase.from("data_cache").upsert({
         key: `shopify_orders_${targetYear}_${targetMonth}`,
         data: { orders, count: orders.length },
         source: "shopify",
         expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30min TTL
       }, { onConflict: "key" })
+      if (ordersError) {
+        console.error("[Shopify sync] orders upsert failed:", ordersError.message)
+        throw new Error(`écriture data_cache orders impossible: ${ordersError.message}`)
+      }
 
       results.orders = { count: orders.length }
     }
