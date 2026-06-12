@@ -6,7 +6,7 @@ import { checkRateLimits, clientIp } from "@/lib/chat/rate-limit"
 import { embedTexts } from "@/lib/chat/mistral"
 import { retrieveContext } from "@/lib/chat/rag"
 import { buildSystemPrompt } from "@/lib/chat/prompt"
-import { streamChatCompletion, ChatMessage, GROQ_MODEL } from "@/lib/chat/groq"
+import { streamChatCompletion, ChatMessage } from "@/lib/chat/groq"
 import { fallbackResponse, FALLBACK_MODEL } from "@/lib/chat/fallback"
 
 export const dynamic = "force-dynamic"
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
 
           await saveExchange(db, conversation.id, message, {
             content: final.content,
-            model: GROQ_MODEL,
+            model: groq.model,
             tokensUsed: final.tokensUsed,
             ragSources: rag.sources,
           })
@@ -161,7 +161,7 @@ export async function POST(request: Request) {
               })),
               tokens_used: final.tokensUsed,
               latency_ms: Date.now() - started,
-              model: GROQ_MODEL,
+              model: groq.model,
             }
           }
           send("done", done)

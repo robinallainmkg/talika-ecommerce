@@ -24,7 +24,7 @@ export function isWithinBusinessHours(hours: BusinessHours | undefined): boolean
   const now = new Date()
   const fmt = new Intl.DateTimeFormat("fr-FR", {
     timeZone: hours.timezone || "Europe/Paris",
-    hour12: false,
+    hourCycle: "h23",
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",

@@ -41,13 +41,17 @@ export async function retrieveContext(
     return { contextBlock: "", sources: [], chunks: [] }
   }
   const chunks = (data || []) as RagChunk[]
+  // Budget tokens : contenu plafonné par chunk pour tenir dans les quotas Groq
+  const MAX_CHUNK_INJECT = 1200
   const blocks = chunks.map((c) => {
     const meta = (c.metadata || {}) as { price?: string; currency?: string; url?: string }
     const label =
       c.source_type === "shopify_product"
         ? `[Fiche produit — ${c.title}${meta.price ? ` — ${meta.price} ${meta.currency || "EUR"}` : ""}${meta.url ? ` — ${meta.url}` : ""}]`
         : `[Document — ${c.title}${c.section_heading ? ` — ${c.section_heading}` : ""}]`
-    return `${label}\n${c.content}`
+    const content =
+      c.content.length > MAX_CHUNK_INJECT ? `${c.content.slice(0, MAX_CHUNK_INJECT)}…` : c.content
+    return `${label}\n${content}`
   })
   const seen = new Set<string>()
   const sources: RagSource[] = []
