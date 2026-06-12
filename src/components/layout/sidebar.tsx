@@ -20,7 +20,10 @@ import {
   MessageCircle,
   Menu,
   X,
+  UserCog,
+  LogOut,
 } from "lucide-react"
+import { authClient } from "@/lib/auth/client"
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -36,6 +39,7 @@ const navigation = [
   { name: "Objectifs 2026", href: "/objectives", icon: Target },
   { name: "Générosité", href: "/generosite", icon: Gift },
   { name: "P&L", href: "/pnl", icon: FileSpreadsheet },
+  { name: "Équipe", href: "/users", icon: UserCog },
 ]
 
 interface RoutineCheck {
@@ -175,11 +179,21 @@ export function Sidebar() {
         </nav>
 
         {/* Status footer */}
-        <div className="border-t border-zinc-200 p-4">
+        <div className="flex items-center justify-between border-t border-zinc-200 p-4">
           <div className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-xs text-zinc-500">Sync actif</span>
           </div>
+          <button
+            onClick={async () => {
+              await authClient().auth.signOut()
+              window.location.href = "/login"
+            }}
+            className="flex items-center gap-1 rounded p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+            title="Se déconnecter"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </aside>
     </>
