@@ -36,7 +36,7 @@ interface ConnectorsResponse {
 
 function ago(hours: number | null): string {
   if (hours === null) return "jamais"
-  if (hours < 1) return "à l&apos;instant"
+  if (hours < 1) return "à l’instant"
   if (hours < 48) return `il y a ${hours}h`
   return `il y a ${Math.round(hours / 24)} j`
 }
