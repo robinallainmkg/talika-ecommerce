@@ -250,6 +250,19 @@ export async function GET(request: Request) {
       log.push(`Chat KB sync skipped: ${kbErr instanceof Error ? kbErr.message : "unknown error"}`)
     }
 
+    // ── 8b. Nettoyage chat : conversations vides > 24 h ──
+    try {
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+      const { count: cleaned } = await supabase
+        .from("chat_conversations")
+        .delete({ count: "exact" })
+        .eq("message_count", 0)
+        .lt("created_at", dayAgo)
+      if (cleaned) log.push(`Chat cleanup: ${cleaned} empty conversations deleted`)
+    } catch {
+      // non bloquant
+    }
+
     // ── 9. Log sync result ──
     await supabase.from("data_cache").upsert({
       key: "last_cron_sync",

@@ -11,6 +11,7 @@ type ConversationRow = {
   id: string
   status: string
   visitor_email: string | null
+  first_page_url: string | null
   message_count: number
   unread_count: number
   last_message_at: string | null
@@ -158,6 +159,11 @@ export default function ChatInboxPage() {
                   {selected.message_count} messages · créée {relativeTime(selected.created_at)}
                 </span>
                 {selected.visitor_email && <span className="text-xs text-zinc-500">· {selected.visitor_email}</span>}
+                {selected.first_page_url && (
+                  <span className="max-w-[180px] truncate text-xs text-zinc-400" title={selected.first_page_url}>
+                    · {selected.first_page_url}
+                  </span>
+                )}
                 <div className="ml-auto flex items-center gap-2">
                   <button disabled title="Disponible en V2" className="cursor-not-allowed rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-300">
                     Prendre la main

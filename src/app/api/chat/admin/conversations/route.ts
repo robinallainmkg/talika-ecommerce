@@ -20,6 +20,7 @@ export async function GET(request: Request) {
         "id, status, is_internal, visitor_email, visitor_name, first_page_url, message_count, unread_count, last_message_at, created_at"
       )
       .eq("is_internal", internal)
+      .gt("message_count", 0)
       .order("last_message_at", { ascending: false })
       .limit(limit)
     if (status && status !== "all") query = query.eq("status", status)
@@ -27,21 +28,28 @@ export async function GET(request: Request) {
     const { data: conversations, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    const enriched = await Promise.all(
-      (conversations || []).map(async (conv) => {
-        const { data: last } = await db
-          .from("chat_messages")
-          .select("content, role")
-          .eq("conversation_id", conv.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single()
-        return {
-          ...conv,
-          last_message_preview: last ? `${last.role === "user" ? "Visiteur : " : ""}${last.content.slice(0, 120)}` : "",
+    const ids = (conversations || []).map((c) => c.id)
+    const previews = new Map<string, string>()
+    if (ids.length > 0) {
+      const { data: messages } = await db
+        .from("chat_messages")
+        .select("conversation_id, content, role, created_at")
+        .in("conversation_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(ids.length * 8)
+      for (const m of messages || []) {
+        if (!previews.has(m.conversation_id)) {
+          previews.set(
+            m.conversation_id,
+            `${m.role === "user" ? "Visiteur : " : ""}${m.content.slice(0, 120)}`
+          )
         }
-      })
-    )
+      }
+    }
+    const enriched = (conversations || []).map((conv) => ({
+      ...conv,
+      last_message_preview: previews.get(conv.id) || "",
+    }))
 
     return NextResponse.json({ conversations: enriched })
   } catch (err) {
