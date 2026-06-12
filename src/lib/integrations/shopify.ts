@@ -7,16 +7,27 @@ const SHOPIFY_STORE = process.env.SHOPIFY_STORE_DOMAIN || ""
 const SHOPIFY_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || ""
 const BASE_URL = `https://${SHOPIFY_STORE}/admin/api/2024-01`
 
+/** Fetch avec retry sur 429 (rate limit Shopify : 2 req/s, le Retry-After est fourni) */
+async function rawShopifyFetch(url: string, options?: RequestInit): Promise<Response> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const res = await fetch(url, {
+      ...options,
+      headers: {
+        "X-Shopify-Access-Token": SHOPIFY_TOKEN,
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    })
+    if (res.status !== 429) return res
+    const retryAfter = parseFloat(res.headers.get("retry-after") || "2")
+    await new Promise((resolve) => setTimeout(resolve, Math.min(retryAfter, 10) * 1000 + 250))
+  }
+  throw new Error("Shopify API error: 429 (rate limit persistant)")
+}
+
 async function shopifyFetch(endpoint: string, options?: RequestInit) {
   const url = endpoint.startsWith("http") ? endpoint : `${BASE_URL}${endpoint}`
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "X-Shopify-Access-Token": SHOPIFY_TOKEN,
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  })
+  const res = await rawShopifyFetch(url, options)
   if (!res.ok) throw new Error(`Shopify API error: ${res.status}`)
   return res.json()
 }
@@ -24,12 +35,7 @@ async function shopifyFetch(endpoint: string, options?: RequestInit) {
 /** Same as shopifyFetch but also returns the Link header for pagination */
 async function shopifyFetchWithHeaders(endpoint: string) {
   const url = endpoint.startsWith("http") ? endpoint : `${BASE_URL}${endpoint}`
-  const res = await fetch(url, {
-    headers: {
-      "X-Shopify-Access-Token": SHOPIFY_TOKEN,
-      "Content-Type": "application/json",
-    },
-  })
+  const res = await rawShopifyFetch(url)
   if (!res.ok) throw new Error(`Shopify API error: ${res.status}`)
   const data = await res.json()
   const linkHeader = res.headers.get("link") || ""
