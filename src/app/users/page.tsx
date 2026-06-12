@@ -21,6 +21,8 @@ export default function UsersPage() {
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member")
   const [inviting, setInviting] = useState(false)
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch("/api/users")
@@ -43,14 +45,24 @@ export default function UsersPage() {
     if (!inviteEmail.trim()) return
     setInviting(true)
     setFeedback(null)
+    setInviteLink(null)
+    setLinkCopied(false)
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
     })
     const data = await res.json()
-    if (res.ok) {
+    if (res.ok && data.email_sent) {
       setFeedback({ type: "ok", text: `Invitation envoyée à ${inviteEmail.trim()} — la personne recevra un email pour activer son compte.` })
+      setInviteEmail("")
+      load()
+    } else if (res.ok && data.invite_link) {
+      setFeedback({
+        type: "ok",
+        text: `L'email n'a pas pu partir (limite du service mail) — transmettez ce lien d'activation à ${inviteEmail.trim()} (valable 24 h) :`,
+      })
+      setInviteLink(data.invite_link)
       setInviteEmail("")
       load()
     } else {
@@ -116,6 +128,27 @@ export default function UsersPage() {
             <p className={`mt-3 text-sm ${feedback.type === "ok" ? "text-emerald-600" : "text-red-600"}`}>
               {feedback.text}
             </p>
+          )}
+          {inviteLink && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                readOnly
+                value={inviteLink}
+                onFocus={(e) => e.target.select()}
+                className="w-full max-w-xl rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(inviteLink)
+                  setLinkCopied(true)
+                  setTimeout(() => setLinkCopied(false), 2000)
+                }}
+                className="shrink-0 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                {linkCopied ? "Copié !" : "Copier le lien"}
+              </button>
+            </div>
           )}
           <p className="mt-2 text-xs text-zinc-400">
             La personne reçoit un email avec un lien pour choisir son mot de passe. Un administrateur peut inviter et révoquer des membres ; un membre a accès à tout le dashboard sans gérer l&apos;équipe.
