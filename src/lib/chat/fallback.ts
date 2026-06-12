@@ -6,10 +6,16 @@ const RULES: Array<{ intent: string; pattern: RegExp; response: string }> = [
       "Bonjour ! Je suis l'assistante virtuelle de Talika. Posez-moi votre question sur nos produits — et si je ne peux pas y répondre, vous pourrez laisser un message à notre équipe.",
   },
   {
-    intent: "shipping",
-    pattern: /livraison|livr[eé]|exp[eé]di|colis|retour|rembours|commande/i,
+    intent: "order_tracking",
+    pattern: /suivi|o[uù] (est|en est)|exp[eé]di|colis|commande/i,
     response:
-      "Pour toute question sur une commande, une livraison ou un retour, le plus simple est de laisser un message à notre équipe : elle vous répondra ici même. Cliquez sur « Parler à un conseiller » ci-dessous.",
+      "Pour suivre votre commande, cliquez sur « Suivre ma commande » ci-dessous : avec votre numéro de commande et votre email, vous obtiendrez le statut et le lien de suivi en direct.",
+  },
+  {
+    intent: "shipping",
+    pattern: /livraison|livr[eé]|retour|rembours/i,
+    response:
+      "Pour toute question sur un retour ou un remboursement, le plus simple est de laisser un message à notre équipe : elle vous répondra ici même. Cliquez sur « Parler à un conseiller » ci-dessous.",
   },
   {
     intent: "price",
