@@ -50,12 +50,17 @@ async function findUserByEmail(email: string): Promise<{ id: string; last_sign_i
   return user ? { id: user.id, last_sign_in_at: user.last_sign_in_at } : null
 }
 
-// Génère un lien d'activation SANS envoi d'email (plan B quand le SMTP est limité).
-// Si un compte en attente existe déjà, il est recréé proprement.
-async function generateInviteLink(email: string, role: string, invitedBy: string): Promise<string | null> {
+// Génère un lien d'activation (token_hash) SANS envoi d'email — consommé par
+// /auth/set-password via verifyOtp. Si un compte EN ATTENTE existe déjà, on le
+// recrée proprement pour régénérer un lien frais. Renvoie le lien ou une raison.
+async function generateInviteLink(
+  email: string,
+  role: string,
+  invitedBy: string
+): Promise<{ link: string } | { error: string }> {
   const existing = await findUserByEmail(email)
   if (existing) {
-    if (existing.last_sign_in_at) return null // compte actif : ne pas y toucher
+    if (existing.last_sign_in_at) return { error: "cette personne a déjà un compte actif" }
     await fetch(`${AUTH_ADMIN}/admin/users/${existing.id}`, { method: "DELETE", headers: adminHeaders() })
   }
   const response = await fetch(`${AUTH_ADMIN}/admin/generate_link`, {
@@ -64,12 +69,16 @@ async function generateInviteLink(email: string, role: string, invitedBy: string
     body: JSON.stringify({ type: "invite", email, data: { role, invited_by: invitedBy } }),
   })
   const data = await response.json()
-  if (!response.ok || !data.hashed_token) return null
-  return `${SITE_URL}/auth/set-password?token_hash=${data.hashed_token}&type=invite`
+  if (!response.ok || !data.hashed_token) {
+    return { error: data.msg || data.error_description || data.message || "génération du lien impossible" }
+  }
+  return { link: `${SITE_URL}/auth/set-password?token_hash=${data.hashed_token}&type=invite` }
 }
 
-// POST — inviter un utilisateur par email (Supabase envoie l'email d'invitation ;
-// si l'envoi échoue — rate limit SMTP — on renvoie un lien d'activation à transmettre)
+// POST — créer une invitation. On NE compte PAS sur l'email Supabase : il part du
+// domaine partagé mail.app.supabase.io, non autorisé pour @talika.com → rejeté/
+// spam (vérifié via les logs auth). On génère donc TOUJOURS un lien d'activation
+// que l'admin transmet lui-même. Pour réactiver l'envoi auto : SMTP custom (CLAUDE.md §14).
 export async function POST(request: Request) {
   const auth = await requireAdminUser()
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -81,28 +90,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "email invalide" }, { status: 400 })
   }
 
-  const response = await fetch(`${AUTH_ADMIN}/invite`, {
-    method: "POST",
-    headers: adminHeaders(),
-    body: JSON.stringify({
-      email,
-      data: { role, invited_by: auth.user.email },
-      redirect_to: `${SITE_URL}/auth/set-password`,
-    }),
-  })
-  const data = await response.json()
-  if (response.ok) {
-    return NextResponse.json({ ok: true, email_sent: true, user: { id: data.id, email: data.email } })
+  const result = await generateInviteLink(email, role, auth.user.email || "admin")
+  if ("error" in result) {
+    return NextResponse.json({ error: result.error }, { status: 409 })
   }
-
-  // Plan B : lien d'activation sans email (rate limit SMTP ou invitation déjà en attente)
-  const inviteLink = await generateInviteLink(email, role, auth.user.email || "admin")
-  if (inviteLink) {
-    return NextResponse.json({ ok: true, email_sent: false, invite_link: inviteLink })
-  }
-
-  const message = data.msg || data.error_description || data.message || "invitation impossible"
-  return NextResponse.json({ error: message }, { status: response.status })
+  return NextResponse.json({ ok: true, email_sent: false, invite_link: result.link })
 }
 
 // DELETE — révoquer un utilisateur

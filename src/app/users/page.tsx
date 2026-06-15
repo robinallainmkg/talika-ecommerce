@@ -60,7 +60,7 @@ export default function UsersPage() {
     } else if (res.ok && data.invite_link) {
       setFeedback({
         type: "ok",
-        text: `L'email n'a pas pu partir (limite du service mail) — transmettez ce lien d'activation à ${inviteEmail.trim()} (valable 24 h) :`,
+        text: `Compte créé pour ${inviteEmail.trim()} — copiez ce lien d'activation et envoyez-le à la personne (Slack, email perso… valable 24 h) :`,
       })
       setInviteLink(data.invite_link)
       setInviteEmail("")
@@ -89,7 +89,7 @@ export default function UsersPage() {
     <div className="space-y-6 p-8">
       <div>
         <h1 className="text-2xl font-semibold text-zinc-900">Équipe</h1>
-        <p className="text-sm text-zinc-500">Accès au dashboard Talika — invitations par email</p>
+        <p className="text-sm text-zinc-500">Accès au dashboard Talika — invitations par lien d’activation</p>
       </div>
 
       <Card>
@@ -121,7 +121,7 @@ export default function UsersPage() {
               disabled={inviting}
               className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
             >
-              {inviting ? "Envoi…" : "Envoyer l'invitation"}
+              {inviting ? "Génération…" : "Générer l'invitation"}
             </button>
           </form>
           {feedback && (
@@ -151,7 +151,7 @@ export default function UsersPage() {
             </div>
           )}
           <p className="mt-2 text-xs text-zinc-400">
-            La personne reçoit un email avec un lien pour choisir son mot de passe. Un administrateur peut inviter et révoquer des membres ; un membre a accès à tout le dashboard sans gérer l&apos;équipe.
+            Génère un lien d’activation à transmettre à la personne (le service email Supabase n’est pas fiable vers les adresses @talika.com). Un administrateur peut inviter et révoquer des membres ; un membre a accès à tout le dashboard sans gérer l’équipe.
           </p>
         </CardContent>
       </Card>
