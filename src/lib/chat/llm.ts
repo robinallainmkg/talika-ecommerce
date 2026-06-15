@@ -1,27 +1,28 @@
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-export const GROQ_MODEL = "llama-3.3-70b-versatile"
-// Les quotas Groq (tokens/jour) sont PAR MODÈLE : si le 70b est épuisé,
-// le 8b-instant prend le relais avant le fallback règles.
-const MODEL_CHAIN = [GROQ_MODEL, "llama-3.1-8b-instant"]
+const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
+export const CHAT_MODEL = "mistral-small-latest"
+// Hébergé UE, déjà payé (même compte que les embeddings). Pas de roulette de quota
+// comme l'ancien tier gratuit Groq. Fallback transitoire sur nemo si small a un
+// hoquet, puis le moteur de règles prend le relais en amont.
+const MODEL_CHAIN = [CHAT_MODEL, "open-mistral-nemo"]
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string }
 
-export type GroqStreamResult = {
+export type LlmStreamResult = {
   model: string
   deltas: AsyncGenerator<string>
   getFinal: () => { content: string; tokensUsed: number | null }
 }
 
-export async function streamChatCompletion(messages: ChatMessage[]): Promise<GroqStreamResult> {
+export async function streamChatCompletion(messages: ChatMessage[]): Promise<LlmStreamResult> {
   let response: Response | null = null
-  let model = GROQ_MODEL
+  let model = CHAT_MODEL
   let lastError = ""
   for (const candidate of MODEL_CHAIN) {
-    response = await fetch(GROQ_URL, {
+    response = await fetch(MISTRAL_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+        Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
       },
       body: JSON.stringify({
         model: candidate,
@@ -30,19 +31,18 @@ export async function streamChatCompletion(messages: ChatMessage[]): Promise<Gro
         max_tokens: 600,
         top_p: 0.9,
         stream: true,
-        stream_options: { include_usage: true },
       }),
     })
     if (response.ok && response.body) {
       model = candidate
       break
     }
-    lastError = `Groq error ${candidate} (${response.status}): ${(await response.text()).slice(0, 200)}`
+    lastError = `Mistral error ${candidate} (${response.status}): ${(await response.text()).slice(0, 200)}`
     console.warn(lastError)
     response = null
   }
   if (!response || !response.body) {
-    throw new Error(lastError || "Groq indisponible")
+    throw new Error(lastError || "Mistral indisponible")
   }
 
   const state = { content: "", tokensUsed: null as number | null }

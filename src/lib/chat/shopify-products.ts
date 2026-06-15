@@ -6,6 +6,8 @@ import { insertChunks } from "./ingest"
 const STOREFRONT_BASE = "https://talika.fr"
 const API_VERSION = "2024-10"
 
+type Metafield = { value: string } | null
+
 type ShopifyProduct = {
   legacyResourceId: string
   handle: string
@@ -17,6 +19,12 @@ type ShopifyProduct = {
   totalInventory: number
   productType: string
   tags: string[]
+  // Métafields Accentuate : contenu riche des fiches (souvent absent de descriptionHtml)
+  advice: Metafield
+  results: Metafield
+  ingredients: Metafield
+  statement: Metafield
+  productSize: Metafield
 }
 
 export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
@@ -36,6 +44,11 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
             featuredImage { url }
             priceRangeV2 { minVariantPrice { amount currencyCode } }
             totalInventory productType tags
+            advice: metafield(namespace: "accentuate", key: "advice") { value }
+            results: metafield(namespace: "accentuate", key: "results") { value }
+            ingredients: metafield(namespace: "accentuate", key: "ingredients") { value }
+            statement: metafield(namespace: "accentuate", key: "statement") { value }
+            productSize: metafield(namespace: "accentuate", key: "product_size") { value }
           }
         }
       }`
@@ -63,9 +76,45 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
   return products
 }
 
+// Tags techniques Shopify (statuts d'app, flags d'affichage) : inutiles pour le RAG,
+// ils polluent l'embedding et gaspillent des tokens dans le contexte.
+function isJunkTag(tag: string): boolean {
+  const t = tag.toLowerCase().trim()
+  return (
+    t.startsWith("spo-") ||
+    t.startsWith("spo_") ||
+    t.startsWith("tag_sale") ||
+    t.startsWith("__") ||
+    t.startsWith("yo_") ||
+    t.includes("disabled") ||
+    t.includes("notify-me") ||
+    /^[a-z]+_(default|enabled|disabled|hot)$/.test(t)
+  )
+}
+
+function mf(field: Metafield): string {
+  return field?.value ? cleanContent(field.value) : ""
+}
+
 function buildProductText(p: ShopifyProduct): string {
-  const description = cleanContent(p.descriptionHtml || "")
-  return [`# ${p.title}`, p.productType ? `Type : ${p.productType}` : "", p.tags.length ? `Tags : ${p.tags.join(", ")}` : "", "", description]
+  const cleanTags = (p.tags || []).filter((t) => t && !isJunkTag(t))
+  const advice = mf(p.advice)
+  const results = mf(p.results)
+  const ingredients = mf(p.ingredients)
+  const statement = mf(p.statement)
+  const size = mf(p.productSize)
+  return [
+    `# ${p.title}`,
+    p.productType ? `Type : ${p.productType}` : "",
+    cleanTags.length ? `Tags : ${cleanTags.join(", ")}` : "",
+    size ? `Format : ${size}` : "",
+    "",
+    cleanContent(p.descriptionHtml || ""),
+    statement ? `\n## En bref\n${statement}` : "",
+    advice ? `\n## Conseils d'utilisation\n${advice}` : "",
+    results ? `\n## Résultats\n${results}` : "",
+    ingredients ? `\n## Ingrédients\n${ingredients}` : "",
+  ]
     .filter(Boolean)
     .join("\n")
 }
