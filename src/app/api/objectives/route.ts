@@ -7,20 +7,24 @@
  * == TABLE: objectives_2026 (Supabase, project uvohlnmwiucedehemxrt) ==
  *
  *   month       int PK     — 1-12
- *   ca_2025     numeric    — CA comparison (ideally from Reporting Global, not Shopify-only)
- *   ca_2026     numeric    — CA actuel (ideally from Reporting Global)
- *   media_spent numeric    — Media spend (ads only, from Reporting Global)
- *   generosite  numeric    — Discount rate % (Shopify-only, see sync/route.ts for formula)
+ *   ca_2025     numeric    — CA HT 2025 (compta : Choose + Shopify + Amazon). SAISIE MANUELLE.
+ *   ca_2026     numeric    — CA HT 2026 (compta : Choose + Shopify + Amazon). SAISIE MANUELLE.
+ *   media_spent numeric    — Media spend HT (ads only, compta). SAISIE MANUELLE.
+ *   generosite  numeric    — Taux de remise % (Shopify uniquement). AUTO (voir sync/route.ts).
  *   updated_at  timestamptz
  *
- * == DATA FLOW ==
+ * == DATA FLOW (réalité — vérifié 15 juin 2026) ==
  *
- *   1. "Sync Shopify" button → POST /api/objectives/sync → overwrites ca_2025, ca_2026,
- *      generosite with Shopify-only data. Preserves media_spent.
- *   2. Manual SQL inserts → for reporting values (Shopify + Amazon + Choose).
- *      Run AFTER sync to override Shopify-only CA values.
- *   3. Page "Sauvegarder" button → POST /api/objectives → saves all editable fields.
- *   4. GET /api/objectives → reads objectives_2026, returns as-is. No cache overlay.
+ *   ca_2025 / ca_2026 / media_spent = TOUJOURS MANUELS : ces chiffres viennent de la
+ *   compta (HT, agrégat Choose + Shopify + Amazon) et ne sont pas scrapables. On les
+ *   saisit sur la page (cellules + "Sauvegarder") ou par SQL. Rien ne les calcule.
+ *
+ *   1. "Sync Shopify" button → POST /api/objectives/sync → recalcule UNIQUEMENT generosite
+ *      (méthode canonique computeGenerosite). PRÉSERVE ca_2025, ca_2026, media_spent.
+ *      Lancé aussi par le cron quotidien (runFullSync, étape "objectives").
+ *   2. Page "Sauvegarder" button → POST /api/objectives → enregistre les champs éditables.
+ *   3. GET /api/objectives → lit objectives_2026, renvoie tel quel (shopify_data: {} = aucun
+ *      overlay ; l'ancien overlay ca_2026←Shopify côté page est donc mort, c'est voulu).
  *
  * == INFLUENCE SPENDING (TODO) ==
  *

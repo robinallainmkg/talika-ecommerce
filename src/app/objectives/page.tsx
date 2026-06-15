@@ -48,7 +48,6 @@ function emptyMonthData(): MonthData[] {
 
 export default function ObjectivesPage() {
   const [data, setData] = useState<MonthData[]>(emptyMonthData())
-  const [shopifyData, setShopifyData] = useState<Record<number, number>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -122,10 +121,6 @@ export default function ObjectivesPage() {
           }
           setData(merged)
         }
-
-        if (json.shopify_data) {
-          setShopifyData(json.shopify_data)
-        }
       } catch (err) {
         console.error("Failed to load objectives:", err)
       } finally {
@@ -134,20 +129,6 @@ export default function ObjectivesPage() {
     }
     loadData()
   }, [])
-
-  // Apply Shopify data to ca_2026 for past months
-  useEffect(() => {
-    if (Object.keys(shopifyData).length === 0) return
-    setData((prev) =>
-      prev.map((row) => {
-        const shopifyCA = shopifyData[row.month]
-        if (shopifyCA && shopifyCA > 0) {
-          return { ...row, ca_2026: shopifyCA }
-        }
-        return row
-      })
-    )
-  }, [shopifyData])
 
   const handleSave = useCallback(async () => {
     setSaving(true)
@@ -427,13 +408,13 @@ export default function ObjectivesPage() {
                           Mois
                         </th>
                         <th className="pb-3 text-right font-medium text-zinc-500 min-w-[120px]">
-                          CA 2025 TTC
+                          CA 2025 HT
                         </th>
                         <th className="pb-3 text-right font-medium text-zinc-500 min-w-[120px]">
                           Target 2026
                         </th>
                         <th className="pb-3 text-right font-medium text-zinc-500 min-w-[120px]">
-                          CA 2026 TTC
+                          CA 2026 HT
                         </th>
                         <th className="pb-3 text-right font-medium text-zinc-500 min-w-[90px]">
                           Croissance
@@ -652,7 +633,7 @@ export default function ObjectivesPage() {
                 Hors objectif
               </div>
               <div className="ml-auto text-zinc-400">
-                Les valeurs CA 2026 des mois passes sont automatiquement recuperees depuis Shopify
+                CA &amp; Media : saisie manuelle (compta, HT = Choose + Shopify + Amazon). Generosite : calculee automatiquement depuis Shopify.
               </div>
             </div>
           </>
