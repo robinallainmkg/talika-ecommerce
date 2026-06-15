@@ -33,6 +33,77 @@ type OrderNode = {
   }>
 }
 
+export type CustomerOrder = {
+  name: string
+  createdAt: string
+  total: string
+  currency: string
+  financialStatus: string | null
+  fulfillmentStatus: string | null
+  trackingUrl: string | null
+}
+
+export type CustomerInfo = {
+  found: boolean
+  ordersCount: number
+  totalSpent: string | null
+  currency: string | null
+  orders: CustomerOrder[]
+}
+
+export async function lookupCustomerByEmail(email: string): Promise<CustomerInfo> {
+  const domain = process.env.SHOPIFY_STORE_DOMAIN
+  const token = process.env.SHOPIFY_ACCESS_TOKEN
+  const empty: CustomerInfo = { found: false, ordersCount: 0, totalSpent: null, currency: null, orders: [] }
+  if (!domain || !token) return empty
+  const clean = email.trim().toLowerCase()
+  if (!clean || !clean.includes("@")) return empty
+
+  const query = `
+    query($search: String!) {
+      orders(first: 5, query: $search, sortKey: CREATED_AT, reverse: true) {
+        nodes {
+          name createdAt
+          displayFinancialStatus displayFulfillmentStatus
+          totalPriceSet { shopMoney { amount currencyCode } }
+          fulfillments(first: 1) { trackingInfo { url } }
+        }
+      }
+    }`
+  const response = await fetch(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+    body: JSON.stringify({ query, variables: { search: `email:${clean}` } }),
+  })
+  if (!response.ok) return empty
+  const json = await response.json()
+  if (json.errors) return empty
+
+  type Node = {
+    name: string
+    createdAt: string
+    displayFinancialStatus: string | null
+    displayFulfillmentStatus: string | null
+    totalPriceSet: { shopMoney: { amount: string; currencyCode: string } }
+    fulfillments: Array<{ trackingInfo: Array<{ url: string | null }> }>
+  }
+  const nodes: Node[] = json.data?.orders?.nodes || []
+  if (nodes.length === 0) return empty
+
+  const orders: CustomerOrder[] = nodes.map((o) => ({
+    name: o.name,
+    createdAt: o.createdAt,
+    total: o.totalPriceSet.shopMoney.amount,
+    currency: o.totalPriceSet.shopMoney.currencyCode,
+    financialStatus: o.displayFinancialStatus,
+    fulfillmentStatus: o.displayFulfillmentStatus,
+    trackingUrl: o.fulfillments[0]?.trackingInfo[0]?.url || null,
+  }))
+  const currency = orders[0]?.currency || null
+  const totalSpent = orders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0).toFixed(2)
+  return { found: true, ordersCount: orders.length, totalSpent, currency, orders }
+}
+
 export async function lookupOrder(orderNumber: string, email: string): Promise<OrderStatus | null> {
   const domain = process.env.SHOPIFY_STORE_DOMAIN
   const token = process.env.SHOPIFY_ACCESS_TOKEN

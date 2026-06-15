@@ -74,14 +74,15 @@ export async function POST(request: Request) {
             .select("message_count, unread_count")
             .eq("id", conversation.id)
             .single()
-          await db
-            .from("chat_conversations")
-            .update({
-              message_count: (conv?.message_count || 0) + 1,
-              unread_count: (conv?.unread_count || 0) + 1,
-              last_message_at: new Date().toISOString(),
-            })
-            .eq("id", conversation.id)
+          const humanUpdate: Record<string, unknown> = {
+            message_count: (conv?.message_count || 0) + 1,
+            unread_count: (conv?.unread_count || 0) + 1,
+            last_message_at: new Date().toISOString(),
+          }
+          if (typeof body.page_url === "string" && body.page_url) {
+            humanUpdate.last_page_url = body.page_url.slice(0, 500)
+          }
+          await db.from("chat_conversations").update(humanUpdate).eq("id", conversation.id)
           send("ack", {})
           send("done", { sources: [], status: conversation.status })
           controller.close()
