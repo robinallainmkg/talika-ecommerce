@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { getGoogleAdsCampaigns } from "@/lib/integrations/google-ads"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300 // 5 min (Vercel Pro) — évite le timeout du bouton sync
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

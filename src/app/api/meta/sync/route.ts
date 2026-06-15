@@ -37,6 +37,9 @@ function extractROAS(purchaseRoas?: Array<{ action_type: string; value: string }
   return parseFloat(purchaseRoas[0].value) || 0
 }
 
+export const dynamic = "force-dynamic"
+export const maxDuration = 300 // 5 min (Vercel Pro) — évite le timeout du bouton sync
+
 export async function POST(request: Request) {
   try {
     if (!META_ACCESS_TOKEN || !META_AD_ACCOUNT_ID) {

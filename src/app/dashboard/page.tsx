@@ -184,6 +184,97 @@ function ConnectorCard({ c, onSync }: { c: Connector; onSync: (id: string) => vo
   )
 }
 
+interface SyncStep {
+  key: string
+  label: string
+  status: "ok" | "error"
+  detail: string
+  ms: number
+}
+
+interface SyncAllResult {
+  success: boolean
+  duration_ms: number
+  steps: SyncStep[]
+}
+
+function SyncAllPanel({ onDone }: { onDone: () => void }) {
+  const [syncing, setSyncing] = useState(false)
+  const [result, setResult] = useState<SyncAllResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const run = async () => {
+    setSyncing(true)
+    setError(null)
+    setResult(null)
+    try {
+      const res = await fetch("/api/sync/all", { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (Array.isArray(data.steps)) {
+        setResult(data as SyncAllResult)
+      } else {
+        setError(data.error || `HTTP ${res.status}`)
+      }
+      onDone()
+    } catch {
+      setError("Erreur réseau ou délai dépassé. La synchronisation a peut-être continué côté serveur — clique « Rafraîchir » dans quelques minutes.")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-900/10 bg-zinc-900 p-4 text-white">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-semibold">Tout synchroniser</h2>
+          <p className="mt-0.5 text-xs text-zinc-400">
+            Shopify, codes, influenceurs, objectifs, Klaviyo, Google Ads, Meta, catalogue — en une fois (même code que le cron 7h).
+          </p>
+        </div>
+        <button
+          onClick={run}
+          disabled={syncing}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-100 disabled:opacity-60"
+        >
+          <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+          {syncing ? "Synchronisation…" : "Tout synchroniser"}
+        </button>
+      </div>
+
+      {syncing && (
+        <p className="mt-3 text-xs text-zinc-400">
+          En cours — peut prendre 1 à 2 minutes (sources lentes : Klaviyo, Meta). Ne ferme pas l’onglet.
+        </p>
+      )}
+
+      {error && (
+        <p className="mt-3 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-200">{error}</p>
+      )}
+
+      {result && (
+        <div className="mt-3 space-y-1.5">
+          <p className="text-xs font-medium text-zinc-300">
+            {result.success ? "Tout est à jour" : "Terminé avec des erreurs"} · {(result.duration_ms / 1000).toFixed(0)}s
+          </p>
+          {result.steps.map((s) => (
+            <div key={s.key} className="flex items-start gap-2 text-xs">
+              {s.status === "ok"
+                ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                : <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />}
+              <span className="text-zinc-300">
+                <span className="font-medium text-white">{s.label}</span>
+                {" — "}{s.detail}
+                <span className="text-zinc-500"> ({(s.ms / 1000).toFixed(1)}s)</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<ConnectorsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -224,6 +315,8 @@ export default function DashboardPage() {
           <p className="text-red-600">Impossible de charger les connecteurs.</p>
         ) : (
           <>
+            <SyncAllPanel onDone={() => setTimeout(load, 1000)} />
+
             {data.cron.ran_at && (
               <p className="text-xs text-zinc-400 text-center">
                 Dernier cron : {ago(data.cron.age_hours)}

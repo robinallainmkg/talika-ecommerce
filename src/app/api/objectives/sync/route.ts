@@ -18,6 +18,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+export const dynamic = "force-dynamic"
+export const maxDuration = 300 // 5 min (Vercel Pro) — évite le timeout du bouton sync
+
 export async function POST() {
   try {
     const now = new Date()

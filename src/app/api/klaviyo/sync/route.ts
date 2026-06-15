@@ -26,6 +26,9 @@ async function klaviyoFetch(endpoint: string) {
   return res.json()
 }
 
+export const dynamic = "force-dynamic"
+export const maxDuration = 300 // 5 min (Vercel Pro) — évite le timeout du bouton sync
+
 export async function POST() {
   try {
     if (!KLAVIYO_API_KEY) {

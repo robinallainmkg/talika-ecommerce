@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/client"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 300 // 5 min (Vercel Pro) — évite le timeout du bouton sync
 
 /**
  * POST /api/calendar/sync
