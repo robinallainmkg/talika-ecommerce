@@ -178,8 +178,8 @@ export default function InfluencersPage() {
     setError(null)
     try {
       const [infRes, codesRes] = await Promise.all([
-        fetch(`/api/influencers?year=${selectedYear}${selectedMonth ? `&month=${selectedMonth}` : ""}`),
-        fetch("/api/influencers/codes"),
+        fetch(`/api/influencers?year=${selectedYear}${selectedMonth ? `&month=${selectedMonth}` : ""}`, { cache: "no-store" }),
+        fetch("/api/influencers/codes", { cache: "no-store" }),
       ])
       const infJson = await infRes.json()
       const codesJson = await codesRes.json()
@@ -192,7 +192,7 @@ export default function InfluencersPage() {
       setAllCodes(codes)
 
       // Build unassigned codes from Shopify data_cache
-      const cacheRes = await fetch("/api/influencers/unassigned")
+      const cacheRes = await fetch("/api/influencers/unassigned", { cache: "no-store" })
       const cacheJson = await cacheRes.json()
       if (cacheJson.codes) {
         // L'endpoint /api/influencers/unassigned exclut déjà les codes catégorisés

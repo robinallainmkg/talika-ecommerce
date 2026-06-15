@@ -181,8 +181,24 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
 
+    const name = (body.name || "").trim()
+    if (!name) {
+      return NextResponse.json({ error: "name is required" }, { status: 400 })
+    }
+
+    // Anti-doublon : si un influenceur du même nom existe déjà, on le réutilise
+    // (sinon assigner un code à un "nouvel" influenceur déjà créé recrée un clone).
+    const { data: existing } = await supabase
+      .from("influencers")
+      .select("*")
+      .ilike("name", name)
+      .limit(1)
+    if (existing && existing.length > 0) {
+      return NextResponse.json({ influencer: existing[0] })
+    }
+
     const insertData: Record<string, unknown> = {
-      name: body.name,
+      name,
       instagram_handle: body.instagram_handle || null,
       tiktok_handle: body.tiktok_handle || null,
       email: body.email || null,

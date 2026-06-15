@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { normalizeCode } from "@/lib/codes"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,21 +42,46 @@ export async function POST(request: Request) {
       )
     }
 
-    const insertData: Record<string, unknown> = {
-      code: body.code.toUpperCase().trim(),
+    const code = body.code.toUpperCase().trim()
+    const fields: Record<string, unknown> = {
+      code,
       discount_percent: body.discount_percent ?? 15,
       is_active: true,
       code_type: body.code_type || "influencer",
+      // null explicite : si on re-catégorise un code influenceur en code site,
+      // l'ancien influencer_id doit être effacé.
+      influencer_id: body.influencer_id ?? null,
     }
 
-    // influencer_id is optional (site/internal codes don't have one)
-    if (body.influencer_id) {
-      insertData.influencer_id = body.influencer_id
+    // IDEMPOTENT : la table n'a PAS de contrainte d'unicité sur `code`. Sans ce
+    // garde-fou, chaque enregistrement ré-INSÈRE une ligne → doublons (le code
+    // ressortait comme "non attribué", l'admin re-sauvait, etc.). On cherche donc
+    // toute ligne au code normalisé identique : si elle existe on la MET À JOUR
+    // (et on purge les doublons hérités), sinon on insère.
+    const { data: allRows } = await supabase.from("influencer_codes").select("id, code")
+    const norm = normalizeCode(code)
+    const dupes = (allRows || []).filter((r) => normalizeCode(r.code) === norm)
+
+    if (dupes.length > 0) {
+      const { data, error } = await supabase
+        .from("influencer_codes")
+        .update(fields)
+        .eq("id", dupes[0].id)
+        .select(`*, influencers ( id, name )`)
+        .single()
+      if (error) {
+        console.error("Error updating code:", error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+      if (dupes.length > 1) {
+        await supabase.from("influencer_codes").delete().in("id", dupes.slice(1).map((r) => r.id))
+      }
+      return NextResponse.json({ code: data })
     }
 
     const { data, error } = await supabase
       .from("influencer_codes")
-      .insert(insertData)
+      .insert(fields)
       .select(`*, influencers ( id, name )`)
       .single()
 
