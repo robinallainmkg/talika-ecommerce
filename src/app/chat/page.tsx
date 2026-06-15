@@ -36,19 +36,33 @@ const TABS = [
   { key: "closed", label: "Fermés" },
 ]
 
-function beep() {
+// AudioContext réutilisé (les navigateurs limitent le nombre d'instances).
+let audioCtx: AudioContext | null = null
+function chime() {
   try {
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-    const ctx = new Ctx()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.frequency.value = 880
-    gain.gain.setValueAtTime(0.06, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.3)
+    if (!audioCtx) audioCtx = new Ctx()
+    const ctx = audioCtx
+    if (ctx.state === "suspended") ctx.resume()
+    // Deux notes douces (carillon) : sol5 → do6
+    const notes = [
+      { freq: 784, at: 0, dur: 0.18 },
+      { freq: 1047, at: 0.16, dur: 0.28 },
+    ]
+    for (const n of notes) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = "sine"
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.frequency.value = n.freq
+      const start = ctx.currentTime + n.at
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(0.12, start + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + n.dur)
+      osc.start(start)
+      osc.stop(start + n.dur + 0.02)
+    }
   } catch {
     // pas de son disponible
   }
@@ -66,6 +80,7 @@ export default function ChatInboxPage() {
   const knownWaiting = useRef<Set<string>>(new Set())
   const firstLoad = useRef(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const lastUserMsgId = useRef<string | null>(null)
 
   const refreshNotifState = useCallback(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -90,18 +105,19 @@ export default function ChatInboxPage() {
       const convs: ConversationRow[] = data.conversations || []
       setConversations(convs)
 
-      // Détection des nouveaux visiteurs en attente → notification
+      // Détection des nouveaux visiteurs en attente → son + notification
       const waiting = convs.filter((c) => c.status === "queued" || c.unread_count > 0)
       const waitingIds = new Set(waiting.map((c) => c.id))
       if (!firstLoad.current) {
-        for (const c of waiting) {
-          if (!knownWaiting.current.has(c.id)) {
-            if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+        const fresh = waiting.filter((c) => !knownWaiting.current.has(c.id))
+        if (fresh.length > 0) {
+          chime() // son systématique, même sans permission de notification
+          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+            for (const c of fresh) {
               new Notification("Talika — un visiteur attend une réponse", {
                 body: c.last_message_preview || c.visitor_email || "Nouveau message dans le chat",
                 tag: c.id,
               })
-              beep()
             }
           }
         }
@@ -120,11 +136,18 @@ export default function ChatInboxPage() {
     }
   }, [tab])
 
-  const fetchThread = useCallback(async (id: string) => {
+  const fetchThread = useCallback(async (id: string, opts?: { silent?: boolean }) => {
     try {
       const res = await adminFetch(`/api/chat/admin/conversations/${id}`)
       const data = await res.json()
-      setMessages(data.messages || [])
+      const msgs: ChatMessageView[] = data.messages || []
+      // Son si un nouveau message visiteur est arrivé dans la conversation ouverte
+      const lastUser = [...msgs].reverse().find((m) => m.role === "user")
+      if (!opts?.silent && lastUser && lastUserMsgId.current && lastUser.id !== lastUserMsgId.current) {
+        chime()
+      }
+      if (lastUser) lastUserMsgId.current = lastUser.id
+      setMessages(msgs)
       setSelected(data.conversation || null)
     } catch {
       // silent
@@ -141,7 +164,8 @@ export default function ChatInboxPage() {
   // Rafraîchissement live du fil ouvert (voir les nouveaux messages visiteur)
   useEffect(() => {
     if (!selectedId) return
-    fetchThread(selectedId)
+    lastUserMsgId.current = null
+    fetchThread(selectedId, { silent: true })
     const interval = setInterval(() => fetchThread(selectedId), 5000)
     return () => clearInterval(interval)
   }, [selectedId, fetchThread])
