@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     }
     let query = db
       .from("chat_messages")
-      .select("id, role, content, created_at")
+      .select("id, role, content, product_refs, created_at")
       .eq("conversation_id", conversation.id)
       .order("created_at", { ascending: true })
       .limit(100)

@@ -8,6 +8,7 @@ import { retrieveContext } from "@/lib/chat/rag"
 import { buildSystemPrompt } from "@/lib/chat/prompt"
 import { streamChatCompletion, ChatMessage } from "@/lib/chat/llm"
 import { fallbackResponse, FALLBACK_MODEL } from "@/lib/chat/fallback"
+import { parseMarkers, resolveProducts } from "@/lib/chat/products"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -134,7 +135,7 @@ export async function POST(request: Request) {
             .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
           const userContent = rag.contextBlock
-            ? `Contexte factuel (réponds UNIQUEMENT à partir de ces informations, sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}`
+            ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}`
             : message
 
           const messages: ChatMessage[] = [
@@ -144,22 +145,46 @@ export async function POST(request: Request) {
           ]
 
           const llm = await streamChatCompletion(messages)
+          // On retient le flux jusqu'au premier "<<<" pour ne jamais montrer les
+          // marqueurs (ASK_EMAIL / PRODUCTS) au visiteur ; ils sont toujours en fin.
+          let buffer = ""
+          let emitted = 0
           for await (const delta of llm.deltas) {
-            send("delta", { text: delta })
+            buffer += delta
+            const markerIdx = buffer.indexOf("<<<")
+            const safeEnd = markerIdx === -1 ? buffer.length : markerIdx
+            if (safeEnd > emitted) {
+              send("delta", { text: buffer.slice(emitted, safeEnd) })
+              emitted = safeEnd
+            }
           }
+
           const final = llm.getFinal()
+          const parsed = parseMarkers(final.content || buffer)
+          // Émettre le reste de texte propre non encore envoyé (cas d'un "<<<" qui
+          // n'était finalement pas un marqueur, ou texte après marqueur retiré).
+          if (parsed.text.length > emitted) {
+            send("delta", { text: parsed.text.slice(emitted) })
+          }
+
+          const productRefs = await resolveProducts(db, parsed.handles)
+          if (productRefs.length > 0) {
+            send("products", productRefs)
+          }
 
           await saveExchange(db, conversation.id, message, {
-            content: final.content,
+            content: parsed.text,
             model: llm.model,
             tokensUsed: final.tokensUsed,
             ragSources: rag.sources,
+            productRefs: productRefs.length > 0 ? productRefs : null,
           })
 
           const done: Record<string, unknown> = {
             sources: rag.sources.map((s) => ({ title: s.title, similarity: s.similarity })),
             daily_remaining: dailyRemaining,
             status: "bot",
+            ask_email: parsed.askEmail,
           }
           if (body.debug && conversation.is_internal) {
             done.debug = {

@@ -55,6 +55,7 @@ export async function saveExchange(
     model: string | null
     tokensUsed?: number | null
     ragSources?: RagSource[] | null
+    productRefs?: unknown[] | null
   } | null
 ): Promise<void> {
   const rows: Record<string, unknown>[] = [
@@ -68,6 +69,7 @@ export async function saveExchange(
       model: assistant.model,
       tokens_used: assistant.tokensUsed || null,
       rag_sources: assistant.ragSources && assistant.ragSources.length > 0 ? assistant.ragSources : null,
+      product_refs: assistant.productRefs && assistant.productRefs.length > 0 ? assistant.productRefs : null,
     })
   }
   await db.from("chat_messages").insert(rows)

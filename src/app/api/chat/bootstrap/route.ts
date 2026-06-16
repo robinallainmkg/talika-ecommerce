@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const [{ data: messages }, settings] = await Promise.all([
       db
         .from("chat_messages")
-        .select("id, role, content, created_at")
+        .select("id, role, content, product_refs, created_at")
         .eq("conversation_id", conversation.id)
         .order("created_at", { ascending: false })
         .limit(50),

@@ -36,6 +36,26 @@ const TABS = [
   { key: "closed", label: "Fermés" },
 ]
 
+// Compare deux listes de conversations sur les champs qui changent l'affichage —
+// évite un setState (et un re-render de toute la liste) quand rien n'a bougé.
+function sameList(a: ConversationRow[], b: ConversationRow[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (
+      x.id !== y.id ||
+      x.status !== y.status ||
+      x.unread_count !== y.unread_count ||
+      x.last_message_at !== y.last_message_at ||
+      x.last_message_preview !== y.last_message_preview
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 // AudioContext réutilisé (les navigateurs limitent le nombre d'instances).
 let audioCtx: AudioContext | null = null
 function chime() {
@@ -77,10 +97,13 @@ export default function ChatInboxPage() {
   const [loading, setLoading] = useState(true)
   const [notifEnabled, setNotifEnabled] = useState(false)
 
-  const knownWaiting = useRef<Set<string>>(new Set())
+  // Pour chaque conversation nécessitant un humain : dernier last_message_at déjà alerté.
+  const alertedAt = useRef<Map<string, string>>(new Map())
   const firstLoad = useRef(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const lastUserMsgId = useRef<string | null>(null)
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
+  const nearBottom = useRef(true)
+  const threadSig = useRef<string>("")
 
   const refreshNotifState = useCallback(() => {
     if (typeof window !== "undefined" && "Notification" in window) {
@@ -103,31 +126,44 @@ export default function ChatInboxPage() {
       const res = await adminFetch(`/api/chat/admin/conversations?status=${tab}`)
       const data = await res.json()
       const convs: ConversationRow[] = data.conversations || []
-      setConversations(convs)
+      setConversations((prev) => (sameList(prev, convs) ? prev : convs))
 
-      // Détection des nouveaux visiteurs en attente → son + notification
-      const waiting = convs.filter((c) => c.status === "queued" || c.unread_count > 0)
-      const waitingIds = new Set(waiting.map((c) => c.id))
-      if (!firstLoad.current) {
-        const fresh = waiting.filter((c) => !knownWaiting.current.has(c.id))
-        if (fresh.length > 0) {
-          chime() // son systématique, même sans permission de notification
-          if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-            for (const c of fresh) {
-              new Notification("Talika — un visiteur attend une réponse", {
-                body: c.last_message_preview || c.visitor_email || "Nouveau message dans le chat",
-                tag: c.id,
-              })
-            }
+      // Détection GLOBALE (toutes conversations, pas seulement l'ouverte) :
+      // on alerte pour une conversation qui a besoin d'un humain (queued/human)
+      // et qui reçoit un nouveau message visiteur, OU une nouvelle mise en attente.
+      const fresh: ConversationRow[] = []
+      for (const c of convs) {
+        const needsHuman = c.status === "queued" || c.status === "human"
+        if (!needsHuman) {
+          alertedAt.current.delete(c.id)
+          continue
+        }
+        const prevTs = alertedAt.current.get(c.id)
+        const isNew = prevTs === undefined
+        const advanced = !!prevTs && !!c.last_message_at && c.last_message_at > prevTs
+        const isVisitorMsg = (c.last_message_preview || "").startsWith("Visiteur :")
+        if (!firstLoad.current && ((isNew && c.status === "queued") || (advanced && isVisitorMsg))) {
+          fresh.push(c)
+        }
+        if (c.last_message_at) alertedAt.current.set(c.id, c.last_message_at)
+      }
+      if (fresh.length > 0) {
+        chime() // son systématique, quelle que soit la conversation ouverte
+        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+          for (const c of fresh) {
+            new Notification("Talika — un visiteur attend une réponse", {
+              body: c.last_message_preview || c.visitor_email || "Nouveau message dans le chat",
+              tag: c.id,
+            })
           }
         }
       }
-      knownWaiting.current = waitingIds
       firstLoad.current = false
 
       // Titre d'onglet avec le compteur "à traiter"
+      const waitingCount = convs.filter((c) => c.status === "queued" || c.unread_count > 0).length
       if (typeof document !== "undefined") {
-        document.title = waiting.length > 0 ? `(${waiting.length}) Chat IA — Talika` : "Chat IA — Talika"
+        document.title = waitingCount > 0 ? `(${waitingCount}) Chat IA — Talika` : "Chat IA — Talika"
       }
     } catch {
       // silent
@@ -136,19 +172,24 @@ export default function ChatInboxPage() {
     }
   }, [tab])
 
-  const fetchThread = useCallback(async (id: string, opts?: { silent?: boolean }) => {
+  const fetchThread = useCallback(async (id: string) => {
     try {
       const res = await adminFetch(`/api/chat/admin/conversations/${id}`)
       const data = await res.json()
       const msgs: ChatMessageView[] = data.messages || []
-      // Son si un nouveau message visiteur est arrivé dans la conversation ouverte
-      const lastUser = [...msgs].reverse().find((m) => m.role === "user")
-      if (!opts?.silent && lastUser && lastUserMsgId.current && lastUser.id !== lastUserMsgId.current) {
-        chime()
+      // Mise à jour idempotente : on ne re-render (et ne scrolle) que si le fil a
+      // réellement changé. Évite le "saut" de scroll toutes les quelques secondes.
+      const sig = msgs.length + ":" + (msgs[msgs.length - 1]?.id || "")
+      if (sig !== threadSig.current) {
+        threadSig.current = sig
+        setMessages(msgs)
       }
-      if (lastUser) lastUserMsgId.current = lastUser.id
-      setMessages(msgs)
-      setSelected(data.conversation || null)
+      const conv: ConversationDetail | null = data.conversation || null
+      setSelected((prev) =>
+        prev && conv && prev.status === conv.status && prev.message_count === conv.message_count && prev.last_page_url === conv.last_page_url
+          ? prev
+          : conv
+      )
     } catch {
       // silent
     }
@@ -157,21 +198,26 @@ export default function ChatInboxPage() {
   useEffect(() => {
     setLoading(true)
     fetchList()
-    const interval = setInterval(fetchList, 12000)
+    const interval = setInterval(fetchList, 6000)
     return () => clearInterval(interval)
   }, [fetchList])
 
   // Rafraîchissement live du fil ouvert (voir les nouveaux messages visiteur)
   useEffect(() => {
     if (!selectedId) return
-    lastUserMsgId.current = null
-    fetchThread(selectedId, { silent: true })
-    const interval = setInterval(() => fetchThread(selectedId), 5000)
+    threadSig.current = ""
+    nearBottom.current = true
+    fetchThread(selectedId)
+    const interval = setInterval(() => fetchThread(selectedId), 4000)
     return () => clearInterval(interval)
   }, [selectedId, fetchThread])
 
+  // Scroll vers le bas uniquement si l'agent était déjà en bas (ne l'arrache pas
+  // de sa lecture s'il a remonté le fil).
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    if (nearBottom.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
   }, [messages])
 
   async function takeover(action: "take" | "release" | "close") {
@@ -339,7 +385,14 @@ export default function ChatInboxPage() {
                   </button>
                 </div>
               </div>
-              <div className="flex-1 space-y-3 overflow-y-auto bg-zinc-50/50 p-4">
+              <div
+                ref={messagesScrollRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+                }}
+                className="flex-1 space-y-3 overflow-y-auto bg-zinc-50/50 p-4"
+              >
                 {messages.map((m) => (
                   <MessageBubble key={m.id} message={m} />
                 ))}
