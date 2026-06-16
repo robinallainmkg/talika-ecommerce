@@ -152,7 +152,13 @@ export async function POST(request: Request) {
           for await (const delta of llm.deltas) {
             buffer += delta
             const markerIdx = buffer.indexOf("<<<")
-            const safeEnd = markerIdx === -1 ? buffer.length : markerIdx
+            let safeEnd = markerIdx === -1 ? buffer.length : markerIdx
+            // Retenir aussi un préfixe partiel de marqueur en fin de buffer ("<" ou
+            // "<<") : sinon il fuiterait avant que le 3e "<" n'arrive.
+            if (markerIdx === -1) {
+              if (buffer.endsWith("<<")) safeEnd = buffer.length - 2
+              else if (buffer.endsWith("<")) safeEnd = buffer.length - 1
+            }
             if (safeEnd > emitted) {
               send("delta", { text: buffer.slice(emitted, safeEnd) })
               emitted = safeEnd
