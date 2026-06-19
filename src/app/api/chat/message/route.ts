@@ -9,6 +9,7 @@ import { buildSystemPrompt } from "@/lib/chat/prompt"
 import { streamChatCompletion, ChatMessage } from "@/lib/chat/llm"
 import { fallbackResponse, FALLBACK_MODEL } from "@/lib/chat/fallback"
 import { parseMarkers, resolveProducts } from "@/lib/chat/products"
+import { detectEscalation, escalationMessage } from "@/lib/chat/escalation"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -125,6 +126,34 @@ export async function POST(request: Request) {
             .order("created_at", { ascending: false })
             .limit(HISTORY_SIZE)
 
+          const isEn =
+            typeof body.locale === "string" && body.locale.toLowerCase().startsWith("en")
+
+          // --- Escalade DÉTERMINISTE (avant tout appel modèle) ---
+          // Demande d'humain, sujet SAV dur (code promo, remboursement, colis…), ou
+          // « oui » après une proposition d'escalade → on confie à l'équipe et on
+          // bascule la conversation en file d'attente. Les messages suivants du
+          // visiteur partiront alors directement au SAV (branche queued en tête de
+          // route), sans repasser par le bot → fini la boucle / les hallucinations.
+          const lastAssistantContent =
+            (historyRows || []).find((r) => r.role === "assistant")?.content || ""
+          if (detectEscalation(message, lastAssistantContent)) {
+            const text = escalationMessage(isEn ? "en" : "fr")
+            send("delta", { text })
+            await saveExchange(db, conversation.id, message, {
+              content: text,
+              model: "escalation-router",
+            })
+            await db
+              .from("chat_conversations")
+              .update({ status: "queued", last_message_at: new Date().toISOString() })
+              .eq("id", conversation.id)
+            send("escalate", {})
+            send("done", { sources: [], daily_remaining: dailyRemaining, status: "queued" })
+            controller.close()
+            return
+          }
+
           // Récupération sur le MESSAGE COURANT uniquement. (Une tentative d'inclure
           // le tour précédent décalait la recherche d'un cran : chaque question
           // récupérait le sujet de la précédente → réponses à côté. Abandonnée.)
@@ -136,10 +165,7 @@ export async function POST(request: Request) {
             .reverse()
             .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
-          const localeHint =
-            typeof body.locale === "string" && body.locale.toLowerCase().startsWith("en")
-              ? "\n(langue de la page : en)"
-              : ""
+          const localeHint = isEn ? "\n(langue de la page : en)" : ""
           const userContent = rag.contextBlock
             ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}${localeHint}`
             : `${message}${localeHint}`
