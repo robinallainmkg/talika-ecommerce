@@ -125,12 +125,10 @@ export async function POST(request: Request) {
             .order("created_at", { ascending: false })
             .limit(HISTORY_SIZE)
 
-          // Récupération CONTEXTUELLE : on embarque le dernier tour dans la requête
-          // d'embedding pour que les suivis ambigus (« comment ça marche ? ») trouvent
-          // le bon sujet, pas une FAQ sans rapport.
-          const prevTurn = historyRows && historyRows[0] ? historyRows[0].content.slice(0, 200) : ""
-          const embedQuery = prevTurn ? `${prevTurn}\n${message}` : message
-          const embeddings = await embedTexts([embedQuery])
+          // Récupération sur le MESSAGE COURANT uniquement. (Une tentative d'inclure
+          // le tour précédent décalait la recherche d'un cran : chaque question
+          // récupérait le sujet de la précédente → réponses à côté. Abandonnée.)
+          const embeddings = await embedTexts([message])
 
           const rag = await retrieveContext(db, embeddings[0])
 
