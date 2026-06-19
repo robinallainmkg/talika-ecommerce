@@ -43,11 +43,13 @@ export async function retrieveContext(
   const chunks = (data || []) as RagChunk[]
   // Budget tokens : contenu plafonné par chunk pour tenir dans les quotas Groq
   const MAX_CHUNK_INJECT = 1200
+  // Label produit VISIBLE et propre (sans identifiant technique : le handle ne doit
+  // jamais être cité au visiteur — il est fourni à part, plus bas, pour le marqueur).
   const blocks = chunks.map((c) => {
     const meta = (c.metadata || {}) as { price?: string; currency?: string; url?: string; handle?: string }
     const label =
       c.source_type === "shopify_product"
-        ? `[Fiche produit — ${c.title}${meta.price ? ` — ${meta.price} ${meta.currency || "EUR"}` : ""}${meta.handle ? ` — handle:${meta.handle}` : ""}${meta.url ? ` — ${meta.url}` : ""}]`
+        ? `[Fiche produit — ${c.title}${meta.price ? ` — ${meta.price} ${meta.currency || "EUR"}` : ""}${meta.url ? ` — ${meta.url}` : ""}]`
         : `[Document — ${c.title}${c.section_heading ? ` — ${c.section_heading}` : ""}]`
     const content =
       c.content.length > MAX_CHUNK_INJECT ? `${c.content.slice(0, MAX_CHUNK_INJECT)}…` : c.content
@@ -55,7 +57,12 @@ export async function retrieveContext(
   })
   const seen = new Set<string>()
   const sources: RagSource[] = []
+  const handleMap: string[] = []
   for (const c of chunks) {
+    const meta = (c.metadata || {}) as { handle?: string }
+    if (c.source_type === "shopify_product" && meta.handle && !handleMap.some((h) => h.startsWith(c.title + "="))) {
+      handleMap.push(`${c.title}=${meta.handle}`)
+    }
     if (seen.has(c.document_id)) continue
     seen.add(c.document_id)
     sources.push({
@@ -65,5 +72,10 @@ export async function retrieveContext(
       source_type: c.source_type,
     })
   }
-  return { contextBlock: blocks.join("\n\n---\n\n"), sources, chunks }
+  // Mapping handle réservé au marqueur <<<PRODUCTS>>> — explicitement NON citable.
+  const handlesNote =
+    handleMap.length > 0
+      ? `\n\n---\nIdentifiants produits pour le marqueur <<<PRODUCTS>>> uniquement (NE JAMAIS les écrire dans ta réponse visible) :\n${handleMap.join("\n")}`
+      : ""
+  return { contextBlock: blocks.join("\n\n---\n\n") + handlesNote, sources, chunks }
 }

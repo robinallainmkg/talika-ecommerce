@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   }
   const encoder = new TextEncoder()
 
-  let body: { token?: string; message?: string; page_url?: string; debug?: boolean }
+  let body: { token?: string; message?: string; page_url?: string; debug?: boolean; locale?: string }
   try {
     body = await request.json()
   } catch {
@@ -117,16 +117,20 @@ export async function POST(request: Request) {
         }
 
         try {
-          const [embeddings, { data: historyRows }] = await Promise.all([
-            embedTexts([message]),
-            db
-              .from("chat_messages")
-              .select("role, content")
-              .eq("conversation_id", conversation.id)
-              .in("role", ["user", "assistant"])
-              .order("created_at", { ascending: false })
-              .limit(HISTORY_SIZE),
-          ])
+          const { data: historyRows } = await db
+            .from("chat_messages")
+            .select("role, content")
+            .eq("conversation_id", conversation.id)
+            .in("role", ["user", "assistant"])
+            .order("created_at", { ascending: false })
+            .limit(HISTORY_SIZE)
+
+          // Récupération CONTEXTUELLE : on embarque le dernier tour dans la requête
+          // d'embedding pour que les suivis ambigus (« comment ça marche ? ») trouvent
+          // le bon sujet, pas une FAQ sans rapport.
+          const prevTurn = historyRows && historyRows[0] ? historyRows[0].content.slice(0, 200) : ""
+          const embedQuery = prevTurn ? `${prevTurn}\n${message}` : message
+          const embeddings = await embedTexts([embedQuery])
 
           const rag = await retrieveContext(db, embeddings[0])
 
@@ -134,9 +138,13 @@ export async function POST(request: Request) {
             .reverse()
             .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
+          const localeHint =
+            typeof body.locale === "string" && body.locale.toLowerCase().startsWith("en")
+              ? "\n(langue de la page : en)"
+              : ""
           const userContent = rag.contextBlock
-            ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}`
-            : message
+            ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}${localeHint}`
+            : `${message}${localeHint}`
 
           const messages: ChatMessage[] = [
             { role: "system", content: buildSystemPrompt(settings.prompt_addendum as string) },

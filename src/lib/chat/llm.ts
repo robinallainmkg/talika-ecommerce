@@ -1,9 +1,10 @@
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions"
 export const CHAT_MODEL = "mistral-small-latest"
-// Hébergé UE, déjà payé (même compte que les embeddings). Pas de roulette de quota
-// comme l'ancien tier gratuit Groq. Fallback transitoire sur nemo si small a un
-// hoquet, puis le moteur de règles prend le relais en amont.
-const MODEL_CHAIN = [CHAT_MODEL, "open-mistral-nemo"]
+// Hébergé UE, déjà payé. Chaîne de secours : on retente small (panne souvent
+// transitoire) puis on passe à mistral-medium (nettement meilleur que nemo, qui
+// donnait des réponses génériques et perdait le fil). Le moteur de règles reste
+// le dernier filet, géré en amont (message/route).
+const MODEL_CHAIN = [CHAT_MODEL, CHAT_MODEL, "mistral-medium-latest"]
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string }
 
