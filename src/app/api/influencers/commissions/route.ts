@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { getSessionUser } from "@/lib/auth/server"
 
 export const dynamic = "force-dynamic"
 
@@ -100,6 +101,23 @@ export async function POST(request: Request) {
     const entries: any[] = Array.isArray(body.entries) ? body.entries : []
     if (!month || !year || entries.length === 0) {
       return NextResponse.json({ error: "month, year, entries requis" }, { status: 400 })
+    }
+
+    // Mois verrouillé : édition bloquée, SAUF pour l'admin (qui garde la main).
+    const { data: lock } = await supabase
+      .from("influence_month_locks")
+      .select("locked_by")
+      .eq("year", year)
+      .eq("month", month)
+      .maybeSingle()
+    if (lock) {
+      const user = await getSessionUser()
+      if ((user?.user_metadata?.role as string) !== "admin") {
+        return NextResponse.json(
+          { error: "Mois verrouillé — seul un admin peut éditer.", locked: true },
+          { status: 423 }
+        )
+      }
     }
 
     const num = (v: any) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v))

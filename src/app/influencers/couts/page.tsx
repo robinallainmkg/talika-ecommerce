@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { formatCurrency } from "@/lib/utils"
-import { Loader2, Save, ArrowLeft, RefreshCw, Plus } from "lucide-react"
+import { Loader2, Save, ArrowLeft, RefreshCw, Plus, Lock, Unlock } from "lucide-react"
+import { authClient } from "@/lib/auth/client"
 
 interface Row {
   influencer_id: string
@@ -31,13 +32,36 @@ export default function CoutsInfluencePage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
+  const [role, setRole] = useState<string | null>(null)
+  const [lock, setLock] = useState<{ locked_by: string | null; locked_at: string } | null>(null)
+  const [locking, setLocking] = useState(false)
+
+  const isAdmin = role === "admin"
+  const isLocked = !!lock
+  const canEdit = !isLocked || isAdmin
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { data } = await authClient().auth.getUser()
+        setRole((data.user?.user_metadata?.role as string) ?? "member")
+      } catch {
+        setRole("member")
+      }
+    })()
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
     setFeedback(null)
     try {
-      const res = await fetch(`/api/influencers/commissions?year=${year}&month=${month}`, { cache: "no-store" })
+      const [res, lockRes] = await Promise.all([
+        fetch(`/api/influencers/commissions?year=${year}&month=${month}`, { cache: "no-store" }),
+        fetch(`/api/influencers/lock?year=${year}&month=${month}`, { cache: "no-store" }),
+      ])
       const data = await res.json()
+      const lockData = await lockRes.json()
+      setLock(lockData.locked ? lockData.lock : null)
       const list: Row[] = data.rows || []
       setRows(list)
       setAllInfluencers(data.all_influencers || [])
@@ -94,6 +118,42 @@ export default function CoutsInfluencePage() {
     }
   }
 
+  async function lockMonth() {
+    setLocking(true)
+    setFeedback(null)
+    try {
+      const res = await fetch("/api/influencers/lock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month }),
+      })
+      if (res.ok) load()
+      else setFeedback({ type: "error", text: "Verrouillage impossible." })
+    } catch {
+      setFeedback({ type: "error", text: "Erreur réseau." })
+    } finally {
+      setLocking(false)
+    }
+  }
+
+  async function unlockMonth() {
+    setLocking(true)
+    setFeedback(null)
+    try {
+      const res = await fetch("/api/influencers/lock", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month }),
+      })
+      if (res.ok) load()
+      else setFeedback({ type: "error", text: "Déverrouillage réservé à l'admin." })
+    } catch {
+      setFeedback({ type: "error", text: "Erreur réseau." })
+    } finally {
+      setLocking(false)
+    }
+  }
+
   const rowTotal = (id: string) =>
     (parseFloat(feeDraft[id]) || 0) + (parseFloat(commDraft[id]) || 0)
   const grandTotal = rows.reduce((s, r) => s + rowTotal(r.influencer_id), 0)
@@ -128,6 +188,39 @@ export default function CoutsInfluencePage() {
           </div>
         </div>
 
+        {/* Statut de verrouillage du mois */}
+        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm ${isLocked ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white"}`}>
+          <div className="flex items-center gap-2">
+            {isLocked ? <Lock className="h-4 w-4 text-amber-600" /> : <Unlock className="h-4 w-4 text-zinc-400" />}
+            {isLocked ? (
+              <span className="text-amber-800">
+                <strong>{MONTHS[month - 1]} {year} verrouillé</strong>
+                {lock?.locked_by ? ` par ${lock.locked_by}` : ""}
+                {lock?.locked_at ? ` le ${new Date(lock.locked_at).toLocaleDateString("fr-FR")}` : ""}
+                {isAdmin && " — tu peux quand même éditer (admin)."}
+              </span>
+            ) : (
+              <span className="text-zinc-500">{MONTHS[month - 1]} {year} ouvert — verrouille quand tout est saisi.</span>
+            )}
+          </div>
+          <div>
+            {isLocked
+              ? isAdmin && (
+                  <button onClick={unlockMonth} disabled={locking}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50">
+                    <Unlock className="h-3.5 w-3.5" /> Déverrouiller
+                  </button>
+                )
+              : (
+                  <button onClick={lockMonth} disabled={locking}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
+                    {locking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
+                    Verrouiller {MONTHS[month - 1]}
+                  </button>
+                )}
+          </div>
+        </div>
+
         {feedback && (
           <p className={`text-sm ${feedback.type === "ok" ? "text-emerald-600" : "text-red-600"}`}>{feedback.text}</p>
         )}
@@ -159,26 +252,26 @@ export default function CoutsInfluencePage() {
                       {r.month_sales > 0 ? formatCurrency(r.month_sales) : "—"}
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <input type="number" step="0.01" inputMode="decimal"
+                      <input type="number" step="0.01" inputMode="decimal" disabled={!canEdit}
                         value={feeDraft[r.influencer_id] ?? ""}
                         onChange={(e) => setFeeDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
-                        className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none"
+                        className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
                         placeholder="—" />
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {r.suggested_commission != null && (parseFloat(commDraft[r.influencer_id]) || 0) === 0 && (
-                          <button type="button"
+                          <button type="button" disabled={!canEdit}
                             onClick={() => setCommDraft((p) => ({ ...p, [r.influencer_id]: String(r.suggested_commission) }))}
-                            className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
+                            className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-40"
                             title="Appliquer la commission suggérée">
                             ≈ {formatCurrency(r.suggested_commission)}
                           </button>
                         )}
-                        <input type="number" step="0.01" inputMode="decimal"
+                        <input type="number" step="0.01" inputMode="decimal" disabled={!canEdit}
                           value={commDraft[r.influencer_id] ?? ""}
                           onChange={(e) => setCommDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
-                          className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none"
+                          className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
                           placeholder="—" />
                       </div>
                     </td>
@@ -211,8 +304,9 @@ export default function CoutsInfluencePage() {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <button onClick={save} disabled={saving}
+        <div className="flex items-center justify-end gap-3">
+          {!canEdit && <span className="text-xs text-amber-700">Mois verrouillé — édition réservée à l’admin.</span>}
+          <button onClick={save} disabled={saving || !canEdit}
             className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {saving ? "Enregistrement…" : "Enregistrer les coûts"}
