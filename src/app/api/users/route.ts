@@ -85,7 +85,8 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}))
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : ""
-  const role = body.role === "admin" ? "admin" : "member"
+  const ALLOWED_ROLES = ["admin", "member", "influence", "sav"]
+  const role = ALLOWED_ROLES.includes(body.role) ? body.role : "member"
   if (!email || !email.includes("@")) {
     return NextResponse.json({ error: "email invalide" }, { status: 400 })
   }

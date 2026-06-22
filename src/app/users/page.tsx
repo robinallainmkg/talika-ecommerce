@@ -18,7 +18,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [forbidden, setForbidden] = useState(false)
   const [inviteEmail, setInviteEmail] = useState("")
-  const [inviteRole, setInviteRole] = useState<"member" | "admin">("member")
+  const [inviteRole, setInviteRole] = useState<string>("influence")
   const [inviting, setInviting] = useState(false)
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
   const [inviteLink, setInviteLink] = useState<string | null>(null)
@@ -110,10 +110,12 @@ export default function UsersPage() {
             />
             <select
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as "member" | "admin")}
+              onChange={(e) => setInviteRole(e.target.value)}
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
             >
-              <option value="member">Membre</option>
+              <option value="influence">Influence (espace influence seul)</option>
+              <option value="sav">SAV (chat seul)</option>
+              <option value="member">Membre (accès complet)</option>
               <option value="admin">Administrateur</option>
             </select>
             <button
@@ -187,7 +189,9 @@ export default function UsersPage() {
                           <ShieldCheck className="h-3 w-3" /> Admin
                         </span>
                       ) : (
-                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">Membre</span>
+                        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600">
+                          {u.role === "influence" ? "Influence" : u.role === "sav" ? "SAV" : "Membre"}
+                        </span>
                       )}
                     </td>
                     <td className="py-3 text-zinc-500">

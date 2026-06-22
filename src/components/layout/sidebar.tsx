@@ -21,6 +21,7 @@ import {
   ChevronDown,
 } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
+import { navVisibleForRole } from "@/lib/roles"
 
 type Leaf = { name: string; href: string; icon?: typeof Users }
 type Group = { name: string; icon: typeof Users; children: Leaf[] }
@@ -72,6 +73,29 @@ export function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [badges, setBadges] = useState<Record<string, { count: number; labels: string[] }>>({})
+  const [role, setRole] = useState<string | null>(null)
+
+  // Rôle de l'utilisateur → on filtre la navigation (sous-rôles sandboxés).
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { data } = await authClient().auth.getUser()
+        setRole((data.user?.user_metadata?.role as string) ?? "member")
+      } catch {
+        setRole("member")
+      }
+    })()
+  }, [])
+
+  // Navigation filtrée par rôle : on retire les items hors périmètre, et un groupe
+  // dont aucun enfant n'est visible disparaît (sous-rôles sandboxés).
+  const visibleNav = NAV.map((entry) => {
+    if ("children" in entry && entry.children) {
+      const children = entry.children.filter((c) => navVisibleForRole(c.href, role))
+      return children.length ? { ...entry, children } : null
+    }
+    return navVisibleForRole((entry as Leaf).href, role) ? entry : null
+  }).filter(Boolean) as Entry[]
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
 
   // Le lien actif = le href le plus spécifique (le plus long) qui matche le chemin.
@@ -146,7 +170,7 @@ export function Sidebar() {
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-1">
-            {NAV.map((entry) => {
+            {visibleNav.map((entry) => {
               // ── Groupe pliable (sous-onglets) ──
               if ("children" in entry && entry.children) {
                 const g = entry as Group
