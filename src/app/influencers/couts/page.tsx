@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { formatCurrency } from "@/lib/utils"
-import { Loader2, Save, ArrowLeft, RefreshCw, Plus, Lock, Unlock } from "lucide-react"
+import { Loader2, Save, ArrowLeft, RefreshCw, Plus, Lock, Unlock, Paperclip } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
 interface Row {
@@ -33,8 +33,11 @@ export default function CoutsInfluencePage() {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
   const [role, setRole] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [lock, setLock] = useState<{ locked_by: string | null; locked_at: string } | null>(null)
   const [locking, setLocking] = useState(false)
+  const [invoicesByInf, setInvoicesByInf] = useState<Record<string, { id: string; file_name: string; amount: number | null }[]>>({})
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -45,6 +48,7 @@ export default function CoutsInfluencePage() {
       try {
         const { data } = await authClient().auth.getUser()
         setRole((data.user?.user_metadata?.role as string) ?? "member")
+        setUserEmail(data.user?.email ?? null)
       } catch {
         setRole("member")
       }
@@ -55,13 +59,20 @@ export default function CoutsInfluencePage() {
     setLoading(true)
     setFeedback(null)
     try {
-      const [res, lockRes] = await Promise.all([
+      const [res, lockRes, invRes] = await Promise.all([
         fetch(`/api/influencers/commissions?year=${year}&month=${month}`, { cache: "no-store" }),
         fetch(`/api/influencers/lock?year=${year}&month=${month}`, { cache: "no-store" }),
+        fetch(`/api/influencers/invoices?year=${year}&month=${month}`, { cache: "no-store" }),
       ])
       const data = await res.json()
       const lockData = await lockRes.json()
       setLock(lockData.locked ? lockData.lock : null)
+      const invData = await invRes.json()
+      const byInf: Record<string, { id: string; file_name: string; amount: number | null }[]> = {}
+      for (const inv of invData.invoices || []) {
+        ;(byInf[inv.influencer_id] ??= []).push({ id: inv.id, file_name: inv.file_name, amount: inv.amount })
+      }
+      setInvoicesByInf(byInf)
       const list: Row[] = data.rows || []
       setRows(list)
       setAllInfluencers(data.all_influencers || [])
@@ -89,6 +100,57 @@ export default function CoutsInfluencePage() {
       ...prev,
       { influencer_id: inf.id, name: inf.name, commission_rate: inf.commission_rate, month_sales: 0, suggested_commission: null, saved_commission: null, fixed_fee: null },
     ])
+  }
+
+  async function uploadInvoice(influencerId: string, file: File) {
+    setUploadingId(influencerId)
+    setFeedback(null)
+    try {
+      const urlRes = await fetch("/api/influencers/invoices/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          influencer_id: influencerId, year, month, kind: "fee",
+          file_name: file.name, mime_type: file.type, size_bytes: file.size,
+          uploaded_by: userEmail,
+        }),
+      })
+      const urlData = await urlRes.json()
+      if (!urlRes.ok) {
+        setFeedback({ type: "error", text: urlData.error || "Upload impossible." })
+        return
+      }
+      const { error: upErr } = await authClient().storage
+        .from(urlData.bucket)
+        .uploadToSignedUrl(urlData.path, urlData.token, file)
+      if (upErr) {
+        setFeedback({ type: "error", text: "Échec de l'envoi du fichier." })
+        return
+      }
+      const ocrRes = await fetch("/api/influencers/invoices/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoice_id: urlData.invoice_id }),
+      })
+      const ocr = await ocrRes.json()
+      if (ocr.amount != null) {
+        setFeeDraft((p) => ({ ...p, [influencerId]: String(ocr.amount) }))
+        setFeedback({ type: "ok", text: `Facture lue : ${ocr.amount} € détecté — vérifie puis enregistre.` })
+      } else {
+        setFeedback({ type: "ok", text: "Facture jointe (montant non détecté — saisis-le à la main)." })
+      }
+      const invRes = await fetch(`/api/influencers/invoices?year=${year}&month=${month}`, { cache: "no-store" })
+      const invData = await invRes.json()
+      const byInf: Record<string, { id: string; file_name: string; amount: number | null }[]> = {}
+      for (const inv of invData.invoices || []) {
+        ;(byInf[inv.influencer_id] ??= []).push({ id: inv.id, file_name: inv.file_name, amount: inv.amount })
+      }
+      setInvoicesByInf(byInf)
+    } catch {
+      setFeedback({ type: "error", text: "Erreur réseau pendant l'upload." })
+    } finally {
+      setUploadingId(null)
+    }
   }
 
   async function save() {
@@ -252,11 +314,22 @@ export default function CoutsInfluencePage() {
                       {r.month_sales > 0 ? formatCurrency(r.month_sales) : "—"}
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <input type="number" step="0.01" inputMode="decimal" disabled={!canEdit}
-                        value={feeDraft[r.influencer_id] ?? ""}
-                        onChange={(e) => setFeeDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
-                        className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
-                        placeholder="—" />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <label className={`rounded p-1 ${canEdit && !uploadingId ? "cursor-pointer text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700" : "cursor-not-allowed text-zinc-200"}`}
+                          title="Joindre la facture (PDF/image) — montant lu automatiquement">
+                          {uploadingId === r.influencer_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+                          <input type="file" accept=".pdf,image/*" className="hidden" disabled={!canEdit || !!uploadingId}
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadInvoice(r.influencer_id, f); e.target.value = "" }} />
+                        </label>
+                        <input type="number" step="0.01" inputMode="decimal" disabled={!canEdit}
+                          value={feeDraft[r.influencer_id] ?? ""}
+                          onChange={(e) => setFeeDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
+                          className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
+                          placeholder="—" />
+                      </div>
+                      {invoicesByInf[r.influencer_id]?.length ? (
+                        <div className="mt-0.5 text-right text-[10px] text-emerald-600">✓ {invoicesByInf[r.influencer_id].length} facture(s)</div>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
