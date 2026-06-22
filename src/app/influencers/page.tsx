@@ -7,7 +7,7 @@ import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { formatCurrency, formatNumber } from "@/lib/utils"
+import { formatCurrency } from "@/lib/utils"
 import {
   Users,
   DollarSign,
@@ -16,13 +16,10 @@ import {
   Loader2,
   Plus,
   X,
-  ChevronDown,
-  ChevronUp,
   Save,
   Tag,
   ToggleLeft,
   ToggleRight,
-  Eye,
 } from "lucide-react"
 import { DataInsights } from "@/components/data-insights"
 
@@ -113,24 +110,27 @@ function getTypeBadge(type: string): "info" | "warning" | "default" {
   return "default"
 }
 
-function getRoas(inf: Influencer): number {
-  const cost = (inf.total_commissions || 0) + (inf.total_fixed_fees || 0)
-  if (cost === 0) return 0
-  return (inf.total_sales || 0) / cost
+// Flag de performance d'une influenceuse sur la période (ventes via code vs coût).
+type PerfFlag = "ok" | "watch" | "deficit" | "none"
+function perfFlag(sales: number, cost: number): PerfFlag {
+  if (cost > 0 && sales === 0) return "deficit"
+  if (cost === 0) return sales > 0 ? "ok" : "none"
+  const roi = sales / cost
+  if (roi < 1) return "deficit"
+  if (roi < 3) return "watch"
+  return "ok"
 }
-
-interface FixedFee {
-  id: string
-  influencer_id: string
-  amount: number
-  month: number
-  year: number
-  label: string | null
+const FLAG_META: Record<PerfFlag, { label: string; cls: string }> = {
+  ok: { label: "Rentable", cls: "bg-emerald-50 text-emerald-700" },
+  watch: { label: "À surveiller", cls: "bg-amber-50 text-amber-700" },
+  deficit: { label: "Déficitaire", cls: "bg-red-50 text-red-700" },
+  none: { label: "—", cls: "bg-zinc-50 text-zinc-400" },
 }
 
 // ─── Page ────────────────────────────────────────────────────────
 export default function InfluencersPage() {
   const [activeTab, setActiveTab] = useState<"influenceurs" | "codes">("influenceurs")
+  const [showAllInfluencers, setShowAllInfluencers] = useState(false)
   const [influencers, setInfluencers] = useState<Influencer[]>([])
   const [allCodes, setAllCodes] = useState<CodeWithInfluencer[]>([])
   const [unassignedCodes, setUnassignedCodes] = useState<UnassignedCode[]>([])
@@ -140,11 +140,6 @@ export default function InfluencersPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedYear, setSelectedYear] = useState(2026)
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null) // null = année complète
-
-  // Expanded row for inline editing
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [editForm, setEditForm] = useState<Partial<Influencer>>({})
-  const [saving, setSaving] = useState(false)
 
   // Add influencer modal
   const [showAddModal, setShowAddModal] = useState(false)
@@ -166,11 +161,6 @@ export default function InfluencersPage() {
     discount_percent: 15,
   })
   const [codeSaving, setCodeSaving] = useState(false)
-
-  // Fixed fees
-  const [fees, setFees] = useState<FixedFee[]>([])
-  const [newFee, setNewFee] = useState({ month: new Date().getMonth() + 1, year: 2026, amount: 0, label: "" })
-  const [feeSaving, setFeeSaving] = useState(false)
 
   // ─── Fetch data ────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -209,96 +199,6 @@ export default function InfluencersPage() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
-
-  // ─── KPI calculations ─────────────────────────────────────────
-  const activeInfluencers = influencers.filter((i) => i.status === "active")
-  const totalSales = influencers.reduce((s, i) => s + (i.total_sales || 0), 0)
-  const totalCommissions = influencers.reduce(
-    (s, i) => s + (i.total_commissions || 0) + (i.total_fixed_fees || 0),
-    0
-  )
-  const avgRoas = totalCommissions > 0 ? totalSales / totalCommissions : 0
-
-  // ─── Expand/Edit handlers ─────────────────────────────────────
-  function handleExpand(inf: Influencer) {
-    if (expandedId === inf.id) {
-      setExpandedId(null)
-      return
-    }
-    setExpandedId(inf.id)
-    setEditForm({
-      commission_rate: inf.commission_rate ?? 12,
-      instagram_handle: inf.instagram_handle || "",
-      email: inf.email || "",
-      notes: inf.notes || "",
-      status: inf.status || "active",
-    })
-    // Load fees for this influencer
-    fetch(`/api/influencers/fees?influencer_id=${inf.id}`)
-      .then((r) => r.json())
-      .then((json) => setFees(json.fees || []))
-      .catch(() => setFees([]))
-    setNewFee({ month: new Date().getMonth() + 1, year: 2026, amount: 0, label: "" })
-  }
-
-  async function handleAddFee(influencerId: string) {
-    if (!newFee.amount || newFee.amount <= 0) return
-    setFeeSaving(true)
-    try {
-      const res = await fetch("/api/influencers/fees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ influencer_id: influencerId, ...newFee }),
-      })
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      // Reload fees
-      const feesRes = await fetch(`/api/influencers/fees?influencer_id=${influencerId}`)
-      const feesJson = await feesRes.json()
-      setFees(feesJson.fees || [])
-      setNewFee({ month: new Date().getMonth() + 1, year: 2026, amount: 0, label: "" })
-      await fetchData()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Erreur")
-    } finally {
-      setFeeSaving(false)
-    }
-  }
-
-  async function handleDeleteFee(feeId: string, influencerId: string) {
-    try {
-      await fetch("/api/influencers/fees", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: feeId }),
-      })
-      const feesRes = await fetch(`/api/influencers/fees?influencer_id=${influencerId}`)
-      const feesJson = await feesRes.json()
-      setFees(feesJson.fees || [])
-      await fetchData()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Erreur")
-    }
-  }
-
-  async function handleSaveEdit(id: string) {
-    setSaving(true)
-    try {
-      const res = await fetch("/api/influencers", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, ...editForm }),
-      })
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
-      await fetchData()
-      setExpandedId(null)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Erreur")
-    } finally {
-      setSaving(false)
-    }
-  }
 
   // ─── Add influencer ───────────────────────────────────────────
   async function handleAddInfluencer() {
@@ -519,376 +419,92 @@ export default function InfluencersPage() {
               </button>
             </div>
 
-            {activeTab === "influenceurs" && (<>
-            {/* ── KPI Cards ─────────────────────────────────── */}
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-              <KPICard
-                label="Influenceurs actifs"
-                value={activeInfluencers.length}
-                icon={<Users className="h-5 w-5" />}
-              />
-              <KPICard
-                label="CA total genere"
-                value={formatCurrency(totalSales)}
-                icon={<DollarSign className="h-5 w-5" />}
-              />
-              <KPICard
-                label="Dépenses totales"
-                value={formatCurrency(totalCommissions)}
-                icon={<TrendingUp className="h-5 w-5" />}
-              />
-              <KPICard
-                label="ROAS moyen influenceurs"
-                value={avgRoas > 0 ? `${avgRoas.toFixed(2)}x` : "--"}
-                icon={<Target className="h-5 w-5" />}
-              />
-            </div>
+            {activeTab === "influenceurs" && (() => {
+              const rows = influencers.map((inf) => {
+                const cost = (inf.total_commissions || 0) + (inf.total_fixed_fees || 0)
+                const sales = inf.total_sales || 0
+                return { inf, cost, sales, roi: cost > 0 ? sales / cost : null, flag: perfFlag(sales, cost) }
+              })
+              const activeRows = rows.filter((r) => r.sales > 0 || r.cost > 0)
+              const displayed = showAllInfluencers ? rows : activeRows
+              const totalSales = activeRows.reduce((s, r) => s + r.sales, 0)
+              const totalCost = activeRows.reduce((s, r) => s + r.cost, 0)
+              const roiGlobal = totalCost > 0 ? totalSales / totalCost : 0
+              const periodLabel = selectedMonth ? `${MONTHS_FR[selectedMonth - 1]} ${selectedYear}` : `Année ${selectedYear}`
+              return (
+                <>
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+                    <KPICard label="Influenceuses actives" value={activeRows.length} icon={<Users className="h-5 w-5" />} />
+                    <KPICard label="CA via influence" value={formatCurrency(totalSales)} icon={<DollarSign className="h-5 w-5" />} />
+                    <KPICard label="Coût influence" value={formatCurrency(totalCost)} icon={<TrendingUp className="h-5 w-5" />} />
+                    <KPICard label="ROI global" value={roiGlobal > 0 ? `${roiGlobal.toFixed(1)}x` : "--"} icon={<Target className="h-5 w-5" />} />
+                  </div>
 
-            {/* ── Influencers Table ─────────────────────────── */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5 text-zinc-500" />
-                  Influenceurs
-                </CardTitle>
-                <Badge variant="info">{influencers.length} influenceurs</Badge>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b-2 border-zinc-300">
-                        <th className="pb-3 text-left font-medium text-zinc-500 min-w-[180px]">Nom</th>
-                        <th className="pb-3 text-center font-medium text-zinc-500 min-w-[70px]">Statut</th>
-                        <th className="pb-3 text-center font-medium text-zinc-500 min-w-[90px]">Type</th>
-                        <th className="pb-3 text-right font-medium text-zinc-500 min-w-[110px]">CA Total</th>
-                        <th className="pb-3 text-right font-medium text-zinc-500 min-w-[80px]">Commandes</th>
-                        <th className="pb-3 text-right font-medium text-zinc-500 min-w-[110px]">Commissions</th>
-                        <th className="pb-3 text-right font-medium text-zinc-500 min-w-[100px]">Fees fixes</th>
-                        <th className="pb-3 text-right font-medium text-zinc-500 min-w-[70px]">ROAS</th>
-                        <th className="pb-3 text-left font-medium text-zinc-500 min-w-[140px]">Codes promo</th>
-                        <th className="pb-3 text-center font-medium text-zinc-500 min-w-[30px]"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {influencers.map((inf) => {
-                        const type = getType(inf)
-                        const roas = getRoas(inf)
-                        const isExpanded = expandedId === inf.id
-
-                        return (
-                          <Fragment key={inf.id}>
-                            <tr
-                              className="border-b border-zinc-100 hover:bg-zinc-50/50 transition-colors cursor-pointer"
-                              onClick={() => handleExpand(inf)}
-                            >
-                              <td className="py-3">
-                                <div className="flex items-center gap-1.5">
-                                  <Link
-                                    href={`/influencers/${inf.id}`}
-                                    className="font-medium text-zinc-900 hover:text-blue-600 hover:underline transition-colors"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {inf.name}
-                                  </Link>
-                                  <Link
-                                    href={`/influencers/${inf.id}`}
-                                    className="text-zinc-300 hover:text-blue-500 transition-colors"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <Eye className="h-3.5 w-3.5" />
-                                  </Link>
-                                </div>
-                                {inf.instagram_handle && (
-                                  <div className="text-xs text-zinc-400">@{inf.instagram_handle}</div>
-                                )}
-                              </td>
-                              <td className="py-3 text-center">
-                                <Badge variant={inf.status === "active" ? "success" : "default"}>
-                                  {inf.status === "active" ? "Actif" : "Inactif"}
-                                </Badge>
-                              </td>
-                              <td className="py-3 text-center">
-                                <Badge variant={getTypeBadge(type)}>{type}</Badge>
-                              </td>
-                              <td className="py-3 text-right text-zinc-700 font-medium">
-                                {formatCurrency(inf.total_sales || 0)}
-                              </td>
-                              <td className="py-3 text-right text-zinc-600">
-                                {formatNumber(inf.total_orders || 0)}
-                              </td>
-                              <td className="py-3 text-right text-zinc-600">
-                                {formatCurrency(inf.total_commissions || 0)}
-                              </td>
-                              <td className="py-3 text-right text-zinc-600">
-                                {inf.total_fixed_fees > 0 ? formatCurrency(inf.total_fixed_fees) : "--"}
-                              </td>
-                              <td className="py-3 text-right">
-                                {roas > 0 ? (
-                                  <Badge
-                                    variant={
-                                      roas >= 5 ? "success" : roas >= 2 ? "warning" : "danger"
-                                    }
-                                  >
-                                    {roas.toFixed(1)}x
-                                  </Badge>
-                                ) : (
-                                  <span className="text-zinc-300">--</span>
-                                )}
-                              </td>
-                              <td className="py-3">
-                                <div className="flex flex-wrap gap-1">
-                                  {inf.influencer_codes && inf.influencer_codes.length > 0 ? (
-                                    inf.influencer_codes.map((c) => (
-                                      <Badge
-                                        key={c.id}
-                                        variant={c.is_active ? "info" : "default"}
-                                        className="text-[11px]"
-                                      >
-                                        {c.code}
-                                        {!c.is_active && " (off)"}
-                                      </Badge>
-                                    ))
-                                  ) : (
-                                    <span className="text-xs text-zinc-300">Aucun</span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-3 text-center">
-                                {isExpanded ? (
-                                  <ChevronUp className="h-4 w-4 text-zinc-400" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4 text-zinc-400" />
-                                )}
-                              </td>
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <CardTitle className="flex items-center gap-2">
+                        <Users className="h-5 w-5 text-zinc-500" /> Performance — {periodLabel}
+                      </CardTitle>
+                      <button onClick={() => setShowAllInfluencers((v) => !v)} className="text-xs text-zinc-500 hover:text-zinc-800">
+                        {showAllInfluencers ? `Voir actives (${activeRows.length})` : `Voir toutes (${rows.length})`}
+                      </button>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="mb-3 text-xs text-zinc-400">
+                        « Ventes » = CA des commandes utilisant le code de l&apos;influenceuse (brut, attribution code). ROI = ventes ÷ coût (forfait + commission).
+                      </p>
+                      <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b-2 border-zinc-300 text-xs uppercase text-zinc-400">
+                              <th className="pb-3 text-left font-medium min-w-[180px]">Influenceuse</th>
+                              <th className="pb-3 text-center font-medium min-w-[90px]">Type</th>
+                              <th className="pb-3 text-right font-medium min-w-[120px]">Ventes (CA via code)</th>
+                              <th className="pb-3 text-right font-medium min-w-[70px]">Cmd</th>
+                              <th className="pb-3 text-right font-medium min-w-[100px]">Coût</th>
+                              <th className="pb-3 text-right font-medium min-w-[70px]">ROI</th>
+                              <th className="pb-3 text-center font-medium min-w-[110px]">Perf</th>
+                              <th className="pb-3 text-left font-medium min-w-[140px]">Codes</th>
                             </tr>
-
-                            {/* Expanded inline edit row */}
-                            {isExpanded && (
-                              <tr className="border-b border-zinc-200 bg-zinc-50">
-                                <td colSpan={10} className="p-4">
-                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div>
-                                      <label className="block text-xs font-medium text-zinc-500 mb-1">
-                                        Instagram
-                                      </label>
-                                      <input
-                                        type="text"
-                                        className="w-full rounded-md border-2 border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                        value={editForm.instagram_handle || ""}
-                                        onChange={(e) =>
-                                          setEditForm({ ...editForm, instagram_handle: e.target.value })
-                                        }
-                                        placeholder="@handle"
-                                      />
+                          </thead>
+                          <tbody>
+                            {displayed.map(({ inf, cost, sales, roi, flag }) => {
+                              const type = getType(inf)
+                              const fm = FLAG_META[flag]
+                              const codes = (inf.influencer_codes || []).filter((c) => c.is_active)
+                              return (
+                                <tr key={inf.id} className="border-b border-zinc-100 hover:bg-zinc-50">
+                                  <td className="py-3">
+                                    <Link href={`/influencers/${inf.id}`} className="font-medium text-zinc-900 hover:underline">{inf.name}</Link>
+                                  </td>
+                                  <td className="py-3 text-center"><Badge variant={getTypeBadge(type)}>{type}</Badge></td>
+                                  <td className="py-3 text-right font-medium">{sales > 0 ? formatCurrency(sales) : "—"}</td>
+                                  <td className="py-3 text-right text-zinc-500">{inf.total_orders || 0}</td>
+                                  <td className="py-3 text-right">{cost > 0 ? formatCurrency(cost) : "—"}</td>
+                                  <td className="py-3 text-right font-semibold">{roi != null ? `${roi.toFixed(1)}x` : sales > 0 ? "∞" : "—"}</td>
+                                  <td className="py-3 text-center"><span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${fm.cls}`}>{fm.label}</span></td>
+                                  <td className="py-3">
+                                    <div className="flex flex-wrap gap-1">
+                                      {codes.slice(0, 3).map((c) => (
+                                        <span key={c.id} className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] font-mono text-zinc-600">{c.code}</span>
+                                      ))}
+                                      {codes.length === 0 && <span className="text-[11px] text-zinc-300">aucun</span>}
                                     </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-zinc-500 mb-1">
-                                        Email
-                                      </label>
-                                      <input
-                                        type="email"
-                                        className="w-full rounded-md border-2 border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                        value={editForm.email || ""}
-                                        onChange={(e) =>
-                                          setEditForm({ ...editForm, email: e.target.value })
-                                        }
-                                        placeholder="email@exemple.com"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-zinc-500 mb-1">
-                                        Commission (%)
-                                      </label>
-                                      <input
-                                        type="number"
-                                        className="w-full rounded-md border-2 border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                        value={editForm.commission_rate ?? 12}
-                                        onChange={(e) =>
-                                          setEditForm({
-                                            ...editForm,
-                                            commission_rate: parseFloat(e.target.value) || 0,
-                                          })
-                                        }
-                                        min={0}
-                                        max={100}
-                                        step={0.5}
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-zinc-500 mb-1">
-                                        Statut
-                                      </label>
-                                      <select
-                                        className="w-full rounded-md border-2 border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                        value={editForm.status || "active"}
-                                        onChange={(e) =>
-                                          setEditForm({ ...editForm, status: e.target.value })
-                                        }
-                                      >
-                                        <option value="active">Actif</option>
-                                        <option value="inactive">Inactif</option>
-                                      </select>
-                                    </div>
-                                    <div className="md:col-span-3">
-                                      <label className="block text-xs font-medium text-zinc-500 mb-1">
-                                        Notes
-                                      </label>
-                                      <textarea
-                                        className="w-full rounded-md border-2 border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                        rows={2}
-                                        value={editForm.notes || ""}
-                                        onChange={(e) =>
-                                          setEditForm({ ...editForm, notes: e.target.value })
-                                        }
-                                        placeholder="Notes internes..."
-                                      />
-                                    </div>
-                                  </div>
-
-                                  {/* Fixed Fees Section */}
-                                  <div className="mt-4 pt-4 border-t border-zinc-200">
-                                    <label className="block text-xs font-medium text-zinc-500 mb-2">
-                                      Fees fixes mensuels
-                                    </label>
-                                    {fees.length > 0 && (
-                                      <div className="space-y-1 mb-3">
-                                        {fees.map((f) => (
-                                          <div key={f.id} className="flex items-center justify-between py-1 px-3 rounded bg-violet-50 border border-violet-100">
-                                            <span className="text-sm text-zinc-700">
-                                              {MONTHS_FR[f.month - 1]} {f.year}
-                                              {f.label && <span className="text-zinc-400 ml-1">— {f.label}</span>}
-                                            </span>
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-sm font-medium text-violet-700">{formatCurrency(f.amount)}</span>
-                                              <button
-                                                onClick={() => handleDeleteFee(f.id, inf.id)}
-                                                className="text-zinc-400 hover:text-red-500 transition-colors"
-                                              >
-                                                <X className="h-3.5 w-3.5" />
-                                              </button>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                    <div className="flex items-end gap-2">
-                                      <div className="w-28">
-                                        <select
-                                          className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                          value={newFee.month}
-                                          onChange={(e) => setNewFee({ ...newFee, month: parseInt(e.target.value) })}
-                                        >
-                                          {MONTHS_FR.map((m, i) => (
-                                            <option key={i} value={i + 1}>{m}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      <div className="w-20">
-                                        <select
-                                          className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                          value={newFee.year}
-                                          onChange={(e) => setNewFee({ ...newFee, year: parseInt(e.target.value) })}
-                                        >
-                                          <option value={2024}>2024</option>
-                                          <option value={2025}>2025</option>
-                                          <option value={2026}>2026</option>
-                                        </select>
-                                      </div>
-                                      <div className="w-28">
-                                        <input
-                                          type="number"
-                                          className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                          value={newFee.amount || ""}
-                                          onChange={(e) => setNewFee({ ...newFee, amount: parseFloat(e.target.value) || 0 })}
-                                          placeholder="Montant €"
-                                        />
-                                      </div>
-                                      <div className="flex-1">
-                                        <input
-                                          type="text"
-                                          className="w-full rounded-md border-2 border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 focus:border-zinc-900 focus:outline-none"
-                                          value={newFee.label}
-                                          onChange={(e) => setNewFee({ ...newFee, label: e.target.value })}
-                                          placeholder="Label (optionnel)"
-                                        />
-                                      </div>
-                                      <Button
-                                        size="sm"
-                                        onClick={() => handleAddFee(inf.id)}
-                                        disabled={feeSaving || !newFee.amount}
-                                      >
-                                        {feeSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                                        Ajouter
-                                      </Button>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex justify-end gap-2 mt-3">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setExpandedId(null)}
-                                    >
-                                      Annuler
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      onClick={() => handleSaveEdit(inf.id)}
-                                      disabled={saving}
-                                    >
-                                      {saving ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : (
-                                        <Save className="h-4 w-4" />
-                                      )}
-                                      Sauvegarder
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                            {displayed.length === 0 && (
+                              <tr><td colSpan={8} className="py-8 text-center text-sm text-zinc-400">Aucune influenceuse {showAllInfluencers ? "" : "active "}sur cette période.</td></tr>
                             )}
-                          </Fragment>
-                        )
-                      })}
-
-                      {influencers.length === 0 && (
-                        <tr>
-                          <td colSpan={10} className="py-8 text-center text-zinc-400">
-                            Aucun influenceur trouve
-                          </td>
-                        </tr>
-                      )}
-
-                      {/* Totals row */}
-                      {influencers.length > 0 && (
-                        <tr className="border-t-2 border-zinc-300 bg-zinc-900 text-white">
-                          <td className="py-3 px-1 font-bold">TOTAL</td>
-                          <td className="py-3 text-center font-bold">{activeInfluencers.length}</td>
-                          <td className="py-3"></td>
-                          <td className="py-3 text-right font-bold">{formatCurrency(totalSales)}</td>
-                          <td className="py-3 text-right font-bold">
-                            {formatNumber(influencers.reduce((s, i) => s + (i.total_orders || 0), 0))}
-                          </td>
-                          <td className="py-3 text-right font-bold">
-                            {formatCurrency(influencers.reduce((s, i) => s + (i.total_commissions || 0), 0))}
-                          </td>
-                          <td className="py-3 text-right font-bold">
-                            {formatCurrency(influencers.reduce((s, i) => s + (i.total_fixed_fees || 0), 0))}
-                          </td>
-                          <td className="py-3 text-right font-bold">
-                            {avgRoas > 0 ? `${avgRoas.toFixed(1)}x` : "--"}
-                          </td>
-                          <td className="py-3"></td>
-                          <td className="py-3"></td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-            </>)}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
+              )
+            })()}
 
             {activeTab === "codes" && (<>
             {/* ── Codes Non Attribués ──────────────────────── */}
