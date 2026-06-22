@@ -120,63 +120,32 @@ export async function GET(request: Request) {
     const googleImpressions = googleSummary.impressions || 0
     const googleConversions = googleSummary.conversions || 0
 
-    // ── 4b. New vs returning customers analysis ──
-    // Fetch orders from cache to analyze customer emails + discount codes
-    const { data: ordersCache } = await supabase
-      .from("data_cache")
-      .select("data")
-      .eq("key", `shopify_orders_${year}_${month}`)
-      .single()
-
-    const orders = (ordersCache?.data as any)?.orders || []
-
-    // Build set of influencer codes for matching
-    const { data: infCodes } = await supabase
-      .from("influencer_codes")
-      .select("code")
-      .eq("code_type", "influencer")
-      .eq("is_active", true)
-    const influencerCodeSet = new Set((infCodes || []).map(c => c.code.toUpperCase()))
-
-    // Count unique customers this month and attribute by channel
-    // Use email from order to identify unique buyers
-    const emailToChannel: Record<string, string> = {}
-    const uniqueEmails = new Set<string>()
-
-    for (const order of orders) {
-      const email = (order.email || "").toLowerCase().trim()
-      if (!email) continue
-      uniqueEmails.add(email)
-
-      const codes = (order.discount_codes || []).map((d: any) =>
-        (typeof d === "string" ? d : d.code || "").toUpperCase().trim()
-      )
-
-      const hasInfluencerCode = codes.some((c: string) => influencerCodeSet.has(c))
-      if (hasInfluencerCode && !emailToChannel[email]) {
-        emailToChannel[email] = "influence"
-      } else if (!emailToChannel[email]) {
-        emailToChannel[email] = "organic"
-      }
+    // ── 4b. VRAIS nouveaux clients par canal ──
+    // Fonction Postgres acquisition_new_customers : un "nouveau client" = email dont la
+    // 1re commande JAMAIS passée (tout l'historique) tombe ce mois. Canal = présence d'un
+    // code influenceur. Remplace l'ancien comptage (clients uniques + splits inventés
+    // *0.15/*0.6) qui faussait le CAC. L'influence est attribuable au code ; Meta/direct/SEO
+    // tombent dans "other" (pas séparables par 1re commande, attribution pixel ≠).
+    const { data: ncRows } = await supabase.rpc("acquisition_new_customers", {
+      p_year: year,
+      p_month: month,
+    })
+    const ncMap: Record<string, { orders: number; new_customers: number }> = {}
+    for (const r of (ncRows as Array<{ channel: string; orders: number; new_customers: number }>) || []) {
+      ncMap[r.channel] = { orders: Number(r.orders), new_customers: Number(r.new_customers) }
     }
+    const ncInfluence = ncMap.influence?.new_customers || 0
+    const ncOther = ncMap.other?.new_customers || 0
+    const ordersInfluenceNC = ncMap.influence?.orders || 0
+    const ordersOtherNC = ncMap.other?.orders || 0
+    const totalNewCustomers = ncInfluence + ncOther
+    const pctNcInfluence = ordersInfluenceNC > 0 ? (ncInfluence / ordersInfluenceNC) * 100 : 0
+    const pctNcOther = ordersOtherNC > 0 ? (ncOther / ordersOtherNC) * 100 : 0
 
-    // Total unique customers this month
-    const totalUniqueCustomers = uniqueEmails.size
-
-    // New customers attributed to influence = unique emails that bought with an influencer code
-    const newCustomersInfluence = Object.values(emailToChannel).filter(c => c === "influence").length
-    const newCustomersOrganic = Object.values(emailToChannel).filter(c => c === "organic").length
-
-    // Google new customers from conversions data
-    const newCustomersGoogle = Math.round(googleConversions * 0.6)
-
-    // Total new customers estimate
-    const totalNewCustomers = totalUniqueCustomers
-
-    // CPA calculations
-    const cpaInfluence = newCustomersInfluence > 0 ? influenceCost / newCustomersInfluence : null
-    const cpaMeta = metaSpend > 0 ? metaSpend / Math.max(1, Math.round(totalNewCustomers * 0.15)) : null
-    const cpaGoogle = newCustomersGoogle > 0 ? googleSpend / newCustomersGoogle : null
+    // CAC sur les VRAIS nouveaux clients (pas les clients uniques)
+    const otherSpend = metaSpend + googleSpend
+    const cpaInfluence = ncInfluence > 0 && influenceCost > 0 ? influenceCost / ncInfluence : null
+    const cacOther = ncOther > 0 && otherSpend > 0 ? otherSpend / ncOther : null
 
     // ── 5. Organic / Direct (everything not attributed) ──
     const organicRevenue = Math.max(0, totalRevenue - influenceRevenue - metaRevenue - googleRevenue)
@@ -197,7 +166,7 @@ export async function GET(request: Request) {
         spend: influenceCost,
         roas: influenceCost > 0 ? influenceRevenue / influenceCost : 0,
         share: totalRevenue > 0 ? (influenceRevenue / totalRevenue) * 100 : 0,
-        new_customers: newCustomersInfluence,
+        new_customers: ncInfluence,
         cpa: cpaInfluence,
         pending: !hasCommissionData,
         kpis: {
@@ -223,9 +192,9 @@ export async function GET(request: Request) {
           cpm: metaCpm,
           campaigns: metaCampaigns.length,
         },
-        new_customers: Math.round(totalNewCustomers * 0.15), // ~15% attributed to Meta
-        cpa: cpaMeta,
-        note: "ROAS Meta potentiellement sur-attribué (influence recrute, Meta convertit)",
+        new_customers: null, // non attribuable : Meta = pixel, pas de 1re commande fiable → voir Boussole
+        cpa: null,
+        note: "ROAS Meta sur-attribué (l'influence recrute, Meta convertit). Se fier à la Boussole (MER + %NC).",
       },
       {
         id: "google",
@@ -243,8 +212,8 @@ export async function GET(request: Request) {
           cpm: googleImpressions > 0 ? (googleSpend / googleImpressions) * 1000 : 0,
           campaigns: googleCampaigns.filter((c: any) => c.spend > 0).length,
         },
-        new_customers: newCustomersGoogle,
-        cpa: cpaGoogle,
+        new_customers: null,
+        cpa: null,
         blocked: googleSpend === 0 && googleCampaigns.length === 0,
         note: googleSpend > 0 ? "" : "Aucune donnée — lancez une sync Google Ads",
       },
@@ -258,7 +227,7 @@ export async function GET(request: Request) {
         spend: 0,
         roas: null,
         share: totalRevenue > 0 ? (organicRevenue / totalRevenue) * 100 : 0,
-        new_customers: newCustomersOrganic,
+        new_customers: ncOther,
         cpa: null,
         kpis: {},
       },
@@ -272,6 +241,22 @@ export async function GET(request: Request) {
       blended_roas: blendedRoas,
       total_new_customers: totalNewCustomers,
       blended_cpa: totalSpend > 0 && totalNewCustomers > 0 ? totalSpend / totalNewCustomers : null,
+      // Boussole anti-attribution : MER + CAC nouveau client + %NC par canal (cf knowledge_base
+      // strategy:attribution-blend). Ignore les guerres d'attribution Meta/influence.
+      compass: {
+        mer: blendedRoas,
+        total_spend: totalSpend,
+        total_revenue: totalRevenue,
+        new_customers: totalNewCustomers,
+        cac_new_customer: totalSpend > 0 && totalNewCustomers > 0 ? totalSpend / totalNewCustomers : null,
+        // Le coût influence (commissions + fees) est saisi à la main, souvent après clôture.
+        // Tant qu'il manque, MER/CAC sous-estiment la dépense → drapeau pour l'UI. Le %NC reste fiable.
+        influence_cost_pending: !hasCommissionData,
+        channels: [
+          { id: "influence", name: "Influence", new_customers: ncInfluence, orders: ordersInfluenceNC, pct_nc: pctNcInfluence, spend: influenceCost, cac: cpaInfluence },
+          { id: "other", name: "Autre (Meta / direct / SEO…)", new_customers: ncOther, orders: ordersOtherNC, pct_nc: pctNcOther, spend: otherSpend, cac: cacOther },
+        ],
+      },
       channels,
       meta_campaigns: metaCampaigns.slice(0, 10),
     })

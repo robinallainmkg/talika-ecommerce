@@ -42,6 +42,26 @@ interface Channel {
   pending?: boolean
 }
 
+interface CompassChannel {
+  id: string
+  name: string
+  new_customers: number
+  orders: number
+  pct_nc: number
+  spend: number
+  cac: number | null
+}
+
+interface Compass {
+  mer: number
+  total_spend: number
+  total_revenue: number
+  new_customers: number
+  cac_new_customer: number | null
+  influence_cost_pending?: boolean
+  channels: CompassChannel[]
+}
+
 interface AcquisitionData {
   period: { year: number; month: number }
   total_revenue: number
@@ -50,6 +70,7 @@ interface AcquisitionData {
   blended_roas: number
   total_new_customers: number
   blended_cpa: number | null
+  compass?: Compass
   channels: Channel[]
   meta_campaigns: any[]
 }
@@ -132,6 +153,75 @@ export default function AcquisitionPage() {
           <div className="text-center py-12 text-zinc-500">Aucune donnée disponible.</div>
         ) : (
           <>
+            {/* Boussole acquisition — vérité hors attribution */}
+            {data.compass && (
+              <Card className="border-zinc-300">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Target className="h-4 w-4" /> Boussole acquisition
+                  </CardTitle>
+                  <p className="text-xs text-zinc-500">
+                    La vérité hors attribution : le MER et le CAC nouveau client ignorent les guerres Meta/influence.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {data.compass.influence_cost_pending && (
+                    <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-700">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        Coût influence non saisi pour ce mois → <strong>MER et CAC sous-estimés</strong> (la dépense
+                        influence manque). Le <strong>%NC reste fiable</strong>. Saisis les commissions/fees influence pour fiabiliser.
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <div className="text-xs text-zinc-500">MER (ROAS réel)</div>
+                      <div className="text-2xl font-bold text-zinc-900">{data.compass.mer.toFixed(1)}x</div>
+                      <div className="text-[11px] text-zinc-400">CA total ÷ dépense totale</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-zinc-500">CAC nouveau client</div>
+                      <div className="text-2xl font-bold text-zinc-900">
+                        {data.compass.cac_new_customer ? formatCurrency(data.compass.cac_new_customer) : "—"}
+                      </div>
+                      <div className="text-[11px] text-zinc-400">dépense ÷ vrais nouveaux clients</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-zinc-500">Nouveaux clients</div>
+                      <div className="text-2xl font-bold text-zinc-900">{formatNumber(data.compass.new_customers)}</div>
+                      <div className="text-[11px] text-zinc-400">1re commande jamais passée</div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-zinc-500">% nouveaux clients par canal</div>
+                    {data.compass.channels.map((ch) => (
+                      <div key={ch.id} className="flex items-center gap-3">
+                        <div className="w-36 shrink-0 text-sm text-zinc-700">{ch.name}</div>
+                        <div className="flex-1 h-5 rounded bg-zinc-100 overflow-hidden">
+                          <div
+                            className="h-full flex items-center justify-end pr-1.5 text-[10px] font-medium text-white"
+                            style={{
+                              width: `${Math.max(ch.pct_nc, 8)}%`,
+                              backgroundColor: ch.id === "influence" ? "#8b5cf6" : "#3b82f6",
+                            }}
+                          >
+                            {ch.pct_nc.toFixed(0)}%
+                          </div>
+                        </div>
+                        <div className="w-52 shrink-0 text-right text-xs text-zinc-500">
+                          {formatNumber(ch.new_customers)} NC / {formatNumber(ch.orders)} cmd
+                          {ch.cac ? ` · CAC ${formatCurrency(ch.cac)}` : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Global KPIs */}
             <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-6">
               <KPICard
@@ -145,7 +235,7 @@ export default function AcquisitionPage() {
                 icon={<Target className="h-5 w-5" />}
               />
               <KPICard
-                label="ROAS Blended"
+                label="MER"
                 value={`${data.blended_roas.toFixed(1)}x`}
                 icon={<TrendingUp className="h-5 w-5" />}
               />
@@ -160,7 +250,7 @@ export default function AcquisitionPage() {
                 icon={<Users className="h-5 w-5" />}
               />
               <KPICard
-                label="CPA Blended"
+                label="CAC nouv. client"
                 value={data.blended_cpa ? formatCurrency(data.blended_cpa) : "—"}
                 icon={<Target className="h-5 w-5" />}
               />
