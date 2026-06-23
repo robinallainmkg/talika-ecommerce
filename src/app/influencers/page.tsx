@@ -1013,6 +1013,8 @@ export default function InfluencersPage() {
           </div>
         </div>
       )}
+
+      <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
     </div>
   )
 }
