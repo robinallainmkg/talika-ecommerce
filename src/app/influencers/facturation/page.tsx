@@ -244,7 +244,20 @@ export default function FacturationPage() {
         setFeedback({ type: "error", text: d.error || "Changement de statut impossible." })
         return
       }
-      await load()
+      // Mise à jour optimiste (pas de rechargement de page) + recalcul des KPI côté client.
+      const next = collabs.map((cc) =>
+        cc.influencer_id === c.influencer_id ? { ...cc, status, deferred_to: deferred_to || null } : cc
+      )
+      setCollabs(next)
+      const active = next.filter((x) => x.status !== "sans_facturation")
+      setTotals({
+        count: active.length,
+        total_due: Math.round(active.reduce((s, x) => s + x.total_due, 0) * 100) / 100,
+        with_invoice: active.filter((x) => x.has_invoice).length,
+      })
+      const exc = next.filter((x) => x.status === "sans_facturation")
+      setExcluded({ count: exc.length, amount: Math.round(exc.reduce((s, x) => s + x.total_due, 0) * 100) / 100 })
+      setMissingByMonth((mb) => ({ ...mb, [month]: next.filter((x) => x.status === "a_regler" && !x.has_invoice).length }))
     } finally {
       setStatusSavingId(null)
     }
