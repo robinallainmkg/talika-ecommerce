@@ -5,6 +5,7 @@ import Link from "next/link"
 import { formatCurrency } from "@/lib/utils"
 import { Loader2, Save, ArrowLeft, RefreshCw, Plus, Lock, Unlock, Paperclip } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
+import { MonthTabs } from "@/components/influence/month-tabs"
 
 interface Row {
   influencer_id: string
@@ -236,19 +237,17 @@ export default function CoutsInfluencePage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-              {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-            </select>
             <select value={year} onChange={(e) => setYear(Number(e.target.value))}
               className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-              {[2025, 2026].map((y) => <option key={y} value={y}>{y}</option>)}
+              {[2024, 2025, 2026].map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
             <button onClick={load} className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50" title="Rafraîchir">
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </button>
           </div>
         </div>
+
+        <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} />
 
         {/* Statut de verrouillage du mois */}
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm ${isLocked ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white"}`}>

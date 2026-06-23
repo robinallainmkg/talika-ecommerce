@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
+import { MonthTabs } from "@/components/influence/month-tabs"
 import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
@@ -278,33 +279,7 @@ export default function FacturationPage() {
           </div>
         </div>
         {/* Onglets mois */}
-        <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1">
-          {MONTHS_SHORT.map((m, i) => {
-            const miss = missingByMonth[i + 1] || 0
-            const active = month === i + 1
-            return (
-              <button
-                key={i}
-                onClick={() => setMonth(i + 1)}
-                title={miss > 0 ? `${MONTHS[i]} — ${miss} collab(s) sans facture` : MONTHS[i]}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                  active ? "bg-zinc-900 text-white shadow-sm" : "text-zinc-600 hover:bg-white hover:text-zinc-900"
-                )}
-              >
-                {m}
-                {miss > 0 && (
-                  <span className={cn(
-                    "inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold",
-                    active ? "bg-amber-400 text-zinc-900" : "bg-amber-100 text-amber-700"
-                  )}>
-                    {miss}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+        <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} badges={missingByMonth} />
       </div>
 
       {isLocked && (

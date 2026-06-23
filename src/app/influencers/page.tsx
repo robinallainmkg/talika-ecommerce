@@ -7,6 +7,7 @@ import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { MonthTabs } from "@/components/influence/month-tabs"
 import { formatCurrency } from "@/lib/utils"
 import {
   Users,
@@ -365,16 +366,6 @@ export default function InfluencersPage() {
           <div className="flex gap-2 items-center flex-wrap">
             <select
               className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm"
-              value={selectedMonth ?? ""}
-              onChange={(e) => setSelectedMonth(e.target.value ? parseInt(e.target.value) : null)}
-            >
-              <option value="">Année complète</option>
-              {MONTHS_FR.map((m, i) => (
-                <option key={i} value={i + 1}>{m}</option>
-              ))}
-            </select>
-            <select
-              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm"
               value={selectedYear}
               onChange={(e) => setSelectedYear(parseInt(e.target.value))}
             >
@@ -391,6 +382,7 @@ export default function InfluencersPage() {
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+        <MonthTabs allowAll month={selectedMonth} onSelect={setSelectedMonth} />
         <DataInsights page="influencers" />
 
         {/* Error banner */}
