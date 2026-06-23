@@ -862,8 +862,6 @@ export default function InfluencersPage() {
         )}
       </div>
 
-      <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
-
       {/* ── Add Influencer Modal ────────────────────────────── */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">

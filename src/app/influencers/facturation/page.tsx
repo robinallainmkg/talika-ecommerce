@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
@@ -67,6 +68,7 @@ export default function FacturationPage() {
   const [missingByMonth, setMissingByMonth] = useState<Record<number, number>>({})
   const [onlyMissing, setOnlyMissing] = useState(false)
   const [initialized, setInitialized] = useState(false)
+  const [drawerId, setDrawerId] = useState<string | null>(null)
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -410,9 +412,9 @@ export default function FacturationPage() {
                   )}>
                     {/* Collab */}
                     <td className="px-4 py-3">
-                      <Link href={`/influencers/${c.influencer_id}`} className="font-medium text-zinc-900 hover:underline">
+                      <button onClick={() => setDrawerId(c.influencer_id)} className="text-left font-medium text-zinc-900 hover:underline">
                         {c.name}
-                      </Link>
+                      </button>
                       <div className="text-xs text-zinc-400">
                         {c.instagram_handle ? `@${c.instagram_handle.replace(/^@/, "")}` : "—"}
                       </div>
@@ -544,6 +546,8 @@ export default function FacturationPage() {
         <Link href="/influencers/couts" className="underline">Coûts influence</Link>. Ici tu suis la facturation : libellé
         (raison sociale, pré-suggérée par l&apos;OCR de la facture) et facture reçue.
       </p>
+
+      <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
     </div>
   )
 }
