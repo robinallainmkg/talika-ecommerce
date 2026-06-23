@@ -19,6 +19,7 @@ import {
   X,
   Save,
   Tag,
+  Sparkles,
   ToggleLeft,
   ToggleRight,
 } from "lucide-react"
@@ -135,6 +136,7 @@ export default function InfluencersPage() {
   const [influencers, setInfluencers] = useState<Influencer[]>([])
   const [allCodes, setAllCodes] = useState<CodeWithInfluencer[]>([])
   const [unassignedCodes, setUnassignedCodes] = useState<UnassignedCode[]>([])
+  const [autoAssigning, setAutoAssigning] = useState(false)
   const [codeSelections, setCodeSelections] = useState<Record<string, { category: string; influencerId?: string; newInfluencerName?: string }>>({})
   const [savingCodes, setSavingCodes] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -341,6 +343,23 @@ export default function InfluencersPage() {
     if (saved.length > 0) await fetchData()
   }
 
+  // Auto-attribution par nom (côté serveur) : matche chaque code non attribué à
+  // une influenceuse via préfixe de code existant / nom, et l'assigne en un clic.
+  async function handleAutoAssign() {
+    setAutoAssigning(true)
+    try {
+      const res = await fetch("/api/influencers/codes/auto-assign", { method: "POST" })
+      const json = await res.json()
+      if (json.error) { alert("Erreur: " + json.error); return }
+      await fetchData()
+      alert(`${json.count} code(s) attribué(s) automatiquement par nom.${json.remaining ? ` ${json.remaining} restant(s) à classer à la main (codes site/SAV ou noms inconnus).` : ""}`)
+    } catch {
+      alert("Erreur réseau pendant l'auto-attribution.")
+    } finally {
+      setAutoAssigning(false)
+    }
+  }
+
   async function handleToggleCode(codeId: string) {
     try {
       const res = await fetch("/api/influencers/codes", {
@@ -508,11 +527,19 @@ export default function InfluencersPage() {
                     <Tag className="h-5 w-5 text-amber-500" />
                     Codes promo non attribués
                   </CardTitle>
-                  {unassignedCodes.length > 0 ? (
-                    <Badge variant="warning">{unassignedCodes.length} à attribuer</Badge>
-                  ) : (
-                    <Badge variant="success">Tout est catégorisé</Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {unassignedCodes.length > 0 && (
+                      <Button size="sm" variant="outline" onClick={handleAutoAssign} disabled={autoAssigning}>
+                        {autoAssigning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        Auto-attribuer (par nom)
+                      </Button>
+                    )}
+                    {unassignedCodes.length > 0 ? (
+                      <Badge variant="warning">{unassignedCodes.length} à attribuer</Badge>
+                    ) : (
+                      <Badge variant="success">Tout est catégorisé</Badge>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {unassignedCodes.length === 0 ? (
