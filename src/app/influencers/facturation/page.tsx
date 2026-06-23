@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { formatCurrency } from "@/lib/utils"
+import { cn, formatCurrency } from "@/lib/utils"
 import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
@@ -27,6 +27,10 @@ interface Collab {
 const MONTHS = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+]
+const MONTHS_SHORT = [
+  "Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
+  "Juil", "Août", "Sep", "Oct", "Nov", "Déc",
 ]
 
 export default function FacturationPage() {
@@ -165,28 +169,44 @@ export default function FacturationPage() {
 
   return (
     <div className="space-y-6 p-8">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <Link href="/influencers" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900">
-            <ArrowLeft className="h-4 w-4" /> Influence
-          </Link>
-          <h1 className="text-2xl font-semibold text-zinc-900">Facturation</h1>
-          <p className="text-sm text-zinc-500">
-            Les collabs à régler ce mois (un paiement dû = une collab). Joins la facture et garde le bon libellé de facturation.
-          </p>
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <Link href="/influencers" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900">
+              <ArrowLeft className="h-4 w-4" /> Influence
+            </Link>
+            <h1 className="text-2xl font-semibold text-zinc-900">Facturation</h1>
+            <p className="text-sm text-zinc-500">
+              Les collabs à régler ce mois (un paiement dû = une collab). Joins la facture et garde le bon libellé de facturation.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select value={year} onChange={(e) => setYear(Number(e.target.value))}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button onClick={load} className="flex items-center gap-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50">
+              <RefreshCw className="h-4 w-4" /> Actualiser
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
-            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-            {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-          </select>
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <button onClick={load} className="flex items-center gap-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50">
-            <RefreshCw className="h-4 w-4" /> Actualiser
-          </button>
+        {/* Onglets mois */}
+        <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1">
+          {MONTHS_SHORT.map((m, i) => (
+            <button
+              key={i}
+              onClick={() => setMonth(i + 1)}
+              title={MONTHS[i]}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                month === i + 1
+                  ? "bg-zinc-900 text-white shadow-sm"
+                  : "text-zinc-600 hover:bg-white hover:text-zinc-900"
+              )}
+            >
+              {m}
+            </button>
+          ))}
         </div>
       </div>
 
