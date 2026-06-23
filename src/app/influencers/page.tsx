@@ -357,6 +357,8 @@ export default function InfluencersPage() {
   }
 
   // ─── Render ────────────────────────────────────────────────────
+  // Liste triée alphabétiquement pour les menus déroulants d'attribution.
+  const sortedInfluencers = [...influencers].sort((a, b) => a.name.localeCompare(b.name, "fr"))
   return (
     <div>
       <Header
@@ -608,7 +610,7 @@ export default function InfluencersPage() {
                                       }}
                                     >
                                       <option value="">Choisir...</option>
-                                      {influencers.map((inf) => (
+                                      {sortedInfluencers.map((inf) => (
                                         <option key={inf.id} value={inf.id}>{inf.name}</option>
                                       ))}
                                       <option value="__new__">+ Nouveau influenceur</option>
@@ -680,7 +682,7 @@ export default function InfluencersPage() {
                       }
                     >
                       <option value="">Selectionner un influenceur...</option>
-                      {influencers.map((inf) => (
+                      {sortedInfluencers.map((inf) => (
                         <option key={inf.id} value={inf.id}>
                           {inf.name}
                         </option>
@@ -775,7 +777,7 @@ export default function InfluencersPage() {
                               >
                                 <option value="">Attribuer...</option>
                                 <optgroup label="Influenceurs">
-                                  {influencers.map((inf) => (
+                                  {sortedInfluencers.map((inf) => (
                                     <option key={inf.id} value={inf.id}>{inf.name}</option>
                                   ))}
                                 </optgroup>
