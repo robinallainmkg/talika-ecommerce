@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { loadExcludedKeys, billingKey } from "@/lib/influence/billing-status"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -60,21 +61,30 @@ export async function GET(request: Request) {
     // Commissions are MANUAL (from CSV), NOT auto-calculated from commission_rate
     const { data: monthCommissions } = await supabase
       .from("influencer_commissions")
-      .select("amount")
+      .select("influencer_id, amount")
       .eq("year", year)
       .eq("month", month)
 
     const { data: monthFees } = await supabase
       .from("influencer_fixed_fees")
-      .select("amount")
+      .select("influencer_id, amount")
       .eq("year", year)
       .eq("month", month)
 
+    // Collabs "sans facturation" → leur coût ne compte pas (MER/CAC). On somme
+    // l'exclu à part pour transparence.
+    const excludedKeys = await loadExcludedKeys({ year })
+    const isExcluded = (id: string) => excludedKeys.has(billingKey(id, year, month))
     const totalCommissions = (monthCommissions || []).reduce(
-      (s, r) => s + (parseFloat(r.amount) || 0), 0
+      (s, r) => s + (isExcluded(r.influencer_id) ? 0 : parseFloat(r.amount) || 0), 0
     )
     const totalFixedFees = (monthFees || []).reduce(
-      (s, r) => s + (parseFloat(r.amount) || 0), 0
+      (s, r) => s + (isExcluded(r.influencer_id) ? 0 : parseFloat(r.amount) || 0), 0
+    )
+    const influenceExcludedAmount = Math.round(
+      [...(monthCommissions || []), ...(monthFees || [])].reduce(
+        (s, r) => s + (isExcluded(r.influencer_id) ? parseFloat(r.amount) || 0 : 0), 0
+      )
     )
     const influenceCost = totalCommissions + totalFixedFees
 
@@ -252,6 +262,8 @@ export async function GET(request: Request) {
         // Le coût influence (commissions + fees) est saisi à la main, souvent après clôture.
         // Tant qu'il manque, MER/CAC sous-estiment la dépense → drapeau pour l'UI. Le %NC reste fiable.
         influence_cost_pending: !hasCommissionData,
+        // Coût influence retiré car collabs "sans facturation" (transparence).
+        influence_sans_facturation_excluded: influenceExcludedAmount,
         channels: [
           { id: "influence", name: "Influence", new_customers: ncInfluence, orders: ordersInfluenceNC, pct_nc: pctNcInfluence, spend: influenceCost, cac: cpaInfluence },
           { id: "other", name: "Autre (Meta / direct / SEO…)", new_customers: ncOther, orders: ordersOtherNC, pct_nc: pctNcOther, spend: otherSpend, cac: cacOther },

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { loadStatusMap, billingKey } from "@/lib/influence/billing-status"
 
 export const dynamic = "force-dynamic"
 
@@ -39,14 +40,23 @@ export async function GET(request: Request) {
       if (inv.month) (invByMonth[inv.month] ??= new Set()).add(inv.influencer_id)
     }
 
+    // Statuts : une collab "reportée", "payée" ou "sans facturation" n'est plus
+    // une facture MANQUANTE → seules les "à régler" sans facture comptent.
+    const statusMap = await loadStatusMap({ year })
+
     const months = []
     let total_missing = 0
     for (let m = 1; m <= 12; m++) {
       const collabs = collabByMonth[m] || new Set<string>()
       const inv = invByMonth[m] || new Set<string>()
       let withInvoice = 0
-      collabs.forEach((id) => { if (inv.has(id)) withInvoice++ })
-      const missing = collabs.size - withInvoice
+      let missing = 0
+      collabs.forEach((id) => {
+        const has = inv.has(id)
+        if (has) withInvoice++
+        const status = statusMap.get(billingKey(id, year, m))?.status || "a_regler"
+        if (!has && status === "a_regler") missing++
+      })
       total_missing += missing
       months.push({ month: m, count: collabs.size, with_invoice: withInvoice, missing })
     }

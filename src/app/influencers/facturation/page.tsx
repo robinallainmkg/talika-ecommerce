@@ -11,6 +11,7 @@ interface Invoice {
   file_name: string
   amount: number | null
 }
+type BillingStatus = "a_regler" | "reporte" | "paye" | "sans_facturation"
 interface Collab {
   influencer_id: string
   name: string
@@ -22,6 +23,17 @@ interface Collab {
   total_due: number
   invoices: Invoice[]
   has_invoice: boolean
+  status: BillingStatus
+  deferred_to: { year: number; month: number } | null
+  note: string | null
+}
+interface ReportIn { influencer_id: string; name: string; from_year: number; from_month: number; amount: number }
+
+const STATUS_META: Record<BillingStatus, { label: string; cls: string }> = {
+  a_regler: { label: "À régler", cls: "bg-zinc-100 text-zinc-700" },
+  reporte: { label: "Reporté", cls: "bg-amber-100 text-amber-800" },
+  paye: { label: "Payé", cls: "bg-emerald-100 text-emerald-700" },
+  sans_facturation: { label: "Sans facturation", cls: "bg-zinc-200 text-zinc-500" },
 }
 
 const MONTHS = [
@@ -39,6 +51,10 @@ export default function FacturationPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [collabs, setCollabs] = useState<Collab[]>([])
   const [totals, setTotals] = useState({ count: 0, total_due: 0, with_invoice: 0 })
+  const [reportsIn, setReportsIn] = useState<ReportIn[]>([])
+  const [reportsInTotal, setReportsInTotal] = useState(0)
+  const [excluded, setExcluded] = useState({ count: 0, amount: 0 })
+  const [statusSavingId, setStatusSavingId] = useState<string | null>(null)
   const [billingDraft, setBillingDraft] = useState<Record<string, string>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
   const [uploadingId, setUploadingId] = useState<string | null>(null)
@@ -82,6 +98,9 @@ export default function FacturationPage() {
       const list: Collab[] = data.collabs || []
       setCollabs(list)
       setTotals(data.totals || { count: 0, total_due: 0, with_invoice: 0 })
+      setReportsIn(data.reports_in || [])
+      setReportsInTotal(data.reports_in_total || 0)
+      setExcluded({ count: data.totals?.excluded_count || 0, amount: data.totals?.excluded_amount || 0 })
       const bd: Record<string, string> = {}
       for (const c of list) bd[c.influencer_id] = c.billing_name || ""
       setBillingDraft(bd)
@@ -198,9 +217,42 @@ export default function FacturationPage() {
     if (data.url) window.open(data.url, "_blank")
   }
 
+  const defaultNextMonth = () => (month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 })
+
+  async function setStatus(c: Collab, status: BillingStatus, deferred_to?: { year: number; month: number }) {
+    if (
+      status === "sans_facturation" &&
+      !window.confirm(
+        `Marquer « ${c.name} » SANS FACTURATION ?\n\nSon coût (${formatCurrency(c.total_due)}) sortira du total, des alertes et des dashboards (MER, scoreboard). C'est réversible (repasse en « à régler »).`
+      )
+    ) return
+    setStatusSavingId(c.influencer_id)
+    setFeedback(null)
+    try {
+      const res = await fetch("/api/influencers/billing/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ influencer_id: c.influencer_id, year, month, status, deferred_to: deferred_to || null }),
+      })
+      if (res.status === 423) {
+        setFeedback({ type: "error", text: "Mois verrouillé — seul un admin peut changer le statut." })
+        return
+      }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setFeedback({ type: "error", text: d.error || "Changement de statut impossible." })
+        return
+      }
+      await load()
+    } finally {
+      setStatusSavingId(null)
+    }
+  }
+
   const years = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2]
-  const missingCount = collabs.filter((c) => !c.has_invoice).length
-  const visibleCollabs = onlyMissing ? collabs.filter((c) => !c.has_invoice) : collabs
+  const isMissing = (c: Collab) => c.status === "a_regler" && !c.has_invoice
+  const missingCount = collabs.filter(isMissing).length
+  const visibleCollabs = onlyMissing ? collabs.filter(isMissing) : collabs
 
   return (
     <div className="space-y-6 p-8">
@@ -304,6 +356,33 @@ export default function FacturationPage() {
         </div>
       )}
 
+      {reportsIn.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-2.5 text-sm">
+          <span className="font-medium text-amber-800">
+            Reste à payer (reporté vers {MONTHS[month - 1]}) : {formatCurrency(reportsInTotal)}
+          </span>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-amber-700">
+            {reportsIn.map((r) => (
+              <span
+                key={r.influencer_id + r.from_year + r.from_month}
+                title={`Reporté depuis ${MONTHS[r.from_month - 1]} ${r.from_year} — ${formatCurrency(r.amount)}`}
+                className="cursor-help border-b border-dashed border-amber-300"
+              >
+                {r.name} : {formatCurrency(r.amount)}{" "}
+                <span className="text-amber-500">(depuis {MONTHS_SHORT[r.from_month - 1]})</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {excluded.count > 0 && (
+        <p className="text-xs text-zinc-400">
+          {excluded.count} collab{excluded.count > 1 ? "s" : ""} « sans facturation » exclue{excluded.count > 1 ? "s" : ""} du
+          total et des dashboards (− {formatCurrency(excluded.amount)}).
+        </p>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
         {loading ? (
           <div className="flex items-center justify-center gap-2 p-10 text-sm text-zinc-400">
@@ -327,6 +406,7 @@ export default function FacturationPage() {
                 <th className="px-4 py-3">Collab</th>
                 <th className="px-4 py-3">Libellé de facturation</th>
                 <th className="px-4 py-3 text-right">Montant dû</th>
+                <th className="px-4 py-3">Statut</th>
                 <th className="px-4 py-3">Facture</th>
               </tr>
             </thead>
@@ -335,7 +415,11 @@ export default function FacturationPage() {
                 const showSuggestion =
                   c.ocr_supplier && c.ocr_supplier.trim() && (billingDraft[c.influencer_id] || "").trim() !== c.ocr_supplier.trim()
                 return (
-                  <tr key={c.influencer_id} className={cn("border-b border-zinc-100 align-top", !c.has_invoice && "bg-amber-50/40")}>
+                  <tr key={c.influencer_id} className={cn(
+                    "border-b border-zinc-100 align-top",
+                    isMissing(c) && "bg-amber-50/40",
+                    c.status === "sans_facturation" && "opacity-60"
+                  )}>
                     {/* Collab */}
                     <td className="px-4 py-3">
                       <Link href={`/influencers/${c.influencer_id}`} className="font-medium text-zinc-900 hover:underline">
@@ -375,6 +459,48 @@ export default function FacturationPage() {
                         {c.fixed_fee > 0 && <span>forfait {formatCurrency(c.fixed_fee)}</span>}
                         {c.fixed_fee > 0 && c.commission > 0 && " · "}
                         {c.commission > 0 && <span>comm. {formatCurrency(c.commission)}</span>}
+                      </div>
+                    </td>
+
+                    {/* Statut */}
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={c.status}
+                            disabled={statusSavingId === c.influencer_id || (isLocked && !isAdmin)}
+                            onChange={(e) => {
+                              const v = e.target.value as BillingStatus
+                              if (v === "reporte") setStatus(c, "reporte", c.deferred_to || defaultNextMonth())
+                              else setStatus(c, v)
+                            }}
+                            className={cn(
+                              "rounded-lg border-0 px-2 py-1 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-zinc-300 disabled:opacity-50",
+                              STATUS_META[c.status].cls
+                            )}
+                          >
+                            <option value="a_regler">À régler</option>
+                            <option value="reporte">Reporté</option>
+                            <option value="paye">Payé</option>
+                            <option value="sans_facturation">Sans facturation</option>
+                          </select>
+                          {statusSavingId === c.influencer_id && <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />}
+                        </div>
+                        {c.status === "reporte" && (
+                          <select
+                            value={c.deferred_to?.month || ""}
+                            disabled={isLocked && !isAdmin}
+                            onChange={(e) => {
+                              const tm = Number(e.target.value)
+                              const ty = tm <= month ? year + 1 : year
+                              setStatus(c, "reporte", { year: ty, month: tm })
+                            }}
+                            title="Mois de paiement cible"
+                            className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-800"
+                          >
+                            {MONTHS.map((mn, i) => <option key={i} value={i + 1}>→ {mn}</option>)}
+                          </select>
+                        )}
                       </div>
                     </td>
 

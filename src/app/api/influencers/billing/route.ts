@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { loadStatusMap, billingKey, type BillingStatus } from "@/lib/influence/billing-status"
 
 export const dynamic = "force-dynamic"
 
@@ -24,11 +25,13 @@ export async function GET(request: Request) {
     const year = parseInt(searchParams.get("year") || String(now.getFullYear()))
     const month = parseInt(searchParams.get("month") || String(now.getMonth() + 1))
 
-    const [{ data: influencers }, { data: fees }, { data: comms }, { data: invoices }] =
+    // Forfaits/commissions chargés sur TOUTE l'année : sert au mois courant ET aux
+    // montants des reports entrants (collabs reportées depuis un autre mois).
+    const [{ data: influencers }, { data: feesY }, { data: commsY }, { data: invoices }] =
       await Promise.all([
         supabase.from("influencers").select("id, name, instagram_handle, billing_name"),
-        supabase.from("influencer_fixed_fees").select("influencer_id, amount").eq("year", year).eq("month", month),
-        supabase.from("influencer_commissions").select("influencer_id, amount").eq("year", year).eq("month", month),
+        supabase.from("influencer_fixed_fees").select("influencer_id, year, month, amount").eq("year", year),
+        supabase.from("influencer_commissions").select("influencer_id, year, month, amount").eq("year", year),
         supabase
           .from("influencer_cost_invoices")
           .select("id, influencer_id, file_name, amount, ocr, created_at")
@@ -36,17 +39,26 @@ export async function GET(request: Request) {
           .eq("month", month)
           .order("created_at", { ascending: false }),
       ])
+    const statusMap = await loadStatusMap({ year })
 
+    // Map montants par clé inf|y|m (toute l'année).
+    const feeMap: Record<string, number> = {}
+    const commMap: Record<string, number> = {}
     const feeByInf: Record<string, number> = {}
-    for (const f of fees || []) feeByInf[f.influencer_id] = Number(f.amount || 0)
     const commByInf: Record<string, number> = {}
-    for (const c of comms || []) commByInf[c.influencer_id] = Number(c.amount || 0)
+    for (const f of feesY || []) {
+      feeMap[billingKey(f.influencer_id, f.year, f.month)] = Number(f.amount || 0)
+      if (f.month === month) feeByInf[f.influencer_id] = Number(f.amount || 0)
+    }
+    for (const c of commsY || []) {
+      commMap[billingKey(c.influencer_id, c.year, c.month)] = Number(c.amount || 0)
+      if (c.month === month) commByInf[c.influencer_id] = Number(c.amount || 0)
+    }
 
     const invByInf: Record<string, { id: string; file_name: string; amount: number | null }[]> = {}
     const supplierByInf: Record<string, string> = {}
     for (const inv of invoices || []) {
       ;(invByInf[inv.influencer_id] ??= []).push({ id: inv.id, file_name: inv.file_name, amount: inv.amount })
-      // Nom de société lu sur la facture (OCR) → suggestion de libellé.
       const supplier = (inv.ocr as { supplier?: string } | null)?.supplier
       if (supplier && !supplierByInf[inv.influencer_id]) supplierByInf[inv.influencer_id] = supplier
     }
@@ -64,6 +76,8 @@ export async function GET(request: Request) {
         const commission = commByInf[id] || 0
         const total_due = Math.round((fixed_fee + commission) * 100) / 100
         const invs = invByInf[id] || []
+        const st = statusMap.get(billingKey(id, year, month))
+        const status: BillingStatus = st?.status || "a_regler"
         return {
           influencer_id: id,
           name: inf.name,
@@ -75,18 +89,47 @@ export async function GET(request: Request) {
           total_due,
           invoices: invs,
           has_invoice: invs.length > 0,
+          status,
+          deferred_to: st && st.deferred_to_year && st.deferred_to_month
+            ? { year: st.deferred_to_year, month: st.deferred_to_month }
+            : null,
+          note: st?.note || null,
         }
       })
       .filter((r): r is NonNullable<typeof r> => r != null && r.total_due > 0)
       .sort((a, b) => b.total_due - a.total_due)
 
-    const total_due = Math.round(collabs.reduce((s, c) => s + c.total_due, 0) * 100) / 100
-    const with_invoice = collabs.filter((c) => c.has_invoice).length
+    // Total à régler = collabs hors "sans facturation". On remonte aussi le montant
+    // exclu (disclaimer de transparence).
+    const active = collabs.filter((c) => c.status !== "sans_facturation")
+    const total_due = Math.round(active.reduce((s, c) => s + c.total_due, 0) * 100) / 100
+    const excluded = collabs.filter((c) => c.status === "sans_facturation")
+    const excluded_amount = Math.round(excluded.reduce((s, c) => s + c.total_due, 0) * 100) / 100
+    const with_invoice = active.filter((c) => c.has_invoice).length
+
+    // Reports entrants : collabs reportées DEPUIS un autre mois VERS ce mois.
+    const reports_in: { influencer_id: string; name: string; from_year: number; from_month: number; amount: number }[] = []
+    for (const st of statusMap.values()) {
+      if (st.status === "reporte" && st.deferred_to_year === year && st.deferred_to_month === month) {
+        const amt = (feeMap[billingKey(st.influencer_id, st.year, st.month)] || 0) +
+          (commMap[billingKey(st.influencer_id, st.year, st.month)] || 0)
+        reports_in.push({
+          influencer_id: st.influencer_id,
+          name: byId[st.influencer_id]?.name || "?",
+          from_year: st.year,
+          from_month: st.month,
+          amount: Math.round(amt * 100) / 100,
+        })
+      }
+    }
+    const reports_in_total = Math.round(reports_in.reduce((s, r) => s + r.amount, 0) * 100) / 100
 
     return NextResponse.json({
       period: { year, month },
       collabs,
-      totals: { count: collabs.length, total_due, with_invoice },
+      totals: { count: active.length, total_due, with_invoice, excluded_count: excluded.length, excluded_amount },
+      reports_in,
+      reports_in_total,
     })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 })

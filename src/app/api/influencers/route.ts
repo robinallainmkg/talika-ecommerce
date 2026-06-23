@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { loadExcludedKeys, billingKey } from "@/lib/influence/billing-status"
 
 export const dynamic = "force-dynamic"
 
@@ -116,10 +117,14 @@ export async function GET(request: Request) {
       }
     }
 
+    // Collabs "sans facturation" → exclues des coûts du scoreboard.
+    const excludedKeys = await loadExcludedKeys({ year })
+
     // 5b. Compute manual commissions per influencer from influencer_commissions table
     const commissionsMap = new Map<string, number>()
     if (allCommissions) {
       for (const c of allCommissions) {
+        if (excludedKeys.has(billingKey(c.influencer_id, c.year, c.month))) continue
         const current = commissionsMap.get(c.influencer_id) || 0
         commissionsMap.set(c.influencer_id, current + (c.amount || 0))
       }
@@ -129,6 +134,7 @@ export async function GET(request: Request) {
     const feesMap = new Map<string, number>()
     if (allFees) {
       for (const fee of allFees) {
+        if (excludedKeys.has(billingKey(fee.influencer_id, fee.year, fee.month))) continue
         const current = feesMap.get(fee.influencer_id) || 0
         feesMap.set(fee.influencer_id, current + (fee.amount || 0))
       }
