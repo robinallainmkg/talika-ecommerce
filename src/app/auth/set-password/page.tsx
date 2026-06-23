@@ -9,7 +9,7 @@ export default function SetPasswordPage() {
   const router = useRouter()
   const [ready, setReady] = useState(false)
   const [invalid, setInvalid] = useState(false)
-  const [hasSession, setHasSession] = useState(false)
+  const [verified, setVerified] = useState(false)
   const [tokenHash, setTokenHash] = useState<string | null>(null)
   const [tokenType, setTokenType] = useState<"invite" | "recovery">("invite")
   const [password, setPassword] = useState("")
@@ -31,29 +31,24 @@ export default function SetPasswordPage() {
       const th = params.get("token_hash")
       const type = (params.get("type") || "invite") as "invite" | "recovery"
 
-      // Une session déjà ouverte (lien déjà activé dans un autre onglet, etc.) suffit.
-      const { data } = await supabase.auth.getSession()
-      if (cancelled) return
-      if (data.session) {
-        setHasSession(true)
-        setReady(true)
-        return
-      }
+      // Un lien token_hash identifie LE compte à activer : il prime sur toute
+      // session déjà ouverte. Sinon, si un admin est encore connecté dans le
+      // navigateur, on modifierait SON mot de passe au lieu d'activer l'invité.
+      // On montre le formulaire ; le jeton n'est consommé qu'au submit (résiste
+      // au scan Outlook/Safe Links et aux rechargements).
       if (th) {
-        // Lien token_hash (notre email custom) : on montre le formulaire, le
-        // jeton sera consommé au submit seulement.
         setTokenHash(th)
         setTokenType(type)
         setReady(true)
         return
       }
-      // Fallback : jetons dans le hash (#access_token…) consommés de façon
-      // asynchrone par detectSessionInUrl — on laisse plusieurs chances.
+      // Pas de jeton dans l'URL → flux natif Supabase (#access_token…),
+      // consommé de façon asynchrone par detectSessionInUrl. On laisse plusieurs
+      // chances de récupérer la session ainsi posée.
       for (let attempt = 0; attempt < 6; attempt++) {
-        const res = await supabase.auth.getSession()
+        const { data } = await supabase.auth.getSession()
         if (cancelled) return
-        if (res.data.session) {
-          setHasSession(true)
+        if (data.session) {
           setReady(true)
           return
         }
@@ -82,22 +77,21 @@ export default function SetPasswordPage() {
     setLoading(true)
     const supabase = authClient()
 
-    // 1) Ouvrir une session si on n'en a pas déjà une — c'est ICI qu'on consomme
-    //    le jeton (et pas au chargement, cf. commentaire plus haut).
-    if (!hasSession && tokenHash) {
+    // 1) Lien token_hash : on consomme le jeton ICI (pas au chargement). Ça
+    //    bascule la session sur LE compte invité avant de poser le mot de passe.
+    //    `verified` évite de re-consommer un jeton déjà validé si l'utilisateur
+    //    re-soumet (ex. mot de passe refusé par la policy) — et garantit qu'on
+    //    n'écrit JAMAIS sur une session ambiante (admin) restée ouverte.
+    if (tokenHash && !verified) {
       const { error: otpError } = await supabase.auth.verifyOtp({ type: tokenType, token_hash: tokenHash })
       if (otpError) {
-        // Le jeton a peut-être été consommé entre-temps mais une session existe
-        // déjà → on revérifie avant d'abandonner.
-        const { data } = await supabase.auth.getSession()
-        if (!data.session) {
-          setError(
-            "Ce lien a déjà été utilisé ou a expiré. Demandez une nouvelle invitation à votre administrateur."
-          )
-          setLoading(false)
-          return
-        }
+        setError(
+          "Ce lien a déjà été utilisé ou a expiré. Demandez une nouvelle invitation à votre administrateur."
+        )
+        setLoading(false)
+        return
       }
+      setVerified(true)
     }
 
     // 2) Poser le mot de passe sur la session ouverte.
