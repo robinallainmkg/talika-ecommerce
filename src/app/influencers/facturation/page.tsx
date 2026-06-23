@@ -49,6 +49,7 @@ export default function FacturationPage() {
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
   const [missingByMonth, setMissingByMonth] = useState<Record<number, number>>({})
   const [onlyMissing, setOnlyMissing] = useState(false)
+  const [initialized, setInitialized] = useState(false)
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -93,7 +94,32 @@ export default function FacturationPage() {
     }
   }, [year, month])
 
-  useEffect(() => { load() }, [load])
+  // Au 1er chargement : ouvrir sur le mois le plus récent qui a des collabs
+  // (sinon la page s'ouvre sur le mois courant, souvent vide → impression que
+  // tout manque). On balaie l'année courante puis les 2 précédentes.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const ty = new Date().getFullYear()
+      for (const y of [ty, ty - 1, ty - 2]) {
+        try {
+          const res = await fetch(`/api/influencers/billing/summary?year=${y}`, { cache: "no-store" })
+          const data = await res.json()
+          const withData = (data.months || []).filter((m: { count: number }) => m.count > 0)
+          if (!cancelled && withData.length) {
+            setYear(y)
+            setMonth(withData[withData.length - 1].month)
+            setInitialized(true)
+            return
+          }
+        } catch { /* ignore */ }
+      }
+      if (!cancelled) setInitialized(true)
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => { if (initialized) load() }, [load, initialized])
 
   async function saveBilling(influencerId: string, value: string) {
     const current = collabs.find((c) => c.influencer_id === influencerId)?.billing_name || ""
@@ -172,7 +198,7 @@ export default function FacturationPage() {
     if (data.url) window.open(data.url, "_blank")
   }
 
-  const years = [now.getFullYear(), now.getFullYear() - 1]
+  const years = [now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2]
   const missingCount = collabs.filter((c) => !c.has_invoice).length
   const visibleCollabs = onlyMissing ? collabs.filter((c) => !c.has_invoice) : collabs
 
