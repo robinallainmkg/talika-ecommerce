@@ -53,18 +53,16 @@ export default function UsersPage() {
       body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
     })
     const data = await res.json()
-    if (res.ok && data.email_sent) {
-      setFeedback({ type: "ok", text: `Invitation envoyée à ${inviteEmail.trim()} — la personne recevra un email pour activer son compte.` })
-      setInviteEmail("")
-      load()
-    } else if (res.ok && data.invite_link) {
-      setFeedback({
-        type: "ok",
-        text: `Compte créé pour ${inviteEmail.trim()} — copiez ce lien d'activation et envoyez-le à la personne (Slack, email perso… valable 24 h) :`,
-      })
+    const emailVal = inviteEmail.trim()
+    if (res.ok && data.invite_link) {
       setInviteLink(data.invite_link)
       setInviteEmail("")
       load()
+      setFeedback(
+        data.email_sent
+          ? { type: "ok", text: `Invitation envoyée par email à ${emailVal}. Un lien de secours reste dispo ci-dessous au cas où.` }
+          : { type: "ok", text: `Compte créé pour ${emailVal} — copiez ce lien d'activation et envoyez-le (Slack, email perso… valable 24 h) :` }
+      )
     } else {
       setFeedback({ type: "error", text: data.error || "Invitation impossible." })
     }

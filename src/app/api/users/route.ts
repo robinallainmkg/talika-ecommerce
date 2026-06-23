@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { requireAdminUser } from "@/lib/auth/server"
+import { sendInviteEmail } from "@/lib/mailer"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 30 // l'envoi SMTP peut prendre quelques secondes
 
 const AUTH_ADMIN = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1`
 const SITE_URL = "https://talika-ecommerce.vercel.app"
@@ -95,7 +97,17 @@ export async function POST(request: Request) {
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 409 })
   }
-  return NextResponse.json({ ok: true, email_sent: false, invite_link: result.link })
+
+  // Envoi auto par email SI un SMTP custom est configuré (vars SMTP_* Vercel) ;
+  // sinon le lien d'activation reste le mécanisme de secours, toujours renvoyé.
+  let emailSent = false
+  try {
+    emailSent = await sendInviteEmail(email, result.link)
+  } catch (e) {
+    console.error("sendInviteEmail failed:", e)
+  }
+
+  return NextResponse.json({ ok: true, email_sent: emailSent, invite_link: result.link })
 }
 
 // DELETE — révoquer un utilisateur
