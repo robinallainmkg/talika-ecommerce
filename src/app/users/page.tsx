@@ -87,7 +87,7 @@ export default function UsersPage() {
     <div className="space-y-6 p-8">
       <div>
         <h1 className="text-2xl font-semibold text-zinc-900">Équipe</h1>
-        <p className="text-sm text-zinc-500">Accès au dashboard Talika — invitations par lien d’activation</p>
+        <p className="text-sm text-zinc-500">Accès au dashboard Talika — invitations par email</p>
       </div>
 
       <Card>
@@ -151,7 +151,7 @@ export default function UsersPage() {
             </div>
           )}
           <p className="mt-2 text-xs text-zinc-400">
-            Génère un lien d’activation à transmettre à la personne (le service email Supabase n’est pas fiable vers les adresses @talika.com). Un administrateur peut inviter et révoquer des membres ; un membre a accès à tout le dashboard sans gérer l’équipe.
+            La personne reçoit un email d’invitation pour activer son compte (un lien de secours reste affiché, au cas où). Rôles : Influence et SAV ne voient que leur espace ; Membre accède à tout le dashboard ; Administrateur gère aussi l’équipe.
           </p>
         </CardContent>
       </Card>
