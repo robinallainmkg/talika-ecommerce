@@ -9,34 +9,51 @@ export default function SetPasswordPage() {
   const router = useRouter()
   const [ready, setReady] = useState(false)
   const [invalid, setInvalid] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
+  const [tokenHash, setTokenHash] = useState<string | null>(null)
+  const [tokenType, setTokenType] = useState<"invite" | "recovery">("invite")
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  // IMPORTANT : on NE consomme PAS le jeton au chargement. Les boîtes
+  // Microsoft/Outlook (Safe Links) pré-ouvrent les liens pour les « scanner »,
+  // ce qui grillait le jeton à usage unique AVANT le clic humain → « lien
+  // expiré ». Idem au moindre rechargement. On affiche donc le formulaire tout
+  // de suite et on ne consomme le jeton qu'à la validation du mot de passe.
   useEffect(() => {
     const supabase = authClient()
     let cancelled = false
 
-    async function establishSession() {
-      // Flow 1 : lien au format token_hash (template email personnalisé)
+    async function prepare() {
       const params = new URLSearchParams(window.location.search)
-      const tokenHash = params.get("token_hash")
-      if (tokenHash) {
-        const type = (params.get("type") || "invite") as "invite" | "recovery"
-        const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash })
-        if (cancelled) return
-        if (!error) {
-          setReady(true)
-          return
-        }
+      const th = params.get("token_hash")
+      const type = (params.get("type") || "invite") as "invite" | "recovery"
+
+      // Une session déjà ouverte (lien déjà activé dans un autre onglet, etc.) suffit.
+      const { data } = await supabase.auth.getSession()
+      if (cancelled) return
+      if (data.session) {
+        setHasSession(true)
+        setReady(true)
+        return
       }
-      // Flow 2 : jetons dans le hash (#access_token…) — detectSessionInUrl
-      // les consomme de façon asynchrone, on laisse plusieurs chances.
+      if (th) {
+        // Lien token_hash (notre email custom) : on montre le formulaire, le
+        // jeton sera consommé au submit seulement.
+        setTokenHash(th)
+        setTokenType(type)
+        setReady(true)
+        return
+      }
+      // Fallback : jetons dans le hash (#access_token…) consommés de façon
+      // asynchrone par detectSessionInUrl — on laisse plusieurs chances.
       for (let attempt = 0; attempt < 6; attempt++) {
-        const { data } = await supabase.auth.getSession()
+        const res = await supabase.auth.getSession()
         if (cancelled) return
-        if (data.session) {
+        if (res.data.session) {
+          setHasSession(true)
           setReady(true)
           return
         }
@@ -45,7 +62,7 @@ export default function SetPasswordPage() {
       if (!cancelled) setInvalid(true)
     }
 
-    establishSession()
+    prepare()
     return () => {
       cancelled = true
     }
@@ -63,7 +80,28 @@ export default function SetPasswordPage() {
       return
     }
     setLoading(true)
-    const { error: updateError } = await authClient().auth.updateUser({ password })
+    const supabase = authClient()
+
+    // 1) Ouvrir une session si on n'en a pas déjà une — c'est ICI qu'on consomme
+    //    le jeton (et pas au chargement, cf. commentaire plus haut).
+    if (!hasSession && tokenHash) {
+      const { error: otpError } = await supabase.auth.verifyOtp({ type: tokenType, token_hash: tokenHash })
+      if (otpError) {
+        // Le jeton a peut-être été consommé entre-temps mais une session existe
+        // déjà → on revérifie avant d'abandonner.
+        const { data } = await supabase.auth.getSession()
+        if (!data.session) {
+          setError(
+            "Ce lien a déjà été utilisé ou a expiré. Demandez une nouvelle invitation à votre administrateur."
+          )
+          setLoading(false)
+          return
+        }
+      }
+    }
+
+    // 2) Poser le mot de passe sur la session ouverte.
+    const { error: updateError } = await supabase.auth.updateUser({ password })
     if (updateError) {
       setError(updateError.message)
       setLoading(false)
