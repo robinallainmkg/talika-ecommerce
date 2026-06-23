@@ -42,10 +42,12 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
   const [data, setData] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(false)
+  const [imgError, setImgError] = useState(false)
 
   useEffect(() => {
     if (!influencerId) { setData(null); return }
     setLoading(true)
+    setImgError(false)
     fetch(`/api/influencers/${influencerId}`, { cache: "no-store" })
       .then((r) => r.json()).then((j) => setData(j.error ? null : j)).finally(() => setLoading(false))
   }, [influencerId])
@@ -68,7 +70,11 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
   const inf = data?.influencer
   const meta = (inf?.metadata || {}) as Record<string, unknown>
   const followers = meta.followers ?? meta.followers_count ?? null
-  const photo = (meta.photo_url ?? meta.avatar ?? meta.image) as string | undefined
+  const handle = inf?.instagram_handle?.replace(/^@/, "")
+  // Photo explicite (metadata) sinon dérivée du handle Instagram via unavatar.io
+  // (URL stable, valable pour TOUTES les influenceuses ayant un @). Fallback initiale.
+  const photo = ((meta.photo_url ?? meta.avatar ?? meta.image) as string | undefined)
+    || (handle ? `https://unavatar.io/instagram/${handle}?fallback=false` : undefined)
 
   // Collabs = coût mensuel (forfait + commission fusionnés par mois)
   const byMonth: Record<string, { year: number; month: number; fee: number; comm: number }> = {}
@@ -88,9 +94,9 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
           <>
             {/* En-tête */}
             <div className="sticky top-0 z-10 flex items-start gap-3 border-b border-zinc-100 bg-white px-5 py-4">
-              {photo ? (
+              {photo && !imgError ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={photo} alt="" className="h-12 w-12 shrink-0 rounded-full object-cover" />
+                <img src={photo} alt="" onError={() => setImgError(true)} className="h-12 w-12 shrink-0 rounded-full object-cover" />
               ) : (
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-lg font-semibold text-white">
                   {inf.name?.[0]?.toUpperCase() || "?"}

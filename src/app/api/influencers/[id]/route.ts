@@ -108,20 +108,15 @@ export async function GET(
     let totalOrders = 0
 
     if (codes.length > 0) {
-      // Fetch cache keys
-      const { data: cacheKeys } = await supabase
+      // Un seul fetch de tous les caches de commandes (vs 1 + N requêtes) → gros
+      // gain de vitesse pour le drawer.
+      const { data: caches } = await supabase
         .from("data_cache")
-        .select("key")
+        .select("data")
         .eq("source", "shopify")
         .like("key", "shopify_orders_%")
 
-      for (const keyEntry of cacheKeys || []) {
-        const { data: cacheEntry } = await supabase
-          .from("data_cache")
-          .select("data")
-          .eq("key", keyEntry.key)
-          .single()
-
+      for (const cacheEntry of caches || []) {
         if (!cacheEntry?.data) continue
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

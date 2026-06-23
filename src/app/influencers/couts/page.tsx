@@ -5,6 +5,7 @@ import Link from "next/link"
 import { formatCurrency } from "@/lib/utils"
 import { Loader2, Save, ArrowLeft, RefreshCw, Plus, Lock, Unlock, Paperclip } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
+import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { MonthTabs } from "@/components/influence/month-tabs"
 
 interface Row {
@@ -39,6 +40,7 @@ export default function CoutsInfluencePage() {
   const [locking, setLocking] = useState(false)
   const [invoicesByInf, setInvoicesByInf] = useState<Record<string, { id: string; file_name: string; amount: number | null }[]>>({})
   const [uploadingId, setUploadingId] = useState<string | null>(null)
+  const [drawerId, setDrawerId] = useState<string | null>(null)
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -303,7 +305,7 @@ export default function CoutsInfluencePage() {
                 {rows.map((r) => (
                   <tr key={r.influencer_id} className="border-b border-zinc-100">
                     <td className="px-3 py-2.5">
-                      <div className="font-medium text-zinc-900">{r.name}</div>
+                      <button onClick={() => setDrawerId(r.influencer_id)} className="text-left font-medium text-zinc-900 hover:underline">{r.name}</button>
                       {r.commission_rate > 0 && (
                         <div className="text-[11px] text-zinc-400">commission {r.commission_rate}%</div>
                       )}
@@ -381,6 +383,8 @@ export default function CoutsInfluencePage() {
           </button>
         </div>
       </div>
+
+      <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
     </div>
   )
 }
