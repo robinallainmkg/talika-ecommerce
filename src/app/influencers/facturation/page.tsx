@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
-import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink } from "lucide-react"
+import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
 interface Invoice {
@@ -47,6 +47,8 @@ export default function FacturationPage() {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [lock, setLock] = useState<{ locked_by: string | null; locked_at: string } | null>(null)
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
+  const [missingByMonth, setMissingByMonth] = useState<Record<number, number>>({})
+  const [onlyMissing, setOnlyMissing] = useState(false)
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -68,9 +70,10 @@ export default function FacturationPage() {
     setLoading(true)
     setFeedback(null)
     try {
-      const [res, lockRes] = await Promise.all([
+      const [res, lockRes, sumRes] = await Promise.all([
         fetch(`/api/influencers/billing?year=${year}&month=${month}`, { cache: "no-store" }),
         fetch(`/api/influencers/lock?year=${year}&month=${month}`, { cache: "no-store" }),
+        fetch(`/api/influencers/billing/summary?year=${year}`, { cache: "no-store" }),
       ])
       const data = await res.json()
       const lockData = await lockRes.json()
@@ -81,6 +84,10 @@ export default function FacturationPage() {
       const bd: Record<string, string> = {}
       for (const c of list) bd[c.influencer_id] = c.billing_name || ""
       setBillingDraft(bd)
+      const sum = await sumRes.json()
+      const mb: Record<number, number> = {}
+      for (const mo of sum.months || []) mb[mo.month] = mo.missing
+      setMissingByMonth(mb)
     } finally {
       setLoading(false)
     }
@@ -166,6 +173,8 @@ export default function FacturationPage() {
   }
 
   const years = [now.getFullYear(), now.getFullYear() - 1]
+  const missingCount = collabs.filter((c) => !c.has_invoice).length
+  const visibleCollabs = onlyMissing ? collabs.filter((c) => !c.has_invoice) : collabs
 
   return (
     <div className="space-y-6 p-8">
@@ -192,21 +201,31 @@ export default function FacturationPage() {
         </div>
         {/* Onglets mois */}
         <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1">
-          {MONTHS_SHORT.map((m, i) => (
-            <button
-              key={i}
-              onClick={() => setMonth(i + 1)}
-              title={MONTHS[i]}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                month === i + 1
-                  ? "bg-zinc-900 text-white shadow-sm"
-                  : "text-zinc-600 hover:bg-white hover:text-zinc-900"
-              )}
-            >
-              {m}
-            </button>
-          ))}
+          {MONTHS_SHORT.map((m, i) => {
+            const miss = missingByMonth[i + 1] || 0
+            const active = month === i + 1
+            return (
+              <button
+                key={i}
+                onClick={() => setMonth(i + 1)}
+                title={miss > 0 ? `${MONTHS[i]} — ${miss} collab(s) sans facture` : MONTHS[i]}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  active ? "bg-zinc-900 text-white shadow-sm" : "text-zinc-600 hover:bg-white hover:text-zinc-900"
+                )}
+              >
+                {m}
+                {miss > 0 && (
+                  <span className={cn(
+                    "inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                    active ? "bg-amber-400 text-zinc-900" : "bg-amber-100 text-amber-700"
+                  )}>
+                    {miss}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -239,6 +258,26 @@ export default function FacturationPage() {
         <p className={`text-sm ${feedback.type === "ok" ? "text-emerald-600" : "text-red-600"}`}>{feedback.text}</p>
       )}
 
+      {missingCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm">
+          <span className="flex items-center gap-2 font-medium text-amber-800">
+            <Bell className="h-4 w-4" />
+            {missingCount} collab{missingCount > 1 ? "s" : ""} sans facture ce mois — à demander / relancer.
+          </span>
+          <button
+            onClick={() => setOnlyMissing((v) => !v)}
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              onlyMissing
+                ? "border-amber-400 bg-amber-100 text-amber-800"
+                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+            )}
+          >
+            {onlyMissing ? "Voir toutes" : "Sans facture seulement"}
+          </button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
         {loading ? (
           <div className="flex items-center justify-center gap-2 p-10 text-sm text-zinc-400">
@@ -251,6 +290,10 @@ export default function FacturationPage() {
             <span className="text-zinc-400">Les montants (forfait / commission) se saisissent dans </span>
             <Link href="/influencers/couts" className="text-zinc-700 underline">Coûts influence</Link>.
           </div>
+        ) : visibleCollabs.length === 0 ? (
+          <div className="p-10 text-center text-sm text-emerald-600">
+            Toutes les collabs de {MONTHS[month - 1]} {year} ont leur facture ✓
+          </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -262,11 +305,11 @@ export default function FacturationPage() {
               </tr>
             </thead>
             <tbody>
-              {collabs.map((c) => {
+              {visibleCollabs.map((c) => {
                 const showSuggestion =
                   c.ocr_supplier && c.ocr_supplier.trim() && (billingDraft[c.influencer_id] || "").trim() !== c.ocr_supplier.trim()
                 return (
-                  <tr key={c.influencer_id} className="border-b border-zinc-100 align-top">
+                  <tr key={c.influencer_id} className={cn("border-b border-zinc-100 align-top", !c.has_invoice && "bg-amber-50/40")}>
                     {/* Collab */}
                     <td className="px-4 py-3">
                       <Link href={`/influencers/${c.influencer_id}`} className="font-medium text-zinc-900 hover:underline">

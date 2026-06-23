@@ -126,20 +126,31 @@ export function Sidebar() {
   const isOpen = (g: Group) => openMap[g.name] ?? groupHasActive(g)
 
   const fetchBadges = useCallback(async () => {
+    const grouped: Record<string, { count: number; labels: string[] }> = {}
+    // Badges routine (ops mensuelle)
     try {
       const res = await fetch("/api/routine")
       const data = await res.json()
-      if (!data.checks) return
-      const pending = (data.checks as RoutineCheck[]).filter((c) => (c.status === "pending" || c.status === "warning") && c.link)
-      const grouped: Record<string, { count: number; labels: string[] }> = {}
+      const pending = ((data.checks as RoutineCheck[]) || []).filter((c) => (c.status === "pending" || c.status === "warning") && c.link)
       for (const check of pending) {
         const link = check.link!
         if (!grouped[link]) grouped[link] = { count: 0, labels: [] }
         grouped[link].count += 1
         grouped[link].labels.push(check.label)
       }
-      setBadges(grouped)
     } catch { /* silent */ }
+    // Badge "collabs sans facture" sur Facturation (403 silencieux pour rôle sav)
+    try {
+      const res = await fetch("/api/influencers/billing/summary")
+      const data = await res.json()
+      if (data?.total_missing > 0) {
+        grouped["/influencers/facturation"] = {
+          count: data.total_missing,
+          labels: [`${data.total_missing} collab(s) sans facture`],
+        }
+      }
+    } catch { /* silent */ }
+    setBadges(grouped)
   }, [])
 
   useEffect(() => { fetchBadges() }, [fetchBadges])
