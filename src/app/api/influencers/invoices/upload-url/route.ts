@@ -31,6 +31,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "fichier trop volumineux (max 15 Mo)" }, { status: 400 })
     }
 
+    // Anti-doublon : même fichier déjà joint pour cette influenceuse + mois → refus.
+    // (Des factures différentes ont des noms différents, donc on ne bloque pas les ajouts légitimes.)
+    if (body.year && body.month) {
+      const { data: existing } = await supabase
+        .from("influencer_cost_invoices")
+        .select("id")
+        .eq("influencer_id", body.influencer_id)
+        .eq("year", body.year)
+        .eq("month", body.month)
+        .eq("file_name", fileName)
+        .limit(1)
+      if (existing && existing.length > 0) {
+        return NextResponse.json({ error: "Cette facture est déjà jointe pour ce mois (doublon évité)." }, { status: 409 })
+      }
+    }
+
     const { data: row, error } = await supabase
       .from("influencer_cost_invoices")
       .insert({
