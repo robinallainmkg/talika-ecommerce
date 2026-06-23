@@ -294,7 +294,6 @@ export default function CoutsInfluencePage() {
               <thead>
                 <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-400">
                   <th className="px-3 py-2.5">Influenceuse</th>
-                  <th className="px-3 py-2.5 text-right">Ventes du mois</th>
                   <th className="px-3 py-2.5 text-right">Forfait (€)</th>
                   <th className="px-3 py-2.5 text-right">Commission (€)</th>
                   <th className="px-3 py-2.5 text-right">Total</th>
@@ -308,9 +307,6 @@ export default function CoutsInfluencePage() {
                       {r.commission_rate > 0 && (
                         <div className="text-[11px] text-zinc-400">commission {r.commission_rate}%</div>
                       )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-zinc-500">
-                      {r.month_sales > 0 ? formatCurrency(r.month_sales) : "—"}
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
