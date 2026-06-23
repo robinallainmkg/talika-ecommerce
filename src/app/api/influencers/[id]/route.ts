@@ -87,6 +87,14 @@ export async function GET(
       .eq("influencer_id", id)
       .order("posted_at", { ascending: false })
 
+    // 4b. Get uploaded invoices (factures)
+    const { data: invoices } = await supabase
+      .from("influencer_cost_invoices")
+      .select("id, year, month, kind, amount, file_name, created_at")
+      .eq("influencer_id", id)
+      .order("year", { ascending: false })
+      .order("month", { ascending: false })
+
     // 5. Parse orders from data_cache to build product breakdown + timeline
     const productMap: Record<string, ProductAgg> = {}
     const monthlyMap: Record<string, MonthlyAgg> = {}
@@ -223,6 +231,7 @@ export async function GET(
       lastOrders,
       fixedFees: fixedFees || [],
       content: content || [],
+      invoices: invoices || [],
       commissions: commissionsData || [],
       stats: {
         totalRevenue,

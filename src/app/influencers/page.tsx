@@ -1,13 +1,13 @@
 "use client"
 
 import { useState, useEffect, useCallback, Fragment } from "react"
-import Link from "next/link"
 import { Header } from "@/components/layout/header"
 import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { formatCurrency } from "@/lib/utils"
 import {
   Users,
@@ -137,6 +137,7 @@ export default function InfluencersPage() {
   const [allCodes, setAllCodes] = useState<CodeWithInfluencer[]>([])
   const [unassignedCodes, setUnassignedCodes] = useState<UnassignedCode[]>([])
   const [autoAssigning, setAutoAssigning] = useState(false)
+  const [drawerId, setDrawerId] = useState<string | null>(null)
   const [codeSelections, setCodeSelections] = useState<Record<string, { category: string; influencerId?: string; newInfluencerName?: string }>>({})
   const [savingCodes, setSavingCodes] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -488,7 +489,7 @@ export default function InfluencersPage() {
                               return (
                                 <tr key={inf.id} className="border-b border-zinc-100 hover:bg-zinc-50">
                                   <td className="py-3">
-                                    <Link href={`/influencers/${inf.id}`} className="font-medium text-zinc-900 hover:underline">{inf.name}</Link>
+                                    <button onClick={() => setDrawerId(inf.id)} className="text-left font-medium text-zinc-900 hover:underline">{inf.name}</button>
                                   </td>
                                   <td className="py-3 text-center"><Badge variant={getTypeBadge(type)}>{type}</Badge></td>
                                   <td className="py-3 text-right font-medium">{sales > 0 ? formatCurrency(sales) : "—"}</td>
@@ -860,6 +861,8 @@ export default function InfluencersPage() {
           </>
         )}
       </div>
+
+      <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
 
       {/* ── Add Influencer Modal ────────────────────────────── */}
       {showAddModal && (
