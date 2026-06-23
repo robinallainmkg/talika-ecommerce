@@ -86,18 +86,26 @@ export interface GoogleAdsResult {
 const num = (v: any): number => (v == null ? 0 : typeof v === "string" ? parseFloat(v) || 0 : v)
 const r2 = (n: number) => Math.round(n * 100) / 100
 
-// Sync des campagnes Google Ads pour une période GAQL (THIS_MONTH / LAST_MONTH).
+// Sync des campagnes Google Ads pour une période donnée.
+// Accepte soit un preset GAQL (THIS_MONTH / LAST_MONTH), soit une plage de dates
+// explicite { since, until } (format 'YYYY-MM-DD') → indispensable pour backfiller
+// un mois clôturé arbitraire (les presets ne couvrent que le mois courant/précédent).
 // Renvoie le même format que l'ancienne version Python : { campaigns, summary }.
 export async function getGoogleAdsCampaigns(
-  period: "THIS_MONTH" | "LAST_MONTH" = "THIS_MONTH"
+  period: "THIS_MONTH" | "LAST_MONTH" | { since: string; until: string } = "THIS_MONTH"
 ): Promise<GoogleAdsResult> {
+  const dateClause =
+    typeof period === "string"
+      ? `segments.date DURING ${period}`
+      : `segments.date BETWEEN '${period.since}' AND '${period.until}'`
+
   const rows = await search(`
     SELECT campaign.name, campaign.status,
            metrics.cost_micros, metrics.impressions, metrics.clicks,
            metrics.conversions, metrics.conversions_value,
            metrics.average_cpc, metrics.ctr
     FROM campaign
-    WHERE segments.date DURING ${period}
+    WHERE ${dateClause}
     ORDER BY metrics.cost_micros DESC
   `)
 

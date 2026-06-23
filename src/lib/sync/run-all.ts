@@ -236,18 +236,36 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
 
   // ── 6. Google Ads ──
   await step("google_ads", "Google Ads", async () => {
-    const gData = await (await syncGoogleRoute()).json()
+    const googleReq = new Request("http://internal/api/google/sync", { method: "POST" })
+    const gData = await (await syncGoogleRoute(googleReq)).json()
     if (!gData.success) throw new Error(gData.error || "échec sync Google Ads")
-    return `${gData.campaigns} campagnes, ROAS ${gData.summary?.roas ?? "—"}`
+    const months = (gData.months || []).map((m: { month: number; spend: number }) => `${m.month}:${m.spend}€`).join(" · ")
+    return `${gData.campaigns} campagnes, ROAS ${gData.summary?.roas ?? "—"}${months ? ` (${months})` : ""}`
   })
 
-  // ── 7. Meta Ads ──
+  // ── 7. Meta Ads (mois courant + mois précédent) ──
+  // Le mois courant est partiel (month-to-date) ; le précédent doit être figé sur
+  // son spend RÉEL une fois clos. On le resynchronise chaque jour → il se verrouille
+  // sur le total complet (sinon il reste gelé sur le dernier partial → spend faux).
   await step("meta_ads", "Meta Ads", async () => {
-    const metaReq = new Request("http://internal/api/meta/sync", { method: "POST" })
-    const metaData = await (await syncMetaRoute(metaReq)).json()
-    if (!metaData.success) throw new Error(metaData.error || "échec sync Meta Ads")
-    const r = metaData.results || {}
-    return `${r.campaigns_count} campagnes, ${r.ads_count} ads, ROAS ${r.summary?.roas ?? "—"}`
+    const prev = new Date(year, month - 2, 1)
+    const targets = [
+      { year, month },
+      { year: prev.getFullYear(), month: prev.getMonth() + 1 },
+    ]
+    const out: string[] = []
+    for (const t of targets) {
+      const metaReq = new Request("http://internal/api/meta/sync", {
+        method: "POST",
+        body: JSON.stringify({ year: t.year, month: t.month }),
+        headers: { "Content-Type": "application/json" },
+      })
+      const metaData = await (await syncMetaRoute(metaReq)).json()
+      if (!metaData.success) throw new Error(metaData.error || `échec sync Meta ${t.year}-${t.month}`)
+      const r = metaData.results || {}
+      out.push(`${t.year}-${t.month}: ${r.summary?.spend ?? "?"}€ (ROAS ${r.summary?.roas ?? "—"})`)
+    }
+    return out.join(" · ")
   })
 
   // ── 8. Catalogue Shopify → KB chat IA ──
@@ -257,7 +275,14 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     return `${kb.total} produits (${kb.created} créés, ${kb.updated} maj, ${kb.disabled} désactivés)`
   })
 
-  // ── 8b. Nettoyage : conversations chat vides > 24 h (non bloquant, non tracé) ──
+  // ── 9. P&L : (re)calcul des lignes auto (CA Shopify, Meta, Google, Influence) ──
+  await step("pnl_auto", "P&L auto", async () => {
+    const { syncPnLAuto } = await import("@/lib/sync/pnl-auto")
+    const r = await syncPnLAuto(supabase, year)
+    return `${r.written} cellules calculées${r.frozen ? `, ${r.frozen} figées (manuel)` : ""}`
+  })
+
+  // ── 9b. Nettoyage : conversations chat vides > 24 h (non bloquant, non tracé) ──
   try {
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     await supabase
@@ -269,7 +294,7 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     // non bloquant
   }
 
-  // ── 9. Trace finale : last_cron_sync (toujours écrit, même en échec partiel) ──
+  // ── 10. Trace finale : last_cron_sync (toujours écrit, même en échec partiel) ──
   const success = steps.every((s) => s.status === "ok")
   const result: SyncResult = {
     success,

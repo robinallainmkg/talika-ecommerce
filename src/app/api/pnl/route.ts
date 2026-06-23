@@ -25,10 +25,12 @@ export async function GET(request: Request) {
   return NextResponse.json({ lines: data })
 }
 
-// POST: upsert a P&L line (create or update amount)
+// POST: upsert a P&L line (create or update amount).
+// `parent` ("" = ligne de tête, sinon nom du groupe parent). Une création/saisie
+// manuelle vaut source:"manual" par défaut.
 export async function POST(request: Request) {
   const body = await request.json()
-  const { category, subcategory, month, year, amount, source, sort_order } = body
+  const { category, subcategory, month, year, amount, source, sort_order, parent } = body
 
   if (!category || !subcategory || !month || !year) {
     return NextResponse.json({ error: "category, subcategory, month, year requis" }, { status: 400 })
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
     .upsert(
       {
         category,
+        parent: parent ?? "",
         subcategory,
         month,
         year,
@@ -47,7 +50,7 @@ export async function POST(request: Request) {
         sort_order: sort_order ?? 0,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "category,subcategory,month,year" }
+      { onConflict: "category,parent,subcategory,month,year" }
     )
     .select()
     .single()
@@ -56,16 +59,28 @@ export async function POST(request: Request) {
   return NextResponse.json({ line: data })
 }
 
-// PATCH: update amount for a specific line by id
+// PATCH: édition d'une cellule par id.
+//  - { id, amount }        → saisie manuelle : FIGE la cellule (source:"manual")
+//                            pour que la sync auto ne la réécrive plus jamais.
+//  - { id, source:"auto" } → "↺ auto" : réactive le calcul auto (la prochaine
+//                            sync repeuplera la valeur).
 export async function PATCH(request: Request) {
   const body = await request.json()
-  const { id, amount } = body
+  const { id, amount, source } = body
 
   if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 })
 
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (source === "auto") {
+    patch.source = "auto"
+  } else {
+    patch.amount = amount
+    patch.source = "manual"
+  }
+
   const { data, error } = await supabase
     .from("pnl_lines")
-    .update({ amount, updated_at: new Date().toISOString() })
+    .update(patch)
     .eq("id", id)
     .select()
     .single()
@@ -77,21 +92,35 @@ export async function PATCH(request: Request) {
 // DELETE: remove a full subcategory row (all months) or a specific line
 export async function DELETE(request: Request) {
   const body = await request.json()
-  const { id, category, subcategory, year } = body
+  const { id, category, subcategory, year, parent, deleteGroup } = body
 
   if (id) {
-    // Delete single line
+    // Delete single line (one cell)
     const { error } = await supabase.from("pnl_lines").delete().eq("id", id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 
-  if (category && subcategory && year) {
-    // Delete all months for this subcategory
+  if (deleteGroup && category && parent && year) {
+    // Delete a whole group: all detail rows whose parent = this group label
     const { error } = await supabase
       .from("pnl_lines")
       .delete()
       .eq("category", category)
+      .eq("parent", parent)
+      .eq("year", year)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
+  if (category && subcategory && year) {
+    // Delete all months for this subcategory (within its parent group, "" = top-level)
+    const { error } = await supabase
+      .from("pnl_lines")
+      .delete()
+      .eq("category", category)
+      .eq("parent", parent ?? "")
       .eq("subcategory", subcategory)
       .eq("year", year)
 
@@ -99,5 +128,5 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: true })
   }
 
-  return NextResponse.json({ error: "id ou (category, subcategory, year) requis" }, { status: 400 })
+  return NextResponse.json({ error: "id, groupe, ou (category, subcategory, year) requis" }, { status: 400 })
 }
