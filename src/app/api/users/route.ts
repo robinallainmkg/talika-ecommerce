@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAdminUser } from "@/lib/auth/server"
 import { sendInviteEmail } from "@/lib/mailer"
+import { GRANTABLE_SECTIONS } from "@/lib/roles"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30 // l'envoi SMTP peut prendre quelques secondes
@@ -30,18 +31,55 @@ export async function GET() {
       created_at: string
       last_sign_in_at: string | null
       email_confirmed_at: string | null
-      user_metadata?: { role?: string; name?: string }
+      user_metadata?: { role?: string; name?: string; sections?: string[] }
     }) => ({
       id: u.id,
       email: u.email,
       name: u.user_metadata?.name || null,
       role: u.user_metadata?.role || "member",
+      sections: Array.isArray(u.user_metadata?.sections) ? u.user_metadata!.sections : null,
       created_at: u.created_at,
       last_sign_in_at: u.last_sign_in_at,
       pending: !u.last_sign_in_at && !!u.email_confirmed_at === false,
     })
   )
   return NextResponse.json({ users })
+}
+
+// PATCH — modifier le rôle et/ou les sections d'un membre (accès modulable).
+// On fusionne avec les métadonnées existantes (on ne perd ni le nom ni le reste).
+export async function PATCH(request: Request) {
+  const auth = await requireAdminUser()
+  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  const body = await request.json().catch(() => ({}))
+  const id = typeof body.id === "string" ? body.id : ""
+  if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 })
+
+  // Récupère les métadonnées actuelles pour les fusionner (merge sûr).
+  const cur = await fetch(`${AUTH_ADMIN}/admin/users/${id}`, { headers: adminHeaders() })
+  if (!cur.ok) return NextResponse.json({ error: "utilisateur introuvable" }, { status: 404 })
+  const curUser = await cur.json()
+  const meta: Record<string, unknown> = { ...(curUser.user_metadata || {}) }
+
+  const ALLOWED_ROLES = ["admin", "member", "influence", "sav"]
+  if (typeof body.role === "string" && ALLOWED_ROLES.includes(body.role)) meta.role = body.role
+  if (Array.isArray(body.sections)) {
+    meta.sections = body.sections.filter((s: unknown): s is string => typeof s === "string" && GRANTABLE_SECTIONS.includes(s))
+  }
+
+  // Anti-verrouillage : l'admin ne peut pas se retirer son propre rôle admin.
+  if (id === auth.user.id && meta.role !== "admin") {
+    return NextResponse.json({ error: "tu ne peux pas retirer ton propre accès admin" }, { status: 400 })
+  }
+
+  const upd = await fetch(`${AUTH_ADMIN}/admin/users/${id}`, {
+    method: "PUT",
+    headers: adminHeaders(),
+    body: JSON.stringify({ user_metadata: meta }),
+  })
+  if (!upd.ok) return NextResponse.json({ error: "mise à jour impossible" }, { status: 500 })
+  return NextResponse.json({ ok: true, role: meta.role, sections: meta.sections ?? null })
 }
 
 async function findUserByEmail(email: string): Promise<{ id: string; last_sign_in_at: string | null } | null> {

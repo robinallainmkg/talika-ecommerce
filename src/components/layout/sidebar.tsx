@@ -21,7 +21,7 @@ import {
   ChevronDown,
 } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
-import { navVisibleForRole } from "@/lib/roles"
+import { navVisible } from "@/lib/roles"
 
 type Leaf = { name: string; href: string; icon?: typeof Users }
 type Group = { name: string; icon: typeof Users; children: Leaf[] }
@@ -83,14 +83,16 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [badges, setBadges] = useState<Record<string, { count: number; labels: string[] }>>({})
   const [role, setRole] = useState<string | null>(null)
+  const [sections, setSections] = useState<unknown>(undefined)
   const [userEmail, setUserEmail] = useState<string | null>(null)
 
-  // Rôle de l'utilisateur → on filtre la navigation (sous-rôles sandboxés).
+  // Rôle + sections de l'utilisateur → on filtre la navigation par section.
   useEffect(() => {
     ;(async () => {
       try {
         const { data } = await authClient().auth.getUser()
         setRole((data.user?.user_metadata?.role as string) ?? "member")
+        setSections(data.user?.user_metadata?.sections)
         setUserEmail(data.user?.email ?? null)
       } catch {
         setRole("member")
@@ -98,14 +100,14 @@ export function Sidebar() {
     })()
   }, [])
 
-  // Navigation filtrée par rôle : on retire les items hors périmètre, et un groupe
-  // dont aucun enfant n'est visible disparaît (sous-rôles sandboxés).
+  // Navigation filtrée par sections effectives : un item hors périmètre disparaît,
+  // et un groupe dont aucun enfant n'est visible disparaît aussi.
   const visibleNav = NAV.map((entry) => {
     if ("children" in entry && entry.children) {
-      const children = entry.children.filter((c) => navVisibleForRole(c.href, role))
+      const children = entry.children.filter((c) => navVisible(c.href, role, sections))
       return children.length ? { ...entry, children } : null
     }
-    return navVisibleForRole((entry as Leaf).href, role) ? entry : null
+    return navVisible((entry as Leaf).href, role, sections) ? entry : null
   }).filter(Boolean) as Entry[]
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({})
 
