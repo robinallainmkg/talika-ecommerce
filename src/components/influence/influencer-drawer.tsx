@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react"
 import { formatCurrency } from "@/lib/utils"
 import { MONTHS_FULL } from "@/components/influence/month-tabs"
-import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag } from "lucide-react"
+import { authClient } from "@/lib/auth/client"
+import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2 } from "lucide-react"
 
 interface Drawer { influencerId: string | null; onClose: () => void }
 
@@ -13,6 +14,7 @@ type Invoice = { id: string; year: number; month: number; kind: string; amount: 
 type Content = { id: string; type: string | null; platform: string | null; url: string | null; title: string | null; posted_at: string | null }
 type Order = { date: string; amount: number; products: string[]; discount_code: string }
 type Product = { title: string; quantity: number; revenue: number; orders: number }
+type Doc = { id: string; label: string | null; file_name: string; mime_type: string | null; size_bytes: number | null; created_at: string }
 
 interface Detail {
   influencer: {
@@ -43,13 +45,17 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
   const [data, setData] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(false)
   const [imgError, setImgError] = useState(false)
+  const [docs, setDocs] = useState<Doc[]>([])
+  const [uploadingDoc, setUploadingDoc] = useState(false)
 
   useEffect(() => {
-    if (!influencerId) { setData(null); return }
+    if (!influencerId) { setData(null); setDocs([]); return }
     setLoading(true)
     setImgError(false)
     fetch(`/api/influencers/${influencerId}`, { cache: "no-store" })
       .then((r) => r.json()).then((j) => setData(j.error ? null : j)).finally(() => setLoading(false))
+    fetch(`/api/influencers/documents?influencer_id=${influencerId}`, { cache: "no-store" })
+      .then((r) => r.json()).then((j) => setDocs(j.documents || [])).catch(() => setDocs([]))
   }, [influencerId])
 
   useEffect(() => {
@@ -64,6 +70,44 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
     })
     const json = await res.json()
     if (json.url) window.open(json.url, "_blank")
+  }
+
+  async function uploadDoc(file: File) {
+    if (!influencerId) return
+    setUploadingDoc(true)
+    try {
+      const res = await fetch("/api/influencers/documents/upload-url", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          influencer_id: influencerId, file_name: file.name, mime_type: file.type,
+          size_bytes: file.size, label: file.name.replace(/\.[^.]+$/, ""),
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok || !d.token) { alert(d.error || "Échec de la préparation de l'upload"); return }
+      const { error } = await authClient().storage.from(d.bucket).uploadToSignedUrl(d.path, d.token, file)
+      if (error) { alert("Échec de l'upload : " + error.message); return }
+      const lr = await fetch(`/api/influencers/documents?influencer_id=${influencerId}`, { cache: "no-store" })
+      setDocs((await lr.json()).documents || [])
+    } finally {
+      setUploadingDoc(false)
+    }
+  }
+
+  async function viewDoc(id: string) {
+    const res = await fetch("/api/influencers/documents", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+    })
+    const json = await res.json()
+    if (json.url) window.open(json.url, "_blank")
+  }
+
+  async function deleteDoc(id: string) {
+    if (!confirm("Supprimer ce document ?")) return
+    setDocs((prev) => prev.filter((d) => d.id !== id))
+    await fetch("/api/influencers/documents", {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+    })
   }
 
   if (!influencerId) return null
@@ -185,6 +229,32 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
                         <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
                       </span>
                     </button>
+                  ))}
+                </div>
+              )}
+            </Section>
+
+            {/* Documents (contrats, briefs, PDF divers) */}
+            <Section title="Documents" count={docs.length}>
+              <label className={`mb-2 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 ${uploadingDoc ? "pointer-events-none opacity-50" : ""}`}>
+                {uploadingDoc ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+                {uploadingDoc ? "Envoi…" : "Ajouter un document"}
+                <input type="file" accept=".pdf,image/*,.docx,.doc" className="hidden" disabled={uploadingDoc}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadDoc(f); e.target.value = "" }} />
+              </label>
+              {docs.length === 0 ? <p className="text-sm text-zinc-400">Aucun document.</p> : (
+                <div className="space-y-1">
+                  {docs.map((d) => (
+                    <div key={d.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-50">
+                      <button onClick={() => viewDoc(d.id)} className="inline-flex min-w-0 items-center gap-2 text-left">
+                        <FileText className="h-4 w-4 shrink-0 text-zinc-400" />
+                        <span className="truncate text-zinc-600">{d.label || d.file_name}</span>
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-zinc-300" />
+                      </button>
+                      <button onClick={() => deleteDoc(d.id)} className="ml-2 shrink-0 text-zinc-300 hover:text-red-500" title="Supprimer">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
