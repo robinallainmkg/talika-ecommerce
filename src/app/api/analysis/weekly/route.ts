@@ -71,6 +71,48 @@ const MONTHS_FR = [
   "juillet", "août", "septembre", "octobre", "novembre", "décembre",
 ]
 
+// ─── Ad name parsing ─────────────────────────────────────────────
+
+// Ordered most-specific first — first match wins.
+const PRODUCT_PATTERNS: [RegExp, string][] = [
+  [/hair\s?force\s?cap|hair\s?cap/i, "Hair Force Cap"],
+  [/led\s?mask|masque\s?led/i, "LED Mask"],
+  [/brume|vit\.?\s?c|vitamine\s?c/i, "Brume Vitamine C"],
+  [/patch|eye[\s-]?patch|patch[\s-]?yeux/i, "Patch Yeux"],
+  [/TC7\+?/i, "TC7+"],
+  [/hair/i, "Hair Force Cap"],
+]
+
+const CREATIVE_PATTERNS: [RegExp, string][] = [
+  [/ugc/i, "UGC"],
+  [/t[eé]moignage|review|avis\s?(client|réel|vérifié)?/i, "Témoignage"],
+  [/avant[\s\-]?apr[eè]s|before[\s\-]?after|b\/a/i, "Avant\/Après"],
+  [/tuto(riel)?/i, "Tutoriel"],
+  [/r[eé]el/i, "Réel"],
+  [/storie?s?/i, "Story"],
+  [/carousel|carrousel|carrou/i, "Carrousel"],
+  [/vid[eé]o/i, "Vidéo"],
+  [/image|photo|static|statique/i, "Image statique"],
+  [/catalogue/i, "Catalogue"],
+]
+
+function extractProduct(adName: string): string | null {
+  for (const [re, label] of PRODUCT_PATTERNS) if (re.test(adName)) return label
+  return null
+}
+
+function extractCreativeType(adName: string): string | null {
+  for (const [re, label] of CREATIVE_PATTERNS) if (re.test(adName)) return label
+  return null
+}
+
+function adSummary(a: { ad_name: string; spend: number; roas: number }): string {
+  const product = extractProduct(a.ad_name)
+  const crea = extractCreativeType(a.ad_name)
+  const tags = [product, crea].filter(Boolean).join(" · ")
+  return tags ? `${a.ad_name} [${tags}]` : a.ad_name
+}
+
 // ─── Main ───────────────────────────────────────────────────────
 
 export async function GET() {
@@ -209,7 +251,7 @@ export async function GET() {
       })
     }
 
-    // ── 5. META ADS — ROAS + dead ads ──
+    // ── 5. META ADS — ROAS + dead ads + corrélation produit bestseller ──
     const { data: metaData } = await supabase
       .from("data_cache")
       .select("data")
@@ -224,21 +266,169 @@ export async function GET() {
 
       findings.push(`Meta Ads: ${Math.round(totalSpend)}€ spend, ${totalPurchases} purchases, ROAS ${overallROAS}`)
 
+      // 5a. DEAD ADS — enrichis avec produit + type de créa extraits du nom
       const deadThreshold = 50 / eagerness(weights, "meta_ads")
       const deadAds = ads.filter((a) => a.spend > deadThreshold && a.purchases === 0)
       if (deadAds.length > 0) {
-        const deadNames = deadAds.map((a) => `${a.ad_name} (${Math.round(a.spend)}€)`).join(", ")
+        const deadNames = deadAds
+          .map((a) => `${adSummary(a)} (${Math.round(a.spend)}€)`)
+          .join(", ")
         const deadSpend = Math.round(deadAds.reduce((s, a) => s + a.spend, 0))
         findings.push(`Dead ads: ${deadAds.length} ads, ${deadSpend}€ gaspillés`)
         newOpportunities.push({
           title: `${deadAds.length} ads Meta à 0 achats (${deadSpend}€)`,
-          description: `Ces ads dépensent sans convertir: ${deadNames}. Couper ou réoptimiser.`,
+          description: `Ces ads dépensent sans convertir : ${deadNames}. Couper ou réoptimiser la créa.`,
           category: "meta_ads",
           impact: deadSpend > 200 ? "high" : "medium",
-          prompt: `J'ai ${deadAds.length} ads Meta qui dépensent ${deadSpend}€ sans achat: ${deadNames}. Aide-moi à décider lesquelles couper ou réoptimiser.`,
+          prompt: `J'ai ${deadAds.length} ads Meta qui dépensent ${deadSpend}€ sans aucun achat : ${deadNames}. Aide-moi à décider lesquelles couper et lesquelles tester avec une nouvelle créa (format, angle, hook différent).`,
         })
       }
 
+      // 5b. CORRÉLATION PRODUIT : ROAS Meta vs rang bestseller Shopify
+      // → répond à la question "est-ce qu'on promeut nos vrais bestsellers ?"
+
+      // Agréger Meta spend/ROAS par produit (extrait du nom de l'ad)
+      type MetaProd = { spend: number; weightedROAS: number; adNames: string[] }
+      const metaByProduct: Record<string, MetaProd> = {}
+      for (const a of ads) {
+        const p = extractProduct(a.ad_name)
+        if (!p || a.spend < 10) continue
+        if (!metaByProduct[p]) metaByProduct[p] = { spend: 0, weightedROAS: 0, adNames: [] }
+        metaByProduct[p].spend += a.spend
+        metaByProduct[p].weightedROAS += a.spend * a.roas
+        metaByProduct[p].adNames.push(a.ad_name)
+      }
+
+      // Agréger ventes Shopify par produit (même extracteur sur le titre de ligne)
+      type ShopifyProd = { units: number; revenue: number }
+      const shopifyByProduct: Record<string, ShopifyProd> = {}
+      for (const o of current) {
+        for (const item of (o.line_items || []) as { title?: string; quantity?: number; price?: string }[]) {
+          const p = extractProduct(item.title || "")
+          if (!p) continue
+          if (!shopifyByProduct[p]) shopifyByProduct[p] = { units: 0, revenue: 0 }
+          shopifyByProduct[p].units += Number(item.quantity) || 1
+          shopifyByProduct[p].revenue += parseFloat(item.price || "0") * (Number(item.quantity) || 1)
+        }
+      }
+
+      // Rang bestseller (par CA Shopify)
+      const shopifyRanked = Object.entries(shopifyByProduct)
+        .sort(([, a], [, b]) => b.revenue - a.revenue)
+        .map(([product], idx) => ({ product, rank: idx + 1 }))
+      const rankOf = (p: string) => shopifyRanked.find((r) => r.product === p)?.rank ?? null
+
+      // Table de corrélation pour findings
+      const correlTable = Object.entries(metaByProduct)
+        .filter(([, m]) => m.spend > 80)
+        .map(([product, m]) => {
+          const roas = Math.round((m.weightedROAS / m.spend) * 10) / 10
+          const shopify = shopifyByProduct[product] || { units: 0, revenue: 0 }
+          const rank = rankOf(product)
+          return { product, spend: Math.round(m.spend), roas, shopifyRevenue: Math.round(shopify.revenue), rank }
+        })
+        .sort((a, b) => b.spend - a.spend)
+
+      if (correlTable.length > 0) {
+        findings.push(
+          "Corrélation Meta vs Shopify : " +
+            correlTable
+              .map((c) => `${c.product} (${c.spend}€ ads, ROAS ${c.roas}x, rang Shopify #${c.rank ?? "?"})`)
+              .join(" | ")
+        )
+
+        // Signal 1 : fort spend sur un produit non-bestseller avec mauvais ROAS
+        const poorBet = correlTable.find((c) => c.roas < 3.5 && c.rank !== null && c.rank > 3)
+        if (poorBet) {
+          const bestAlt = correlTable.find((c) => c !== poorBet && c.roas > poorBet.roas && (c.rank ?? 99) < (poorBet.rank ?? 99))
+          const altTxt = bestAlt ? ` À comparer : ${bestAlt.product} = ROAS ${bestAlt.roas}x, rang #${bestAlt.rank}.` : ""
+          newOpportunities.push({
+            title: `Budget Meta mal aligné : ${poorBet.product} ROAS ${poorBet.roas}x (#${poorBet.rank} bestseller)`,
+            description: `${poorBet.spend}€ dépensés sur le ${poorBet.product} ce mois pour un ROAS ${poorBet.roas}x, alors qu'il n'est que #${poorBet.rank} des ventes Shopify.${altTxt} Ce budget serait plus rentable sur un produit qui convertit naturellement.`,
+            category: "meta_ads",
+            impact: "high",
+            prompt: `Je dépense ${poorBet.spend}€ en ads Meta sur le ${poorBet.product} (ROAS ${poorBet.roas}x) mais ce produit n'est que #${poorBet.rank} bestseller Shopify ce mois (${poorBet.shopifyRevenue}€ de CA).${altTxt} Aide-moi à décider : couper ce budget ? Changer la créa ? Ou ce produit a-t-il besoin de plus de push publicitaire pour décoller ?`,
+          })
+        }
+
+        // Signal 2 : bon ROAS + bestseller Shopify mais sous-investi (< 25% du spend total)
+        const goodBet = correlTable.find(
+          (c) => c.roas >= 5 && c.rank !== null && c.rank <= 2 && c.spend < totalSpend * 0.25
+        )
+        if (goodBet) {
+          newOpportunities.push({
+            title: `Sous-investir sur le ${goodBet.product} : ROAS ${goodBet.roas}x et #${goodBet.rank} bestseller`,
+            description: `Le ${goodBet.product} cumule ROAS ${goodBet.roas}x ET rang #${goodBet.rank} sur Shopify, mais ne reçoit que ${goodBet.spend}€ (${Math.round((goodBet.spend / totalSpend) * 100)}% du budget Meta). Augmenter le budget ici est le levier le plus sûr.`,
+            category: "meta_ads",
+            impact: "high",
+            prompt: `Mon meilleur combo ce mois : ${goodBet.product} = ROAS ${goodBet.roas}x en ads ET #${goodBet.rank} bestseller Shopify (${goodBet.shopifyRevenue}€ de CA). Pourtant je n'y mets que ${goodBet.spend}€ (${Math.round((goodBet.spend / totalSpend) * 100)}% du budget). Combien devrais-je y allouer ? Quelles créas scaler ?`,
+          })
+        }
+
+        // Signal 3 : top-3 Shopify sans aucune ad Meta ce mois
+        const top3WithoutAds = shopifyRanked
+          .filter((r) => r.rank <= 3 && !metaByProduct[r.product])
+          .slice(0, 1)
+        for (const { product, rank } of top3WithoutAds) {
+          const rev = shopifyByProduct[product]?.revenue || 0
+          newOpportunities.push({
+            title: `${product} : #${rank} bestseller sans aucune pub Meta ce mois`,
+            description: `Le ${product} génère ${Math.round(rev)}€ de CA Shopify (rang #${rank}) sans aucune dépense pub Meta. Cette demande organique est un signal fort — des ads pourraient l'amplifier.`,
+            category: "meta_ads",
+            impact: "medium",
+            prompt: `Le ${product} est mon #${rank} bestseller Shopify ce mois (${Math.round(rev)}€) sans aucune pub Meta. Comment tester une première campagne ? Quelle créa, quel objectif, quel budget de test pour valider le ROAS avant de scaler ?`,
+          })
+        }
+      }
+
+      // 5c. TYPE DE CRÉA — quel format performe le mieux par produit
+      type CreaPerf = { spend: number; weightedROAS: number; products: Set<string> }
+      const byCreativeType: Record<string, CreaPerf> = {}
+      for (const a of ads) {
+        if (a.spend < 20 || a.purchases === 0) continue
+        const crea = extractCreativeType(a.ad_name) || "Autre"
+        const product = extractProduct(a.ad_name)
+        if (!byCreativeType[crea]) byCreativeType[crea] = { spend: 0, weightedROAS: 0, products: new Set() }
+        byCreativeType[crea].spend += a.spend
+        byCreativeType[crea].weightedROAS += a.spend * a.roas
+        if (product) byCreativeType[crea].products.add(product)
+      }
+
+      const creativeRanked = Object.entries(byCreativeType)
+        .filter(([, v]) => v.spend > 100)
+        .map(([type, v]) => ({
+          type,
+          roas: Math.round((v.weightedROAS / v.spend) * 10) / 10,
+          products: [...v.products],
+          spend: Math.round(v.spend),
+        }))
+        .sort((a, b) => b.roas - a.roas)
+
+      if (creativeRanked.length > 1) {
+        findings.push(
+          "Types de créa (ROAS moyen) : " +
+            creativeRanked.map((c) => `${c.type} ${c.roas}x (${c.products.join("/")})`).join(" | ")
+        )
+
+        const best = creativeRanked[0]
+        const worst = creativeRanked[creativeRanked.length - 1]
+
+        // Les produits qui n'ont pas encore de créas du type gagnant
+        const allProducts = ["TC7+", "LED Mask", "Hair Force Cap", "Brume Vitamine C"]
+        const missingBestCrea = allProducts.filter((p) => !best.products.includes(p))
+
+        if (best.roas - worst.roas > 2 && missingBestCrea.length > 0) {
+          newOpportunities.push({
+            title: `Créa "${best.type}" = ROAS ${best.roas}x — l'étendre au ${missingBestCrea[0]}`,
+            description: `Tes meilleures créas ce mois sont les "${best.type}" sur ${best.products.join(", ")} (ROAS ${best.roas}x vs ${worst.roas}x pour les "${worst.type}"). Le ${missingBestCrea[0]} n'a pas encore de créa de ce type.`,
+            category: "meta_ads",
+            impact: "medium",
+            prompt: `Mes meilleures créas Meta ce mois sont de type "${best.type}" sur ${best.products.join(", ")} (ROAS moyen ${best.roas}x). Le format "${worst.type}" ne fait que ${worst.roas}x. Le ${missingBestCrea[0]} n'a pas encore de "${best.type}". Aide-moi à briefer une créa "${best.type}" pour le ${missingBestCrea[0]} : angle, format, durée, points à montrer, hook d'accroche.`,
+          })
+        }
+      }
+
+      // 5d. ROAS GLOBAL — alerte seulement si sous le seuil de rentabilité
       const { data: prevMetaMonthly } = await supabase
         .from("data_cache")
         .select("data")
@@ -250,19 +440,15 @@ export async function GET() {
         const roasDelta = pctChange(overallROAS, prevROAS)
         findings.push(`ROAS trend: ${prevROAS} → ${overallROAS} (${roasDelta > 0 ? "+" : ""}${roasDelta}%)`)
 
-        // N'alerter que si le ROAS absolu est problématique (< 3.5x = rentabilité à risque).
-        // Un ROAS qui passe de 7 à 5 n'est pas un problème — c'est encore excellent.
-        // Le delta seul est du bruit ; ce qui compte c'est la valeur absolue.
         const ROAS_FLOOR = 3.5 * eagerness(weights, "meta_ads")
         if (overallROAS < ROAS_FLOOR) {
-          // Identifier les ads qui tirent le ROAS vers le bas (fort spend, faible ROAS)
           const culprits = ads
             .filter((a) => a.spend > 80 && a.roas < overallROAS * 0.8 && a.purchases > 0)
             .sort((a, b) => b.spend - a.spend)
             .slice(0, 3)
 
           const culpritTxt = culprits.length > 0
-            ? culprits.map((a) => `${a.ad_name} (${Math.round(a.spend)}€ / ROAS ${a.roas.toFixed(1)}x)`).join(", ")
+            ? culprits.map((a) => `${adSummary(a)} (${Math.round(a.spend)}€ / ROAS ${a.roas.toFixed(1)}x)`).join(", ")
             : null
 
           newOpportunities.push({
