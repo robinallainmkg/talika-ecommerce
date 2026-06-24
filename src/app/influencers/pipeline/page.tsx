@@ -1,22 +1,29 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
 import { STAGES, type Stage } from "@/lib/influence/pipeline"
+import { MONTH_NAMES } from "@/lib/influence/monthly-campaign"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
-import { ArrowLeft, Plus, RefreshCw, X, Instagram, Megaphone, UserPlus, Trash2 } from "lucide-react"
+import { ArrowLeft, Plus, RefreshCw, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw } from "lucide-react"
 
 const inp = "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
 
-interface Campaign { id: string; name: string; theme: string | null; status: string; collab_count: number }
+interface Campaign {
+  id: string; name: string; themes: string[]; year: number | null; month: number | null
+  status: string; collab_count: number
+  objective?: string | null; budget?: number | null; theme?: string | null
+}
 interface Collab {
   id: string; influencer_id: string; name: string; instagram_handle: string | null
   niche: string | null; followers: number | null; stage: Stage; owner: string | null
   next_action: string | null; next_action_date: string | null
-  comp_type: string | null; comp_amount: number | null
+  themes: string[]; fee: number; commission: number; commission_rate: number | null
 }
 interface InfLite { id: string; name: string }
+
+const cost = (c: Collab) => (c.fee || 0) + (c.commission || 0)
 
 function CardPhoto({ handle, name }: { handle: string | null; name: string }) {
   const [err, setErr] = useState(false)
@@ -33,16 +40,20 @@ export default function PipelinePage() {
   const [selected, setSelected] = useState<string>("")
   const [collabs, setCollabs] = useState<Collab[]>([])
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [showCampaign, setShowCampaign] = useState(false)
+  const [editCampaign, setEditCampaign] = useState<Campaign | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [allInf, setAllInf] = useState<InfLite[]>([])
 
   const loadCampaigns = useCallback(async () => {
     const res = await fetch("/api/influencers/campaigns", { cache: "no-store" })
     const data = await res.json()
-    const list: Campaign[] = data.campaigns || []
+    // Campagnes mensuelles d'abord, plus récentes en tête.
+    const list: Campaign[] = (data.campaigns || []).sort((a: Campaign, b: Campaign) =>
+      (b.year ?? 0) - (a.year ?? 0) || (b.month ?? 0) - (a.month ?? 0))
     setCampaigns(list)
     setSelected((cur) => cur || list[0]?.id || "")
   }, [])
@@ -65,6 +76,22 @@ export default function PipelinePage() {
       .catch(() => {})
   }, [])
 
+  const selectedCampaign = useMemo(() => campaigns.find((c) => c.id === selected), [campaigns, selected])
+  const palette = useMemo(() => selectedCampaign?.themes || [], [selectedCampaign])
+
+  // Récap coût par thème : le coût d'une influ est réparti à parts égales entre ses
+  // thèmes → la somme des thèmes (+ "sans thème") = total campagne.
+  const rollup = useMemo(() => {
+    const stats = palette.map((t) => {
+      let c0 = 0, n = 0
+      for (const c of collabs) if (c.themes?.includes(t)) { c0 += cost(c) / (c.themes.length || 1); n++ }
+      return { theme: t, cost: c0, count: n }
+    })
+    const untagged = collabs.filter((c) => !c.themes?.length)
+    const total = collabs.reduce((s, c) => s + cost(c), 0)
+    return { stats, untaggedCount: untagged.length, untaggedCost: untagged.reduce((s, c) => s + cost(c), 0), total }
+  }, [palette, collabs])
+
   async function moveStage(id: string, stage: Stage) {
     setCollabs((prev) => prev.map((c) => (c.id === id ? { ...c, stage } : c)))
     await fetch("/api/influencers/pipeline", {
@@ -73,11 +100,33 @@ export default function PipelinePage() {
     loadCampaigns()
   }
 
+  async function toggleTheme(c: Collab, theme: string) {
+    const themes = c.themes?.includes(theme) ? c.themes.filter((t) => t !== theme) : [...(c.themes || []), theme]
+    setCollabs((prev) => prev.map((x) => (x.id === c.id ? { ...x, themes } : x)))
+    await fetch("/api/influencers/pipeline", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, themes }),
+    })
+  }
+
   async function removeCollab(id: string) {
     if (!confirm("Retirer cette influenceuse de la campagne ?")) return
     setCollabs((prev) => prev.filter((c) => c.id !== id))
     await fetch(`/api/influencers/pipeline?id=${id}`, { method: "DELETE" })
     loadCampaigns()
+  }
+
+  async function syncMonth() {
+    if (!selectedCampaign?.year || !selectedCampaign?.month) return
+    setSyncing(true)
+    try {
+      await fetch("/api/influencers/campaigns/sync-month", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year: selectedCampaign.year, month: selectedCampaign.month }),
+      })
+      await Promise.all([loadCollabs(selected), loadCampaigns()])
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const isOverdue = (d: string | null) => d != null && new Date(d) < new Date(new Date().toDateString())
@@ -90,17 +139,27 @@ export default function PipelinePage() {
             <Link href="/influencers" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900">
               <ArrowLeft className="h-4 w-4" /> Influence
             </Link>
-            <h1 className="text-2xl font-semibold text-zinc-900">Pipeline de prospection</h1>
-            <p className="text-sm text-zinc-500">Sourcer → contacter → négocier → confirmer → activer, par campagne.</p>
+            <h1 className="text-2xl font-semibold text-zinc-900">Pipeline &amp; campagnes</h1>
+            <p className="text-sm text-zinc-500">Une campagne par mois, auto-remplie depuis les ventes/coûts. Tague chaque collab par thème pour voir qui parle de quoi, à quel coût.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select value={selected} onChange={(e) => setSelected(e.target.value)} className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
               {campaigns.length === 0 && <option value="">Aucune campagne</option>}
               {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.collab_count})</option>)}
             </select>
+            {selectedCampaign && (
+              <button onClick={() => setEditCampaign(selectedCampaign)} className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50" title="Éditer la campagne (thèmes…)">
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
             <button onClick={() => setShowCampaign(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50">
               <Megaphone className="h-4 w-4" /> Campagne
             </button>
+            {selectedCampaign?.year && selectedCampaign?.month && (
+              <button onClick={syncMonth} disabled={syncing} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50 disabled:opacity-50" title="Ajouter les influenceuses qui ont une vente/un coût ce mois">
+                <RotateCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} /> Synchroniser le mois
+              </button>
+            )}
             {selected && (
               <button onClick={() => setShowAdd(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800">
                 <UserPlus className="h-4 w-4" /> Ajouter
@@ -112,9 +171,34 @@ export default function PipelinePage() {
           </div>
         </div>
 
+        {/* Récap coût par thème (lentille "coûts" de la campagne du mois) */}
+        {selected && (palette.length > 0 || rollup.total > 0) && (
+          <div className="flex flex-wrap items-stretch gap-2">
+            {rollup.stats.map((s) => (
+              <div key={s.theme} className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                <div className="text-xs font-medium text-zinc-700">{s.theme}</div>
+                <div className="text-sm font-semibold text-zinc-900">{formatCurrency(s.cost)}</div>
+                <div className="text-[10px] text-zinc-400">{s.count} influ.</div>
+              </div>
+            ))}
+            {rollup.untaggedCount > 0 && (
+              <div className="rounded-xl border border-dashed border-zinc-300 bg-white px-3 py-2">
+                <div className="text-xs font-medium text-zinc-400">Sans thème</div>
+                <div className="text-sm font-semibold text-zinc-500">{formatCurrency(rollup.untaggedCost)}</div>
+                <div className="text-[10px] text-zinc-400">{rollup.untaggedCount} influ.</div>
+              </div>
+            )}
+            <div className="rounded-xl border border-zinc-900 bg-zinc-900 px-3 py-2 text-white">
+              <div className="text-xs font-medium text-zinc-300">Total campagne</div>
+              <div className="text-sm font-semibold">{formatCurrency(rollup.total)}</div>
+              <div className="text-[10px] text-zinc-400">{collabs.length} influ.</div>
+            </div>
+          </div>
+        )}
+
         {campaigns.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center text-sm text-zinc-500">
-            Crée une première campagne (ex. « Lancement Mascara XXL ») pour commencer à prospecter.
+            Crée une première campagne pour commencer.
           </div>
         ) : (
           <div className="flex gap-3 overflow-x-auto pb-4">
@@ -153,10 +237,34 @@ export default function PipelinePage() {
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                          {c.niche && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500">{c.niche}</span>}
-                          {c.comp_amount != null && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{formatCurrency(c.comp_amount)}</span>}
-                        </div>
+
+                        {/* Coût du mois (forfait + commission) */}
+                        {(c.fee > 0 || c.commission > 0) && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[10px]">
+                            {c.fee > 0 && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600">forfait {formatCurrency(c.fee)}</span>}
+                            {c.commission > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">comm{c.commission_rate ? ` ${c.commission_rate}%` : ""} · {formatCurrency(c.commission)}</span>}
+                          </div>
+                        )}
+
+                        {/* Thèmes : toggle depuis la palette de la campagne */}
+                        {palette.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+                            {palette.map((t) => {
+                              const on = c.themes?.includes(t)
+                              return (
+                                <button key={t} onClick={() => toggleTheme(c, t)}
+                                  className={cn("rounded px-1.5 py-0.5 text-[10px] transition-colors", on ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-400 hover:bg-zinc-200")}>
+                                  {t}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {c.niche && !palette.length && (
+                          <div className="mt-1.5"><span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500">{c.niche}</span></div>
+                        )}
+
                         {c.next_action && (
                           <div className={cn("mt-1.5 text-[11px]", isOverdue(c.next_action_date) ? "text-red-600" : "text-zinc-500")}>
                             → {c.next_action}{c.next_action_date ? ` (${new Date(c.next_action_date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })})` : ""}
@@ -172,35 +280,93 @@ export default function PipelinePage() {
         )}
       </div>
 
-      {showCampaign && <CampaignModal onClose={() => setShowCampaign(false)} onCreated={(id) => { setShowCampaign(false); loadCampaigns().then(() => setSelected(id)) }} />}
+      {(showCampaign || editCampaign) && (
+        <CampaignModal
+          campaign={editCampaign || undefined}
+          onClose={() => { setShowCampaign(false); setEditCampaign(null) }}
+          onSaved={(id) => { setShowCampaign(false); setEditCampaign(null); loadCampaigns().then(() => setSelected(id)) }}
+        />
+      )}
       {showAdd && selected && <AddModal campaignId={selected} allInf={allInf} inPipeline={new Set(collabs.map((c) => c.influencer_id))} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); loadCollabs(selected); loadCampaigns() }} />}
       <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
     </div>
   )
 }
 
-function CampaignModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
-  const [form, setForm] = useState({ name: "", theme: "", objective: "", start_date: "", end_date: "", budget: "" })
+function CampaignModal({ campaign, onClose, onSaved }: { campaign?: Campaign; onClose: () => void; onSaved: (id: string) => void }) {
+  const now = new Date()
+  const [form, setForm] = useState({
+    name: campaign?.name ?? "",
+    objective: campaign?.objective ?? "",
+    budget: campaign?.budget != null ? String(campaign.budget) : "",
+    year: campaign?.year ?? now.getFullYear(),
+    month: campaign?.month ?? now.getMonth() + 1,
+  })
+  const [themes, setThemes] = useState<string[]>(campaign?.themes ?? [])
+  const [themeInput, setThemeInput] = useState("")
   const [saving, setSaving] = useState(false)
+  const editing = !!campaign?.id
+
+  function addTheme() {
+    const t = themeInput.trim()
+    if (t && !themes.includes(t)) setThemes((p) => [...p, t])
+    setThemeInput("")
+  }
+
   async function save() {
     if (!form.name.trim()) return
     setSaving(true)
-    const res = await fetch("/api/influencers/campaigns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) })
+    const body = { ...form, themes, budget: form.budget }
+    const res = await fetch("/api/influencers/campaigns", {
+      method: editing ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editing ? { id: campaign!.id, ...body } : body),
+    })
     const data = await res.json()
     setSaving(false)
-    if (data.campaign?.id) onCreated(data.campaign.id)
+    onSaved(editing ? campaign!.id : data.campaign?.id)
   }
+
   return (
-    <Modal title="Nouvelle campagne" onClose={onClose}>
-      <Field label="Nom *"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Lancement Mascara XXL" className={inp} autoFocus /></Field>
-      <Field label="Produit / thème"><input value={form.theme} onChange={(e) => setForm({ ...form, theme: e.target.value })} className={inp} /></Field>
-      <Field label="Objectif"><input value={form.objective} onChange={(e) => setForm({ ...form, objective: e.target.value })} placeholder="Reach, ventes, contenu…" className={inp} /></Field>
+    <Modal title={editing ? "Éditer la campagne" : "Nouvelle campagne mensuelle"} onClose={onClose}>
+      <Field label="Nom *"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Mai 2026" className={inp} autoFocus /></Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Début"><input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className={inp} /></Field>
-        <Field label="Fin"><input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} className={inp} /></Field>
+        <Field label="Mois">
+          <select value={form.month} onChange={(e) => setForm({ ...form, month: Number(e.target.value) })} className={inp}>
+            {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+          </select>
+        </Field>
+        <Field label="Année">
+          <select value={form.year} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} className={inp}>
+            {[2025, 2026, 2027].map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </Field>
       </div>
-      <Field label="Budget (€)"><input type="number" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} className={inp} /></Field>
-      <button onClick={save} disabled={saving || !form.name.trim()} className="mt-2 w-full rounded-lg bg-zinc-900 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">{saving ? "Création…" : "Créer la campagne"}</button>
+      <Field label="Thèmes (labels assignables aux collabs)">
+        <div className="flex gap-2">
+          <input value={themeInput} onChange={(e) => setThemeInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTheme() } }}
+            placeholder="Lancement Led Mask, Soldes été…" className={inp} />
+          <button type="button" onClick={addTheme} className="shrink-0 rounded-lg border border-zinc-300 px-3 text-sm text-zinc-600 hover:bg-zinc-50">Ajouter</button>
+        </div>
+        {themes.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {themes.map((t) => (
+              <span key={t} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
+                {t}
+                <button type="button" onClick={() => setThemes((p) => p.filter((x) => x !== t))} className="text-zinc-400 hover:text-red-500"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
+        )}
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Objectif"><input value={form.objective ?? ""} onChange={(e) => setForm({ ...form, objective: e.target.value })} placeholder="CA, reach…" className={inp} /></Field>
+        <Field label="Budget (€)"><input type="number" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} className={inp} /></Field>
+      </div>
+      <button onClick={save} disabled={saving || !form.name.trim()} className="mt-2 w-full rounded-lg bg-zinc-900 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
+        {saving ? "Enregistrement…" : editing ? "Enregistrer" : "Créer la campagne"}
+      </button>
     </Modal>
   )
 }

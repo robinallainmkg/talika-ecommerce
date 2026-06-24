@@ -15,15 +15,21 @@ const NUM = (v: unknown) => (v === "" || v == null || isNaN(Number(v)) ? null : 
 
 interface InfRow {
   id: string; name: string; instagram_handle: string | null
-  category: string | null; billing_name: string | null; metadata: Record<string, unknown> | null
+  category: string | null; billing_name: string | null; commission_rate: number | null
+  metadata: Record<string, unknown> | null
 }
 
-// GET ?campaign= → collabs de la campagne, enrichies de l'influenceuse.
+// GET ?campaign= → collabs de la campagne, enrichies de l'influenceuse ET du coût
+// du mois (forfait + commission), lu EN DIRECT depuis les tables coûts réconciliées.
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const campaign = searchParams.get("campaign")
     if (!campaign) return NextResponse.json({ collabs: [] })
+
+    // Période de la campagne (pour rapprocher les coûts du bon mois).
+    const { data: camp } = await supabase
+      .from("influence_campaigns").select("year, month").eq("id", campaign).maybeSingle()
 
     const { data: collabs } = await supabase
       .from("influence_campaign_collabs")
@@ -33,10 +39,22 @@ export async function GET(request: Request) {
 
     const ids = [...new Set((collabs || []).map((c) => c.influencer_id))]
     const { data: infs } = ids.length
-      ? await supabase.from("influencers").select("id, name, instagram_handle, category, billing_name, metadata").in("id", ids)
+      ? await supabase.from("influencers").select("id, name, instagram_handle, category, billing_name, commission_rate, metadata").in("id", ids)
       : { data: [] as InfRow[] }
     const byId: Record<string, InfRow> = {}
     for (const i of (infs || []) as InfRow[]) byId[i.id] = i
+
+    // Coûts du mois (forfait + commission) par influenceuse.
+    const fee: Record<string, number> = {}
+    const comm: Record<string, number> = {}
+    if (camp?.year && camp?.month && ids.length) {
+      const [fees, comms] = await Promise.all([
+        supabase.from("influencer_fixed_fees").select("influencer_id, amount").eq("year", camp.year).eq("month", camp.month).in("influencer_id", ids),
+        supabase.from("influencer_commissions").select("influencer_id, amount").eq("year", camp.year).eq("month", camp.month).in("influencer_id", ids),
+      ])
+      for (const r of fees.data || []) fee[r.influencer_id] = (fee[r.influencer_id] || 0) + Number(r.amount || 0)
+      for (const r of comms.data || []) comm[r.influencer_id] = (comm[r.influencer_id] || 0) + Number(r.amount || 0)
+    }
 
     const rows = (collabs || []).map((c) => {
       const inf = byId[c.influencer_id]
@@ -52,6 +70,10 @@ export async function GET(request: Request) {
         owner: c.owner,
         next_action: c.next_action,
         next_action_date: c.next_action_date,
+        themes: Array.isArray(c.themes) ? c.themes : [],
+        fee: fee[c.influencer_id] || 0,
+        commission: comm[c.influencer_id] || 0,
+        commission_rate: inf?.commission_rate ?? null,
         comp_type: c.comp_type,
         comp_amount: c.comp_amount,
         deliverables: c.deliverables,
@@ -126,6 +148,7 @@ export async function PATCH(request: Request) {
     if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 })
     const fields: Record<string, unknown> = { updated_at: new Date().toISOString() }
     if ("stage" in b && isStage(b.stage)) fields.stage = b.stage
+    if ("themes" in b) fields.themes = Array.isArray(b.themes) ? b.themes.filter((t: unknown) => typeof t === "string" && t.trim()).map((t: string) => t.trim()) : []
     if ("owner" in b) fields.owner = STR(b.owner)
     if ("next_action" in b) fields.next_action = STR(b.next_action)
     if ("next_action_date" in b) fields.next_action_date = STR(b.next_action_date)

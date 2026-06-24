@@ -226,6 +226,14 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     return `${objData.orders_fetched ?? "ok"} commandes traitées`
   })
 
+  // ── 4b. Campagne d'influence du mois (auto-créée + auto-remplie) ──
+  // Toute influenceuse avec une vente/un coût ce mois apparaît dans la campagne du mois.
+  await step("monthly_campaign", "Campagne influence du mois", async () => {
+    const { syncMonthlyCampaign } = await import("@/lib/influence/monthly-campaign")
+    const r = await syncMonthlyCampaign(supabase, year, month)
+    return `${r.name} : ${r.total_active} actives${r.added ? `, ${r.added} ajoutée(s)` : ""}${r.created ? " (créée)" : ""}`
+  })
+
   // ── 5. Klaviyo (campagnes, flows, listes) ──
   await step("klaviyo", "Klaviyo", async () => {
     const klavData = await (await syncKlaviyoRoute()).json()
