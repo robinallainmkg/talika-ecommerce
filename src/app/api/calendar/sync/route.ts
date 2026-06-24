@@ -15,52 +15,68 @@ export const maxDuration = 300 // 5 min (Vercel Pro) — évite le timeout du bo
  * 2. Avec body { events: [...] } → upsert les événements fournis
  *    (utilisé par Claude Code après lecture du Canva via MCP).
  *
- * Les événements macro (channel = "web") sont supprimés puis réinsérés.
- * Les événements détaillés (newsletter, influence) ne sont PAS touchés.
+ * ⚠️ La table calendar_events n'a PAS de colonne end_at : le multi-jour vit
+ * dans metadata.end_date (le GET /api/calendar/events le remappe → end_at).
+ * On supprime puis réinsère uniquement les lignes du seed
+ * (metadata.source = "canva_planning") ; les événements créés à la main
+ * (source = "manual") et les micro-events détaillés ne sont JAMAIS touchés.
  */
 
 interface CalendarInput {
   title: string
-  event_type: "promo" | "campaign" | "launch" | "newsletter" | "influence" | "ad_launch" | "content"
+  event_type: "promo" | "campaign" | "launch" | "event" | "newsletter" | "influence" | "ad_launch" | "content"
   scheduled_at: string // YYYY-MM-DD
-  end_at?: string // YYYY-MM-DD
+  end_at?: string // YYYY-MM-DD (stocké dans metadata.end_date)
   channel?: string
   description?: string
   products?: string[]
 }
 
-// Planning macro 2026 extrait du Canva DAG7BX1zTgs (dernière lecture : 2 juin 2026)
+// Planning macro 2026 — reconcilié Canva (DAG7BX1zTgs) + emails NPD (24 juin 2026)
 const PLANNING_2026: CalendarInput[] = [
-  { title: "Soldes privées", event_type: "promo", scheduled_at: "2026-01-04", end_at: "2026-01-05" },
+  // ── Offres ──────────────────────────────────────────────────────────────
+  { title: "Soldes privées", event_type: "promo", scheduled_at: "2026-01-04", end_at: "2026-01-06" },
   { title: "SOLDES", event_type: "promo", scheduled_at: "2026-01-07", end_at: "2026-01-25" },
-  { title: "GEL CRÈME HYDRA", event_type: "launch", scheduled_at: "2026-01-26", end_at: "2026-01-31" },
-  { title: "Contour yeux", event_type: "campaign", scheduled_at: "2026-02-04", end_at: "2026-02-15" },
-  { title: "Lash days", event_type: "campaign", scheduled_at: "2026-02-17", end_at: "2026-03-02" },
-  { title: "MASCARAS bleu + new packs", event_type: "launch", scheduled_at: "2026-03-03", end_at: "2026-03-05" },
-  { title: "BLUE DAYS", event_type: "promo", scheduled_at: "2026-03-06", end_at: "2026-03-08" },
-  { title: "Lash days", event_type: "campaign", scheduled_at: "2026-03-10", end_at: "2026-03-15" },
-  { title: "Hair Force", event_type: "campaign", scheduled_at: "2026-03-16", end_at: "2026-03-27" },
-  { title: "Eye Detox new", event_type: "launch", scheduled_at: "2026-03-29", end_at: "2026-03-30" },
-  { title: "Patch me if you can", event_type: "campaign", scheduled_at: "2026-04-01", end_at: "2026-04-09", description: "Cica Eye Patchs" },
-  { title: "CICA EYE PATCHS", event_type: "launch", scheduled_at: "2026-04-08", end_at: "2026-04-09" },
+  { title: "Blue Days", event_type: "promo", scheduled_at: "2026-03-06", end_at: "2026-03-08" },
   { title: "Promo Bust", event_type: "promo", scheduled_at: "2026-04-21", end_at: "2026-04-22" },
   { title: "French Days", event_type: "promo", scheduled_at: "2026-04-29", end_at: "2026-05-04", description: "10/15/20% hors nouveautés" },
-  { title: "LED THERAPY MASK", event_type: "campaign", scheduled_at: "2026-05-15", end_at: "2026-05-18" },
-  { title: "LED THERAPY MASK", event_type: "campaign", scheduled_at: "2026-06-01", end_at: "2026-06-04" },
+  { title: "Soldes été", event_type: "promo", scheduled_at: "2026-06-22", end_at: "2026-06-30" },
+  { title: "French Days", event_type: "promo", scheduled_at: "2026-09-22", end_at: "2026-09-30" },
+  { title: "Black Weeks", event_type: "promo", scheduled_at: "2026-11-13", end_at: "2026-11-30" },
+  { title: "Fêtes", event_type: "promo", scheduled_at: "2026-12-01", end_at: "2026-12-25" },
+
+  // ── Lancements (NPD) ────────────────────────────────────────────────────
+  { title: "Gel Crème Hydra", event_type: "launch", scheduled_at: "2026-01-26", end_at: "2026-01-31" },
+  { title: "ETP Léopard (éd. limitée)", event_type: "launch", scheduled_at: "2026-02-10", end_at: "2026-02-14", description: "Patchs yeux édition limitée — à confirmer" },
+  { title: "Mascara Extension XXL Bleu", event_type: "launch", scheduled_at: "2026-03-03", end_at: "2026-03-05", description: "+ nouveaux packs mascaras" },
+  { title: "Eye Detox new", event_type: "launch", scheduled_at: "2026-03-29", end_at: "2026-03-30" },
+  { title: "CICA Eye Patchs", event_type: "launch", scheduled_at: "2026-04-08", end_at: "2026-04-09" },
+  { title: "Sérum In-Mist Anti-taches", event_type: "launch", scheduled_at: "2026-05-25", end_at: "2026-05-27", description: "Lancement ~mai (email NPD) — à confirmer" },
+  { title: "Ultra Sérum In-Mist Vitamine C", event_type: "launch", scheduled_at: "2026-06-15", end_at: "2026-06-17", description: "Brume / Glow" },
+  { title: "Collagen Fusion", event_type: "launch", scheduled_at: "2026-07-01", end_at: "2026-07-04", description: "Mask + eye patch" },
+  { title: "Beard Power", event_type: "launch", scheduled_at: "2026-11-09" },
+  { title: "INK · Eyebrow Fix it", event_type: "launch", scheduled_at: "2026-11-01", end_at: "2026-11-03", description: "Sourcils — dates à confirmer" },
+
+  // ── Thématiques ─────────────────────────────────────────────────────────
+  { title: "Contour yeux", event_type: "campaign", scheduled_at: "2026-02-04", end_at: "2026-02-15" },
+  { title: "Lash days", event_type: "campaign", scheduled_at: "2026-02-17", end_at: "2026-03-02" },
+  { title: "Lash days", event_type: "campaign", scheduled_at: "2026-03-10", end_at: "2026-03-15" },
+  { title: "Hair Force", event_type: "campaign", scheduled_at: "2026-03-16", end_at: "2026-03-27" },
+  { title: "Patch me if you can", event_type: "campaign", scheduled_at: "2026-04-01", end_at: "2026-04-09", description: "Cica Eye Patchs" },
+  { title: "LED Therapy Mask", event_type: "campaign", scheduled_at: "2026-05-15", end_at: "2026-05-18" },
+  { title: "LED Therapy Mask", event_type: "campaign", scheduled_at: "2026-06-01", end_at: "2026-06-04" },
   { title: "Glow — Sérum en brume Vit C", event_type: "campaign", scheduled_at: "2026-06-15", end_at: "2026-06-17" },
-  { title: "SOLDES été", event_type: "promo", scheduled_at: "2026-06-22", end_at: "2026-06-30" },
   { title: "Glow — Collagen Fusion & INK", event_type: "campaign", scheduled_at: "2026-07-01", end_at: "2026-07-04" },
-  { title: "FOCUS ÉTÉ", event_type: "campaign", scheduled_at: "2026-07-22", end_at: "2026-08-02", description: "BEM après soleil, brumes, gels crèmes, mascara WR" },
+  { title: "Focus été", event_type: "campaign", scheduled_at: "2026-07-22", end_at: "2026-08-02", description: "BEM après soleil, brumes, gels crèmes, mascara WR" },
   { title: "Back to work", event_type: "campaign", scheduled_at: "2026-08-17", end_at: "2026-08-20", description: "Focus skincare & anti-âge" },
   { title: "Hair Force — Casquette", event_type: "campaign", scheduled_at: "2026-09-07", end_at: "2026-09-10" },
-  { title: "ANTI-TACHES", event_type: "campaign", scheduled_at: "2026-09-21", end_at: "2026-09-21" },
-  { title: "French Days", event_type: "promo", scheduled_at: "2026-09-22", end_at: "2026-09-30" },
-  { title: "FOCUS devices", event_type: "campaign", scheduled_at: "2026-10-01", end_at: "2026-10-02", description: "TC7+, LED Mask, Hair Cap" },
-  { title: "FOCUS ANTI-ÂGE", event_type: "campaign", scheduled_at: "2026-10-16", end_at: "2026-10-18" },
+  { title: "Anti-taches", event_type: "campaign", scheduled_at: "2026-09-21" },
+  { title: "Focus devices", event_type: "campaign", scheduled_at: "2026-10-01", end_at: "2026-10-02", description: "TC7+, LED Mask, Hair Cap" },
+  { title: "Focus anti-âge", event_type: "campaign", scheduled_at: "2026-10-16", end_at: "2026-10-18" },
   { title: "Focus cils & sourcils", event_type: "campaign", scheduled_at: "2026-11-01", end_at: "2026-11-03" },
-  { title: "Beard Power", event_type: "launch", scheduled_at: "2026-11-09", end_at: "2026-11-09" },
-  { title: "Black Weeks", event_type: "promo", scheduled_at: "2026-11-13", end_at: "2026-11-30" },
-  { title: "FÊTES", event_type: "promo", scheduled_at: "2026-12-01", end_at: "2026-12-04" },
+
+  // ── Événements spéciaux ──────────────────────────────────────────────────
+  { title: "Shoot produits", event_type: "event", scheduled_at: "2026-05-11" },
 ]
 
 export async function POST(req: NextRequest) {
@@ -76,18 +92,19 @@ export async function POST(req: NextRequest) {
       events = PLANNING_2026
     }
 
-    // Delete existing macro events (channel = web, source = canva_planning)
+    // On ne supprime QUE les lignes issues du seed Canva (source = canva_planning).
+    // Les events créés à la main (source = manual) et les micro-events détaillés
+    // (newsletters, influence…) sont préservés.
     await supabase
       .from("calendar_events")
       .delete()
-      .eq("channel", "web")
+      .filter("metadata->>source", "eq", "canva_planning")
 
-    // Insert new events
+    // Insert new events. ⚠️ pas de colonne end_at → multi-jour dans metadata.end_date.
     const rows = events.map((e) => ({
       title: e.title,
       event_type: e.event_type,
       scheduled_at: `${e.scheduled_at}T00:00:00Z`,
-      end_at: e.end_at ? `${e.end_at}T23:59:59Z` : null,
       channel: e.channel || "web",
       description: e.description || null,
       status: "planned",

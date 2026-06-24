@@ -1,331 +1,288 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Header } from "@/components/layout/header"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, ChevronRight, Plus, Loader2 } from "lucide-react"
+import {
+  CalendarEvent,
+  FamilyKey,
+  FAMILIES,
+  familyForType,
+} from "@/components/calendar/taxonomy"
+import {
+  MONTHS,
+  startOfWeek,
+  addDays,
+  dayStr,
+  eventStart,
+  eventEnd,
+  isMultiDay,
+  fmtDayMonth,
+} from "@/components/calendar/utils"
+import { AnnualView } from "@/components/calendar/AnnualView"
+import { MonthView } from "@/components/calendar/MonthView"
+import { WeekView } from "@/components/calendar/WeekView"
+import { EventModal } from "@/components/calendar/EventModal"
 
-interface CalendarEvent {
-  id: string
-  title: string
-  description: string | null
-  event_type: string
-  scheduled_at: string
-  end_at?: string | null
-  channel?: string | null
-  status?: string | null
-  metadata?: Record<string, unknown> | null
-}
+type View = "year" | "month" | "week"
 
-const typeColors: Record<string, string> = {
-  promo: "bg-amber-100 text-amber-800 border-amber-200",
-  campaign: "bg-indigo-100 text-indigo-800 border-indigo-200",
-  launch: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  email: "bg-blue-100 text-blue-800 border-blue-200",
-  newsletter: "bg-blue-100 text-blue-800 border-blue-200",
-  social: "bg-pink-100 text-pink-800 border-pink-200",
-  influence: "bg-rose-100 text-rose-800 border-rose-200",
-  ad_launch: "bg-orange-100 text-orange-800 border-orange-200",
-  content: "bg-purple-100 text-purple-800 border-purple-200",
-  meeting: "bg-zinc-100 text-zinc-800 border-zinc-200",
-}
-
-const typeLabels: Record<string, string> = {
-  promo: "Promo",
-  campaign: "Campagne",
-  launch: "Lancement",
-  email: "Email",
-  newsletter: "Newsletter",
-  social: "Social",
-  influence: "Influence",
-  ad_launch: "Pub",
-  content: "Contenu",
-  meeting: "Réunion",
-}
-
-const months = [
-  "Janvier",
-  "Février",
-  "Mars",
-  "Avril",
-  "Mai",
-  "Juin",
-  "Juillet",
-  "Août",
-  "Septembre",
-  "Octobre",
-  "Novembre",
-  "Décembre",
+const VIEWS: { key: View; label: string }[] = [
+  { key: "year", label: "Année" },
+  { key: "month", label: "Mois" },
+  { key: "week", label: "Semaine" },
 ]
 
-const daysOfWeek = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
-
-function getCalendarDays(year: number, month: number) {
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const startDay = (firstDay.getDay() + 6) % 7 // Monday = 0
-  const days: (number | null)[] = []
-
-  for (let i = 0; i < startDay; i++) days.push(null)
-  for (let i = 1; i <= lastDay.getDate(); i++) days.push(i)
-
-  return days
-}
-
-function getEventsForDay(
-  events: CalendarEvent[],
-  year: number,
-  month: number,
-  day: number
-) {
-  const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-  return events.filter((e) => {
-    const eventDate = e.scheduled_at.slice(0, 10)
-    if (eventDate === dateStr) return true
-    if (e.end_at) {
-      const endDate = e.end_at.slice(0, 10)
-      if (eventDate <= dateStr && endDate >= dateStr) return true
-    }
-    return false
-  })
-}
-
 export default function CalendarPage() {
-  const today = new Date()
-  const [currentMonth, setCurrentMonth] = useState(today.getMonth())
-  const [currentYear, setCurrentYear] = useState(today.getFullYear())
+  const [view, setView] = useState<View>("year")
+  const [cursor, setCursor] = useState(new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [active, setActive] = useState<Set<FamilyKey>>(
+    new Set(FAMILIES.map((f) => f.key))
+  )
+  const [modal, setModal] = useState<{
+    open: boolean
+    event: CalendarEvent | null
+    date: string | null
+  }>({ open: false, event: null, date: null })
 
-  useEffect(() => {
-    async function fetchEvents() {
-      try {
-        setLoading(true)
-        const res = await fetch("/api/calendar/events")
-        const json = await res.json()
-        if (json.error) throw new Error(json.error)
-        setEvents(json.events || [])
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Erreur lors du chargement"
-        )
-      } finally {
-        setLoading(false)
-      }
+  const fetchEvents = useCallback(async () => {
+    try {
+      setLoading(true)
+      const res = await fetch("/api/calendar/events", { cache: "no-store" })
+      const json = await res.json()
+      if (json.error) throw new Error(json.error)
+      setEvents(json.events || [])
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur lors du chargement")
+    } finally {
+      setLoading(false)
     }
-    fetchEvents()
   }, [])
 
-  const days = getCalendarDays(currentYear, currentMonth)
+  useEffect(() => {
+    fetchEvents()
+  }, [fetchEvents])
 
-  const prevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11)
-      setCurrentYear(currentYear - 1)
-    } else {
-      setCurrentMonth(currentMonth - 1)
-    }
-  }
+  const filtered = useMemo(
+    () => events.filter((e) => active.has(familyForType(e.event_type).key)),
+    [events, active]
+  )
 
-  const nextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0)
-      setCurrentYear(currentYear + 1)
-    } else {
-      setCurrentMonth(currentMonth + 1)
-    }
-  }
-
-  // Filter upcoming events (from today onward)
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
-  const upcomingEvents = events
-    .filter((e) => {
-      const endDate = e.end_at?.slice(0, 10) || e.scheduled_at.slice(0, 10)
-      return endDate >= todayStr
+  const toggleFamily = (key: FamilyKey) =>
+    setActive((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
     })
-    .slice(0, 15)
+
+  // Navigation selon la vue.
+  const shift = (dir: 1 | -1) => {
+    setCursor((c) => {
+      const d = new Date(c)
+      if (view === "year") d.setFullYear(d.getFullYear() + dir)
+      else if (view === "month") d.setMonth(d.getMonth() + dir)
+      else d.setDate(d.getDate() + dir * 7)
+      return d
+    })
+  }
+
+  const weekStart = useMemo(() => startOfWeek(cursor), [cursor])
+
+  const periodLabel = useMemo(() => {
+    if (view === "year") return String(cursor.getFullYear())
+    if (view === "month") return `${MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`
+    const end = addDays(weekStart, 6)
+    return `${weekStart.getDate()} ${MONTHS[weekStart.getMonth()].slice(0, 4).toLowerCase()}. – ${end.getDate()} ${MONTHS[end.getMonth()].slice(0, 4).toLowerCase()}. ${end.getFullYear()}`
+  }, [view, cursor, weekStart])
+
+  const openCreate = (date: string | null) =>
+    setModal({ open: true, event: null, date })
+  const openEdit = (event: CalendarEvent) =>
+    setModal({ open: true, event, date: null })
+  const closeModal = () => setModal({ open: false, event: null, date: null })
+
+  // Liste "à venir" (depuis aujourd'hui), filtrée.
+  const todayStr = dayStr(new Date())
+  const upcoming = filtered
+    .filter((e) => eventEnd(e) >= todayStr)
+    .sort((a, b) => eventStart(a).localeCompare(eventStart(b)))
+    .slice(0, 12)
 
   return (
     <div>
       <Header
         title="Plan de Communication"
-        subtitle="Calendrier des campagnes, newsletters et lancements"
+        subtitle="Offres, lancements, thématiques, newsletters et posts insta"
         actions={
-          <Button size="sm">
+          <Button size="sm" onClick={() => openCreate(null)}>
             <Plus className="h-4 w-4" />
             Ajouter
           </Button>
         }
       />
 
-      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {error}
           </div>
         )}
 
-        {/* Calendar */}
+        {/* Toolbar : vue + navigation */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex overflow-hidden rounded-lg border border-zinc-200 bg-white">
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                onClick={() => setView(v.key)}
+                className={`px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                  view === v.key
+                    ? "bg-zinc-900 text-white"
+                    : "text-zinc-500 hover:bg-zinc-50"
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={() => setCursor(new Date())}>
+              {"Aujourd'hui"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => shift(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="min-w-[120px] text-center text-sm font-semibold capitalize text-zinc-900">
+              {periodLabel}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => shift(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Filtres par famille */}
+        <div className="flex flex-wrap gap-2">
+          {FAMILIES.map((f) => {
+            const on = active.has(f.key)
+            return (
+              <button
+                key={f.key}
+                onClick={() => toggleFamily(f.key)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  on ? f.pill : "border-zinc-200 bg-white text-zinc-400 hover:bg-zinc-50"
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${on ? f.dot : "bg-zinc-300"}`} />
+                {f.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Vue active */}
         <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>
-                {months[currentMonth]} {currentYear}
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={prevMonth}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={nextMonth}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
           <CardContent>
-            {/* Legend */}
-            <div className="mb-4 flex flex-wrap gap-2">
-              {Object.entries(typeLabels).map(([key, label]) => (
-                <span
-                  key={key}
-                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${typeColors[key]}`}
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
-
             {loading ? (
-              <div className="flex items-center justify-center py-12">
+              <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
-                <span className="ml-2 text-zinc-500">Chargement...</span>
+                <span className="ml-2 text-zinc-500">Chargement…</span>
               </div>
+            ) : view === "year" ? (
+              <AnnualView
+                events={filtered}
+                year={cursor.getFullYear()}
+                onSelect={openEdit}
+                onCreate={openCreate}
+              />
+            ) : view === "month" ? (
+              <MonthView
+                events={filtered}
+                year={cursor.getFullYear()}
+                month={cursor.getMonth()}
+                onSelect={openEdit}
+                onCreate={openCreate}
+              />
             ) : (
-              /* Calendar grid */
-              <div className="overflow-x-auto -mx-4 sm:-mx-5 md:-mx-6 px-4 sm:px-5 md:px-6">
-              <div className="grid grid-cols-7 gap-px rounded-lg border border-zinc-200 bg-zinc-200 overflow-hidden min-w-[640px]">
-                {/* Header */}
-                {daysOfWeek.map((day) => (
-                  <div
-                    key={day}
-                    className="bg-zinc-50 p-2 text-center text-xs font-medium text-zinc-500"
-                  >
-                    {day}
-                  </div>
-                ))}
-
-                {/* Days */}
-                {days.map((day, i) => {
-                  const dayEvents = day
-                    ? getEventsForDay(events, currentYear, currentMonth, day)
-                    : []
-                  const isToday =
-                    day === today.getDate() &&
-                    currentMonth === today.getMonth() &&
-                    currentYear === today.getFullYear()
-
-                  return (
-                    <div
-                      key={i}
-                      className={`min-h-[80px] sm:min-h-[100px] bg-white p-1 sm:p-1.5 ${
-                        day ? "hover:bg-zinc-50" : "bg-zinc-50/50"
-                      }`}
-                    >
-                      {day && (
-                        <>
-                          <span
-                            className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                              isToday
-                                ? "bg-zinc-900 text-white font-bold"
-                                : "text-zinc-600"
-                            }`}
-                          >
-                            {day}
-                          </span>
-                          <div className="mt-1 space-y-0.5">
-                            {dayEvents.map((event) => (
-                              <div
-                                key={event.id}
-                                className={`rounded px-1.5 py-0.5 text-[10px] font-medium truncate border ${typeColors[event.event_type] || "bg-zinc-100 text-zinc-700 border-zinc-200"}`}
-                                title={event.title}
-                              >
-                                {event.title}
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              </div>
+              <WeekView
+                events={filtered}
+                weekStart={weekStart}
+                onSelect={openEdit}
+                onCreate={openCreate}
+              />
             )}
           </CardContent>
         </Card>
 
-        {/* Upcoming events list */}
+        {/* À venir */}
         <Card>
-          <CardHeader>
-            <CardTitle>Événements à venir</CardTitle>
-          </CardHeader>
           <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
-                <span className="ml-2 text-zinc-500">Chargement...</span>
-              </div>
-            ) : upcomingEvents.length === 0 ? (
-              <div className="text-center py-8 text-zinc-500">
+            <h3 className="mb-4 text-base font-semibold text-zinc-900">
+              À venir
+            </h3>
+            {upcoming.length === 0 ? (
+              <div className="py-6 text-center text-sm text-zinc-400">
                 Aucun événement à venir.
               </div>
             ) : (
-              <div className="space-y-3">
-                {upcomingEvents.map((event) => (
-                  <div
-                    key={event.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 rounded-lg border border-zinc-200 p-3 hover:bg-zinc-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-medium ${typeColors[event.event_type] || "bg-zinc-100 text-zinc-700 border-zinc-200"}`}
-                      >
-                        {typeLabels[event.event_type] || event.event_type}
-                      </span>
-                      <div>
-                        <h4 className="font-medium text-zinc-900">
-                          {event.title}
-                        </h4>
-                        {event.description && (
-                          <p className="text-xs text-zinc-500">
-                            {event.description}
+              <div className="space-y-2">
+                {upcoming.map((event) => {
+                  const fam = familyForType(event.event_type)
+                  return (
+                    <button
+                      key={event.id}
+                      onClick={() => openEdit(event)}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-zinc-200 p-2.5 text-left hover:bg-zinc-50"
+                    >
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${fam.dot}`} />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-zinc-900">
+                            {event.title}
                           </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-sm text-zinc-600">
-                        {new Date(event.scheduled_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-                        {event.end_at && event.end_at.slice(0, 10) !== event.scheduled_at.slice(0, 10) && (
-                          <span> → {new Date(event.end_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</span>
-                        )}
-                      </div>
-                      {event.channel && (
-                        <div className="mt-1">
-                          <Badge variant="default">{event.channel}</Badge>
+                          {event.description && (
+                            <p className="truncate text-xs text-zinc-500">
+                              {event.description}
+                            </p>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2 text-right">
+                        <span className="text-xs text-zinc-600">
+                          {fmtDayMonth(eventStart(event))}
+                          {isMultiDay(event) && (
+                            <> → {fmtDayMonth(eventEnd(event))}</>
+                          )}
+                        </span>
+                        {event.channel && event.channel !== "web" && (
+                          <Badge variant="default">{event.channel}</Badge>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {modal.open && (
+        <EventModal
+          event={modal.event}
+          defaultDate={modal.date}
+          onClose={closeModal}
+          onSaved={fetchEvents}
+        />
+      )}
     </div>
   )
 }
