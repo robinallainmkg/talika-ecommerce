@@ -43,7 +43,7 @@ const MONTH_LABELS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", 
 const REVENUE_CAT = "Chiffre d'affaires"
 const CATEGORY_ORDER = [REVENUE_CAT, "Coûts des ventes", "Marketing", "Équipe & frais fixes"]
 // Lignes alimentées par la sync auto (cf. src/lib/sync/pnl-auto.ts)
-const AUTO_SUBS = new Set(["Ventes Shopify", "Meta Ads", "Google Ads", "Influence"])
+const AUTO_SUBS = new Set(["Ventes Shopify", "Ventes Amazon", "Frais Amazon", "Meta Ads", "Google Ads", "Influence", "Amazon Ads"])
 
 const CATEGORY_STYLE: Record<string, { bg: string; text: string }> = {
   [REVENUE_CAT]: { bg: "bg-emerald-50", text: "text-emerald-900" },

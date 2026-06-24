@@ -16,7 +16,14 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-type AutoCompute = "shopify_revenue" | "meta_spend" | "google_spend" | "influence_cost"
+type AutoCompute =
+  | "shopify_revenue"
+  | "meta_spend"
+  | "google_spend"
+  | "influence_cost"
+  | "amazon_revenue"
+  | "amazon_ads"
+  | "amazon_fees"
 
 export interface AutoLineDef {
   category: string
@@ -30,9 +37,16 @@ export interface AutoLineDef {
 /** Lignes du P&L alimentées automatiquement. Réutilisé par le seed pour l'ordre. */
 export const AUTO_LINES: AutoLineDef[] = [
   { category: "Chiffre d'affaires", subcategory: "Ventes Shopify", sort_order: 10, sign: 1, compute: "shopify_revenue" },
+  // Amazon Seller (SP-API). sort_order/subcategory ALIGNÉS sur les lignes manuelles
+  // existantes → l'upsert (onConflict category,parent,subcategory,month,year) tombe
+  // sur les mêmes cellules. Les mois déjà saisis à la main (Excel) restent FIGÉS
+  // (source:"manual") ; l'auto ne remplit que les mois vierges + ceux repassés "↺ auto".
+  { category: "Chiffre d'affaires", subcategory: "Ventes Amazon", sort_order: 20, sign: 1, compute: "amazon_revenue" },
+  { category: "Coûts des ventes", subcategory: "Frais Amazon", sort_order: 130, sign: -1, compute: "amazon_fees" },
   { category: "Marketing", subcategory: "Meta Ads", sort_order: 200, sign: -1, compute: "meta_spend" },
   { category: "Marketing", subcategory: "Google Ads", sort_order: 210, sign: -1, compute: "google_spend" },
   { category: "Marketing", subcategory: "Influence", sort_order: 220, sign: -1, compute: "influence_cost" },
+  { category: "Marketing", subcategory: "Amazon Ads", sort_order: 240, sign: -1, compute: "amazon_ads" },
 ]
 
 async function getCache(supabase: SupabaseClient, key: string): Promise<any | null> {
@@ -76,6 +90,27 @@ async function influenceCost(supabase: SupabaseClient, year: number, m: number):
   return rows.reduce((s: number, r: any) => s + Number(r.amount || 0), 0)
 }
 
+// ── Amazon (clés data_cache scopées, convention CIBLE §7 : fr:amazon:<type>:YYYY-MM) ──
+const pad = (n: number) => String(n).padStart(2, "0")
+
+/** CA net Amazon Seller du mois (champ canonique `revenue`, cf integrations/amazon.ts). */
+async function amazonRevenue(supabase: SupabaseClient, year: number, m: number): Promise<number | null> {
+  const blob = await getCache(supabase, `fr:amazon:revenue:${year}-${pad(m)}`)
+  return blob?.revenue != null ? Number(blob.revenue) : null
+}
+
+/** Frais Amazon du mois (referral + FBA + stockage + autres) → total positif. */
+async function amazonFees(supabase: SupabaseClient, year: number, m: number): Promise<number | null> {
+  const blob = await getCache(supabase, `fr:amazon:fees:${year}-${pad(m)}`)
+  return blob?.total != null ? Number(blob.total) : null
+}
+
+/** Dépense Amazon Ads du mois. */
+async function amazonAds(supabase: SupabaseClient, year: number, m: number): Promise<number | null> {
+  const blob = await getCache(supabase, `fr:amazon:ads:${year}-${pad(m)}`)
+  return blob?.spend != null ? Number(blob.spend) : null
+}
+
 async function computeValue(
   supabase: SupabaseClient,
   compute: AutoCompute,
@@ -87,6 +122,9 @@ async function computeValue(
     case "meta_spend": return metaSpend(supabase, year, m)
     case "google_spend": return googleSpend(supabase, year, m)
     case "influence_cost": return influenceCost(supabase, year, m)
+    case "amazon_revenue": return amazonRevenue(supabase, year, m)
+    case "amazon_fees": return amazonFees(supabase, year, m)
+    case "amazon_ads": return amazonAds(supabase, year, m)
   }
 }
 
