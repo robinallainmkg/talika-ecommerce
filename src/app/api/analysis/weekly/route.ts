@@ -249,13 +249,28 @@ export async function GET() {
         const prevROAS = prevMetaMonthly.data.summary.roas as number
         const roasDelta = pctChange(overallROAS, prevROAS)
         findings.push(`ROAS trend: ${prevROAS} → ${overallROAS} (${roasDelta > 0 ? "+" : ""}${roasDelta}%)`)
-        if (roasDelta < -20) {
+
+        // N'alerter que si le ROAS absolu est problématique (< 3.5x = rentabilité à risque).
+        // Un ROAS qui passe de 7 à 5 n'est pas un problème — c'est encore excellent.
+        // Le delta seul est du bruit ; ce qui compte c'est la valeur absolue.
+        const ROAS_FLOOR = 3.5 * eagerness(weights, "meta_ads")
+        if (overallROAS < ROAS_FLOOR) {
+          // Identifier les ads qui tirent le ROAS vers le bas (fort spend, faible ROAS)
+          const culprits = ads
+            .filter((a) => a.spend > 80 && a.roas < overallROAS * 0.8 && a.purchases > 0)
+            .sort((a, b) => b.spend - a.spend)
+            .slice(0, 3)
+
+          const culpritTxt = culprits.length > 0
+            ? culprits.map((a) => `${a.ad_name} (${Math.round(a.spend)}€ / ROAS ${a.roas.toFixed(1)}x)`).join(", ")
+            : null
+
           newOpportunities.push({
-            title: `ROAS en chute: ${roasDelta}%`,
-            description: `Le ROAS Meta est passé de ${prevROAS} à ${overallROAS}. Vérifier créas, audiences et landing pages.`,
+            title: `ROAS Meta à ${overallROAS}x — sous le seuil de rentabilité`,
+            description: `ROAS global ${overallROAS}x (était ${prevROAS}x le mois dernier, cible >3.5x).${culpritTxt ? ` Ads qui plombent la moyenne : ${culpritTxt}.` : ""}`,
             category: "meta_ads",
-            impact: "high",
-            prompt: `Le ROAS Meta a chuté de ${Math.abs(roasDelta)}% (${prevROAS} → ${overallROAS}). Aide-moi à diagnostiquer : créas fatiguées, audiences saturées, ou landing page ?`,
+            impact: overallROAS < 2 ? "high" : "medium",
+            prompt: `Mon ROAS Meta est à ${overallROAS}x ce mois (était ${prevROAS}x).${culpritTxt ? ` Les ads qui tirent la moyenne vers le bas : ${culpritTxt}.` : ""} Aide-moi à décider quoi couper ou réoptimiser pour repasser au-dessus de 3.5x.`,
           })
         }
       }
