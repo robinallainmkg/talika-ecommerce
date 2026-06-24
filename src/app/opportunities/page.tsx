@@ -20,6 +20,9 @@ import {
   Loader2,
   CheckCircle2,
   Filter,
+  Zap,
+  TrendingUp,
+  Radio,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -33,32 +36,83 @@ interface Opportunity {
   impact: string
   prompt: string | null
   status: string
+  rating?: number
+  rated_at?: string
   created_at: string
 }
 
 // ─── Constants ──────────────────────────────────────────────────
 
 const CATEGORY_CONFIG: Record<string, { icon: typeof Lightbulb; color: string; label: string }> = {
-  meta_ads: { icon: Megaphone, color: "text-blue-600 bg-blue-50 border-blue-200", label: "Meta Ads" },
-  klaviyo: { icon: Mail, color: "text-purple-600 bg-purple-50 border-purple-200", label: "Klaviyo" },
-  shopify: { icon: ShoppingBag, color: "text-green-600 bg-green-50 border-green-200", label: "Shopify" },
-  influence: { icon: Users, color: "text-pink-600 bg-pink-50 border-pink-200", label: "Influence" },
-  retention: { icon: Heart, color: "text-red-600 bg-red-50 border-red-200", label: "Retention" },
-  generosite: { icon: Gift, color: "text-amber-600 bg-amber-50 border-amber-200", label: "Générosité" },
-  google_ads: { icon: Globe, color: "text-cyan-600 bg-cyan-50 border-cyan-200", label: "Google Ads" },
-  other: { icon: HelpCircle, color: "text-zinc-600 bg-zinc-50 border-zinc-200", label: "Autre" },
+  meta_ads:      { icon: Megaphone,   color: "text-blue-600 bg-blue-50 border-blue-200",     label: "Meta Ads" },
+  klaviyo:       { icon: Mail,        color: "text-purple-600 bg-purple-50 border-purple-200", label: "Klaviyo" },
+  shopify:       { icon: ShoppingBag, color: "text-green-600 bg-green-50 border-green-200",   label: "Shopify" },
+  influence:     { icon: Users,       color: "text-pink-600 bg-pink-50 border-pink-200",      label: "Influence" },
+  retention:     { icon: Heart,       color: "text-red-600 bg-red-50 border-red-200",         label: "Rétention" },
+  generosite:    { icon: Gift,        color: "text-amber-600 bg-amber-50 border-amber-200",   label: "Générosité" },
+  google_ads:    { icon: Globe,       color: "text-cyan-600 bg-cyan-50 border-cyan-200",      label: "Google Ads" },
+  free_marketing:{ icon: Zap,         color: "text-lime-600 bg-lime-50 border-lime-200",      label: "Marketing Gratuit" },
+  conversion:    { icon: TrendingUp,  color: "text-orange-600 bg-orange-50 border-orange-200",label: "Optimisation CR" },
+  channels:      { icon: Radio,       color: "text-violet-600 bg-violet-50 border-violet-200",label: "Nouveaux Canaux" },
+  other:         { icon: HelpCircle,  color: "text-zinc-600 bg-zinc-50 border-zinc-200",      label: "Autre" },
 }
 
 const IMPACT_STYLES: Record<string, string> = {
-  high: "bg-red-100 text-red-700",
+  high:   "bg-red-100 text-red-700",
   medium: "bg-amber-100 text-amber-700",
-  low: "bg-zinc-100 text-zinc-600",
+  low:    "bg-zinc-100 text-zinc-600",
 }
 
 const IMPACT_LABELS: Record<string, string> = {
-  high: "Impact fort",
+  high:   "Impact fort",
   medium: "Impact moyen",
-  low: "Impact faible",
+  low:    "Impact faible",
+}
+
+// ─── Rating bar ─────────────────────────────────────────────────
+
+function RatingBar({
+  oppId,
+  current,
+  onRate,
+}: {
+  oppId: string
+  current?: number
+  onRate: (id: string, r: number) => void
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const active = hover ?? current ?? 0
+
+  return (
+    <div className="flex items-center gap-1 mt-3 pt-3 border-t border-zinc-100">
+      <span className="text-[11px] text-zinc-400 mr-1.5 shrink-0">Pertinence :</span>
+      <div className="flex gap-0.5">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+          <button
+            key={n}
+            onMouseEnter={() => setHover(n)}
+            onMouseLeave={() => setHover(null)}
+            onClick={() => onRate(oppId, n)}
+            className={cn(
+              "w-[22px] h-[22px] rounded text-[11px] font-semibold transition-all",
+              current === n
+                ? "bg-zinc-900 text-white"
+                : n <= active
+                ? "bg-zinc-200 text-zinc-700"
+                : "bg-zinc-50 text-zinc-300 hover:bg-zinc-100"
+            )}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      {current && (
+        <span className="text-[11px] text-zinc-400 ml-2">
+          {current >= 8 ? "Très pertinent" : current >= 5 ? "Pertinent" : "Peu pertinent"}
+        </span>
+      )}
+    </div>
+  )
 }
 
 // ─── Page ───────────────────────────────────────────────────────
@@ -66,6 +120,8 @@ const IMPACT_LABELS: Record<string, string> = {
 export default function OpportunitiesPage() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [generateMsg, setGenerateMsg] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [filter, setFilter] = useState<string>("all")
   const [showDone, setShowDone] = useState(false)
@@ -95,10 +151,46 @@ export default function OpportunitiesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, status }),
       })
-      // Remove from list with animation feel
       setOpportunities((prev) => prev.filter((o) => o.id !== id))
     } catch {
       // silent
+    }
+  }
+
+  const rateOpp = async (id: string, rating: number) => {
+    try {
+      const res = await fetch("/api/opportunities", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, rating }),
+      })
+      const data = await res.json()
+      setOpportunities((prev) =>
+        prev.map((o) => (o.id === id ? { ...o, rating: data.rating } : o))
+      )
+    } catch {
+      // silent
+    }
+  }
+
+  const generate = async () => {
+    setGenerating(true)
+    setGenerateMsg(null)
+    try {
+      const res = await fetch("/api/analysis/weekly")
+      const data = await res.json()
+      if (data.skipped) {
+        setGenerateMsg("Pas assez de données ce mois-ci.")
+      } else {
+        const n = data.summary?.opportunities_created ?? 0
+        setGenerateMsg(n > 0 ? `${n} nouvelle${n > 1 ? "s" : ""} opportunité${n > 1 ? "s" : ""} générée${n > 1 ? "s" : ""} !` : "Aucune nouvelle opportunité détectée.")
+        if (n > 0) await fetchOpportunities()
+      }
+    } catch {
+      setGenerateMsg("Erreur lors de l'analyse.")
+    } finally {
+      setGenerating(false)
+      setTimeout(() => setGenerateMsg(null), 4000)
     }
   }
 
@@ -108,18 +200,14 @@ export default function OpportunitiesPage() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  // Get unique categories for filter
   const categories = Array.from(new Set(opportunities.map((o) => o.category)))
 
-  // Filter opportunities
-  const filtered = filter === "all"
-    ? opportunities
-    : opportunities.filter((o) => o.category === filter)
+  const filtered =
+    filter === "all" ? opportunities : opportunities.filter((o) => o.category === filter)
 
-  // Sort: high impact first, then medium, then low
   const impactOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
-  const sorted = [...filtered].sort((a, b) =>
-    (impactOrder[a.impact] ?? 1) - (impactOrder[b.impact] ?? 1)
+  const sorted = [...filtered].sort(
+    (a, b) => (impactOrder[a.impact] ?? 1) - (impactOrder[b.impact] ?? 1)
   )
 
   const pendingCount = opportunities.filter((o) => o.status === "pending").length
@@ -130,14 +218,19 @@ export default function OpportunitiesPage() {
         title="Opportunités"
         subtitle={`${pendingCount} action${pendingCount !== 1 ? "s" : ""} identifiée${pendingCount !== 1 ? "s" : ""}`}
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setShowDone(!showDone)}
-          >
-            {showDone ? <Filter className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-            {showDone ? "Masquer terminées" : "Voir terminées"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {generateMsg && (
+              <span className="text-xs text-zinc-500">{generateMsg}</span>
+            )}
+            <Button variant="secondary" size="sm" onClick={generate} disabled={generating}>
+              {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
+              {generating ? "Analyse..." : "Générer"}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setShowDone(!showDone)}>
+              {showDone ? <Filter className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+              {showDone ? "Masquer terminées" : "Voir terminées"}
+            </Button>
+          </div>
         }
       />
 
@@ -211,12 +304,14 @@ export default function OpportunitiesPage() {
 
                     {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-semibold text-zinc-900 text-sm">{opp.title}</h3>
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
-                          IMPACT_STYLES[opp.impact] || IMPACT_STYLES.medium
-                        )}>
+                        <span
+                          className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase",
+                            IMPACT_STYLES[opp.impact] || IMPACT_STYLES.medium
+                          )}
+                        >
                           {IMPACT_LABELS[opp.impact] || opp.impact}
                         </span>
                         {isDone && (
@@ -224,8 +319,16 @@ export default function OpportunitiesPage() {
                             Fait
                           </span>
                         )}
+                        {isIgnored && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-100 text-zinc-500">
+                            Ignoré
+                          </span>
+                        )}
                       </div>
                       <p className="text-zinc-500 text-sm leading-relaxed">{opp.description}</p>
+
+                      {/* Rating bar — always visible */}
+                      <RatingBar oppId={opp.id} current={opp.rating} onRate={rateOpp} />
                     </div>
 
                     {/* Actions */}

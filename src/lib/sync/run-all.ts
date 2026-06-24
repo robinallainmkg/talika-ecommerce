@@ -21,6 +21,7 @@ import { POST as syncKlaviyoRoute } from "@/app/api/klaviyo/sync/route"
 import { POST as syncGoogleRoute } from "@/app/api/google/sync/route"
 import { POST as syncMetaRoute } from "@/app/api/meta/sync/route"
 import { POST as syncAmazonRoute } from "@/app/api/amazon/sync/route"
+import { GET as runWeeklyAnalysis } from "@/app/api/analysis/weekly/route"
 import { isAmazonConfigured } from "@/lib/integrations/amazon"
 import { isAmazonAdsConfigured } from "@/lib/integrations/amazon-ads"
 
@@ -392,7 +393,17 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     // non bloquant
   }
 
-  // ── 10. Trace finale : last_cron_sync (toujours écrit, même en échec partiel) ──
+  // ── 10. Analyse companion : génère les opportunités depuis les données fraîchement syncées ──
+  await step("analysis_weekly", "Analyse & opportunités", async () => {
+    const res = await runWeeklyAnalysis()
+    const data = await res.json()
+    if (!data.success && !data.skipped) throw new Error(data.error || "analyse failed")
+    if (data.skipped) return "skipped (données insuffisantes)"
+    const n = data.summary?.opportunities_created ?? 0
+    return `${n} opportunité${n !== 1 ? "s" : ""} générée${n !== 1 ? "s" : ""}`
+  })
+
+  // ── 11. Trace finale : last_cron_sync (toujours écrit, même en échec partiel) ──
   const success = steps.every((s) => s.status === "ok")
   const result: SyncResult = {
     success,
