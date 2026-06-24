@@ -40,6 +40,7 @@ const NAV: Entry[] = [
   {
     name: "Influence", icon: Users, children: [
       { name: "Influenceurs", href: "/influencers" },
+      { name: "Pipeline", href: "/influencers/pipeline" },
       { name: "Coûts influence", href: "/influencers/couts" },
       { name: "Facturation", href: "/influencers/facturation" },
     ],

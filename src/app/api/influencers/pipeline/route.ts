@@ -1,0 +1,157 @@
+import { NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+import { isStage } from "@/lib/influence/pipeline"
+
+export const dynamic = "force-dynamic"
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+)
+
+const STR = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null)
+const NUM = (v: unknown) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v))
+
+interface InfRow {
+  id: string; name: string; instagram_handle: string | null
+  category: string | null; billing_name: string | null; metadata: Record<string, unknown> | null
+}
+
+// GET ?campaign= → collabs de la campagne, enrichies de l'influenceuse.
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const campaign = searchParams.get("campaign")
+    if (!campaign) return NextResponse.json({ collabs: [] })
+
+    const { data: collabs } = await supabase
+      .from("influence_campaign_collabs")
+      .select("*")
+      .eq("campaign_id", campaign)
+      .order("position", { ascending: true })
+
+    const ids = [...new Set((collabs || []).map((c) => c.influencer_id))]
+    const { data: infs } = ids.length
+      ? await supabase.from("influencers").select("id, name, instagram_handle, category, billing_name, metadata").in("id", ids)
+      : { data: [] as InfRow[] }
+    const byId: Record<string, InfRow> = {}
+    for (const i of (infs || []) as InfRow[]) byId[i.id] = i
+
+    const rows = (collabs || []).map((c) => {
+      const inf = byId[c.influencer_id]
+      const meta = (inf?.metadata || {}) as Record<string, unknown>
+      return {
+        id: c.id,
+        influencer_id: c.influencer_id,
+        name: inf?.name || "?",
+        instagram_handle: inf?.instagram_handle || null,
+        niche: inf?.category || null,
+        followers: meta.followers ?? meta.followers_count ?? null,
+        stage: c.stage,
+        owner: c.owner,
+        next_action: c.next_action,
+        next_action_date: c.next_action_date,
+        comp_type: c.comp_type,
+        comp_amount: c.comp_amount,
+        deliverables: c.deliverables,
+        position: c.position,
+        notes: c.notes,
+      }
+    })
+    return NextResponse.json({ collabs: rows })
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 })
+  }
+}
+
+// POST — ajouter une influenceuse à une campagne. Soit influencer_id (existante),
+// soit { new_name, new_handle } (crée le prospect puis l'ajoute). Idempotent.
+export async function POST(request: Request) {
+  try {
+    const b = await request.json().catch(() => ({}))
+    if (!b.campaign_id) return NextResponse.json({ error: "campaign_id requis" }, { status: 400 })
+
+    let influencerId = STR(b.influencer_id)
+    if (!influencerId) {
+      const name = STR(b.new_name)
+      if (!name) return NextResponse.json({ error: "influencer_id ou new_name requis" }, { status: 400 })
+      const handle = STR(b.new_handle)?.replace(/^@/, "") || null
+      const { data: created, error: cErr } = await supabase
+        .from("influencers")
+        .insert({
+          name,
+          instagram_handle: handle,
+          category: STR(b.new_niche),
+          source: STR(b.source) || "pipeline",
+          status: "prospect",
+          metadata: b.new_followers ? { followers: NUM(b.new_followers) } : {},
+        })
+        .select("id")
+        .single()
+      if (cErr || !created) return NextResponse.json({ error: cErr?.message || "création prospect impossible" }, { status: 500 })
+      influencerId = created.id
+    }
+
+    // Idempotent : si déjà dans la campagne, on renvoie l'existant.
+    const { data: existing } = await supabase
+      .from("influence_campaign_collabs")
+      .select("id")
+      .eq("campaign_id", b.campaign_id)
+      .eq("influencer_id", influencerId)
+      .maybeSingle()
+    if (existing) return NextResponse.json({ collab_id: existing.id, influencer_id: influencerId, existed: true })
+
+    const { data, error } = await supabase
+      .from("influence_campaign_collabs")
+      .insert({
+        campaign_id: b.campaign_id,
+        influencer_id: influencerId,
+        stage: isStage(b.stage) ? b.stage : "prospect",
+        owner: STR(b.owner),
+      })
+      .select("id")
+      .single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ collab_id: data.id, influencer_id: influencerId })
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 })
+  }
+}
+
+// PATCH — déplacer d'étape / éditer une collab. { id, stage?, owner?, next_action?, ... }
+export async function PATCH(request: Request) {
+  try {
+    const b = await request.json().catch(() => ({}))
+    if (!b.id) return NextResponse.json({ error: "id requis" }, { status: 400 })
+    const fields: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if ("stage" in b && isStage(b.stage)) fields.stage = b.stage
+    if ("owner" in b) fields.owner = STR(b.owner)
+    if ("next_action" in b) fields.next_action = STR(b.next_action)
+    if ("next_action_date" in b) fields.next_action_date = STR(b.next_action_date)
+    if ("comp_type" in b) fields.comp_type = STR(b.comp_type)
+    if ("comp_amount" in b) fields.comp_amount = NUM(b.comp_amount)
+    if ("deliverables" in b) fields.deliverables = STR(b.deliverables)
+    if ("notes" in b) fields.notes = STR(b.notes)
+    if ("position" in b) fields.position = NUM(b.position) ?? 0
+    const { error } = await supabase.from("influence_campaign_collabs").update(fields).eq("id", b.id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 })
+  }
+}
+
+// DELETE ?id= → retirer une collab de la campagne (ne supprime pas l'influenceuse).
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get("id")
+    if (!id) return NextResponse.json({ error: "id requis" }, { status: 400 })
+    const { error } = await supabase.from("influence_campaign_collabs").delete().eq("id", id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 })
+  }
+}
