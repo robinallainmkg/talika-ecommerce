@@ -9,29 +9,6 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
-interface DiscountCode {
-  code: string
-  amount: string
-}
-
-interface LineItem {
-  sku: string
-  price: string
-  title: string
-  quantity: number
-  product_id: number | string
-  variant_id: number | string
-}
-
-interface ShopifyOrder {
-  id: number | string
-  total_price: string
-  total_discounts: string
-  discount_codes: DiscountCode[]
-  line_items: LineItem[]
-  created_at: string
-}
-
 interface ProductAgg {
   title: string
   quantity: number
@@ -45,7 +22,24 @@ interface MonthlyAgg {
   orders: number
 }
 
-// GET: Full influencer deep dive data
+interface SaleRow {
+  shopify_order_id: string
+  order_date: string
+  product_title: string | null
+  quantity: number | null
+  line_price: number | string | null
+  discount_code: string | null
+}
+
+// GET: Full influencer deep dive data (alimente le drawer profil des 3 vues).
+//
+// Perf : toutes les requêtes sont indépendantes → lancées en parallèle. Surtout,
+// les ventes / le top produits / la timeline sont lus depuis influencer_product_sales
+// (déjà attribué par code, indexé par influencer_id → ~quelques centaines de lignes)
+// AU LIEU de re-télécharger et re-parser TOUT le cache des commandes Shopify
+// (~5 Mo de JSON, ~26 000 commandes) à chaque ouverture. Le drawer devient quasi
+// instantané, et ses KPI (CA via code / nb commandes) sont désormais ISO avec le
+// scoreboard /influencers (tous deux = Σ line_price / commandes distinctes).
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -53,165 +47,104 @@ export async function GET(
   try {
     const { id } = await params
 
-    // 1. Fetch influencer + codes
-    const { data: influencer, error: infError } = await supabase
-      .from("influencers")
-      .select(`*, influencer_codes (*)`)
-      .eq("id", id)
-      .single()
+    const [infRes, feesRes, contentRes, invoicesRes, commissionsRes, salesRes] =
+      await Promise.all([
+        supabase.from("influencers").select(`*, influencer_codes (*)`).eq("id", id).single(),
+        supabase
+          .from("influencer_fixed_fees")
+          .select("*")
+          .eq("influencer_id", id)
+          .order("year", { ascending: false })
+          .order("month", { ascending: false }),
+        supabase
+          .from("influencer_content")
+          .select("*")
+          .eq("influencer_id", id)
+          .order("posted_at", { ascending: false }),
+        supabase
+          .from("influencer_cost_invoices")
+          .select("id, year, month, kind, amount, file_name, created_at")
+          .eq("influencer_id", id)
+          .order("year", { ascending: false })
+          .order("month", { ascending: false }),
+        supabase
+          .from("influencer_commissions")
+          .select("month, year, amount")
+          .eq("influencer_id", id),
+        supabase
+          .from("influencer_product_sales")
+          .select("shopify_order_id, order_date, product_title, quantity, line_price, discount_code")
+          .eq("influencer_id", id)
+          .order("order_date", { ascending: false }),
+      ])
 
-    if (infError || !influencer) {
+    const influencer = infRes.data
+    if (infRes.error || !influencer) {
       return NextResponse.json(
-        { error: infError?.message || "Influencer not found" },
+        { error: infRes.error?.message || "Influencer not found" },
         { status: 404 }
       )
     }
 
-    // 2. Get all discount codes for this influencer (case-insensitive matching)
-    const codes: string[] = (influencer.influencer_codes || []).map(
-      (c: { code: string }) => c.code.toUpperCase().trim()
-    )
+    const fixedFees = feesRes.data
+    const content = contentRes.data
+    const invoices = invoicesRes.data
+    const commissionsData = commissionsRes.data
+    const sales = (salesRes.data || []) as SaleRow[]
 
-    // 3. Get fixed fees
-    const { data: fixedFees } = await supabase
-      .from("influencer_fixed_fees")
-      .select("*")
-      .eq("influencer_id", id)
-      .order("year", { ascending: false })
-      .order("month", { ascending: false })
-
-    // 4. Get content items
-    const { data: content } = await supabase
-      .from("influencer_content")
-      .select("*")
-      .eq("influencer_id", id)
-      .order("posted_at", { ascending: false })
-
-    // 4b. Get uploaded invoices (factures)
-    const { data: invoices } = await supabase
-      .from("influencer_cost_invoices")
-      .select("id, year, month, kind, amount, file_name, created_at")
-      .eq("influencer_id", id)
-      .order("year", { ascending: false })
-      .order("month", { ascending: false })
-
-    // 5. Parse orders from data_cache to build product breakdown + timeline
+    // Agrégations depuis les ventes produits attribuées (petit jeu indexé).
     const productMap: Record<string, ProductAgg> = {}
-    const monthlyMap: Record<string, MonthlyAgg> = {}
-    const recentOrders: {
-      date: string
-      amount: number
-      products: string[]
-      discount_code: string
-    }[] = []
+    const monthlyMap: Record<string, { month: string; revenue: number; orders: Set<string> }> = {}
+    const orderMap: Record<string, { date: string; amount: number; products: string[]; discount_code: string }> = {}
+    const orderSet = new Set<string>()
     let totalRevenue = 0
-    let totalOrders = 0
 
-    if (codes.length > 0) {
-      // Un seul fetch de tous les caches de commandes (vs 1 + N requêtes) → gros
-      // gain de vitesse pour le drawer.
-      const { data: caches } = await supabase
-        .from("data_cache")
-        .select("data")
-        .eq("source", "shopify")
-        .like("key", "shopify_orders_%")
+    for (const s of sales) {
+      const lp = Number(s.line_price) || 0
+      const oid = String(s.shopify_order_id)
+      const title = s.product_title || "Unknown"
+      totalRevenue += lp
+      orderSet.add(oid)
 
-      for (const cacheEntry of caches || []) {
-        if (!cacheEntry?.data) continue
+      const p = (productMap[title] ??= { title, quantity: 0, revenue: 0, orders: 0 })
+      p.quantity += s.quantity || 1
+      p.revenue += lp
+      p.orders++
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rawData = cacheEntry.data as any
-        const orders: ShopifyOrder[] = rawData?.orders || []
+      const o = (orderMap[oid] ??= { date: s.order_date, amount: 0, products: [], discount_code: s.discount_code || "" })
+      o.amount += lp
+      o.products.push(title)
 
-        for (const order of orders) {
-          const discountCodes = order.discount_codes || []
-          if (discountCodes.length === 0) continue
-
-          const orderCodes: string[] = discountCodes.map((dc) =>
-            (typeof dc === "string" ? dc : dc.code).toUpperCase().trim()
-          )
-
-          const matchedCode = orderCodes.find((c) => codes.includes(c))
-          if (!matchedCode) continue
-
-          const orderTotal = parseFloat(order.total_price || "0")
-          totalRevenue += orderTotal
-          totalOrders++
-
-          // Monthly aggregation
-          const monthKey = order.created_at
-            ? order.created_at.substring(0, 7)
-            : "unknown"
-          if (!monthlyMap[monthKey]) {
-            monthlyMap[monthKey] = { month: monthKey, revenue: 0, orders: 0 }
-          }
-          monthlyMap[monthKey].revenue += orderTotal
-          monthlyMap[monthKey].orders++
-
-          // Product aggregation
-          const productNames: string[] = []
-          for (const item of order.line_items || []) {
-            const title = item.title || "Unknown"
-            productNames.push(title)
-            if (!productMap[title]) {
-              productMap[title] = { title, quantity: 0, revenue: 0, orders: 0 }
-            }
-            productMap[title].quantity += item.quantity || 1
-            productMap[title].revenue +=
-              parseFloat(item.price || "0") * (item.quantity || 1)
-            productMap[title].orders++
-          }
-
-          // Recent orders
-          recentOrders.push({
-            date: order.created_at,
-            amount: orderTotal,
-            products: productNames,
-            discount_code: matchedCode,
-          })
-        }
-      }
+      const monthKey = (s.order_date || "").substring(0, 7) || "unknown"
+      const mm = (monthlyMap[monthKey] ??= { month: monthKey, revenue: 0, orders: new Set<string>() })
+      mm.revenue += lp
+      mm.orders.add(oid)
     }
 
-    // Sort products by revenue desc
-    const products = Object.values(productMap).sort(
-      (a, b) => b.revenue - a.revenue
-    )
+    const totalOrders = orderSet.size
 
-    // Sort monthly timeline
-    const timeline = Object.values(monthlyMap).sort((a, b) =>
-      a.month.localeCompare(b.month)
-    )
+    const products = Object.values(productMap).sort((a, b) => b.revenue - a.revenue)
 
-    // Sort recent orders by date desc, take 10
-    recentOrders.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    )
-    const lastOrders = recentOrders.slice(0, 10)
+    const timeline: MonthlyAgg[] = Object.values(monthlyMap)
+      .map((m) => ({ month: m.month, revenue: m.revenue, orders: m.orders.size }))
+      .sort((a, b) => a.month.localeCompare(b.month))
 
-    // Average order value
+    const lastOrders = Object.values(orderMap)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 10)
+
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
 
-    // Fetch REAL commissions from influencer_commissions table (manual data from CSV)
-    const { data: commissionsData } = await supabase
-      .from("influencer_commissions")
-      .select("month, year, amount")
-      .eq("influencer_id", id)
-
+    // Coûts réels (forfaits + commissions saisis), pour ROI cohérent avec les pages Coûts.
     const totalManualCommissions = (commissionsData || []).reduce(
-      (s, c) => s + (parseFloat(c.amount) || 0), 0
+      (s, c) => s + (Number(c.amount) || 0), 0
     )
-
-    // Fetch fixed fees total (already fetched above but need sum)
     const totalFixedFeesSum = (fixedFees || []).reduce(
-      (s: number, f: { amount: number }) => s + (f.amount || 0), 0
+      (s: number, f: { amount: number }) => s + (Number(f.amount) || 0), 0
     )
-
-    // ROAS from REAL data
     const totalCost = totalManualCommissions + totalFixedFeesSum
     const roas = totalCost > 0 ? totalRevenue / totalCost : 0
 
-    // Check if current month has commission data
     const now = new Date()
     const currentMonth = now.getMonth() + 1
     const currentYear = now.getFullYear()
@@ -242,10 +175,7 @@ export async function GET(
   } catch (error) {
     console.error("Influencer detail GET error:", error)
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Failed to fetch influencer",
-      },
+      { error: error instanceof Error ? error.message : "Failed to fetch influencer" },
       { status: 500 }
     )
   }
