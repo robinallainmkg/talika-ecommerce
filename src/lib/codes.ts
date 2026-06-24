@@ -19,7 +19,7 @@ export const CODE_TYPE_LABELS: Record<string, string> = {
   influencer: "Codes Influenceurs",
   gifting: "Dotations (MKG)",
   welcome: "Codes Génériques (Welcome)",
-  offre_site: "Offres Site (promos)",
+  offre_site: "Prix barrés", // démarques compare_at_price (soldes) — alimenté par le calcul line-items, pas par un code
   auto_discounts: "Remises automatiques (volume)",
   logistique: "Erreurs Logistiques (La Poste)",
   service_client: "Retours / SAV (exclu)",

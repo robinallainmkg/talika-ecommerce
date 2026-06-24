@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { loadCodeCategoryMap, computeGenerosite, PromoPeriod } from "@/lib/generosite"
+import { loadCodeCategoryMap, computeGenerosite } from "@/lib/generosite"
 import { normalizeCode, CODE_TYPE_LABELS, GENEROSITE_EXCLUDED_TYPES } from "@/lib/codes"
 
 export const dynamic = "force-dynamic"
@@ -19,16 +19,6 @@ export async function GET(request: Request) {
 
     const categoryMap = await loadCodeCategoryMap()
 
-    // Load promo periods from calendar_events (type = promo)
-    const { data: promoEvents } = await supabase
-      .from("calendar_events")
-      .select("scheduled_at, metadata")
-      .eq("event_type", "promo")
-    const promoPeriods: PromoPeriod[] = (promoEvents || []).map((e: any) => ({
-      start: (e.scheduled_at || "").slice(0, 10),
-      end: (e.metadata?.end_date || e.scheduled_at || "").slice(0, 10),
-    }))
-
     const { data: cacheEntry } = await supabase
       .from("data_cache")
       .select("data")
@@ -41,12 +31,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No orders data. Run Shopify sync first.", categories: [] })
     }
 
-    const result = computeGenerosite(orders, categoryMap, promoPeriods)
+    const result = computeGenerosite(orders, categoryMap)
 
     // Build detailed per-code breakdown for the UI
     const codeDetails: Record<string, { discount: number; orders: number; codes: Record<string, { discount: number; count: number }> }> = {}
     const categorize = (code: string) => categoryMap.get(normalizeCode(code)) || "autre"
     let ordersWithDiscount = 0
+    let prixBarresOrders = 0
 
     for (const o of orders) {
       if (o.financial_status === "voided" || o.cancelled_at) continue
@@ -70,17 +61,34 @@ export async function GET(request: Request) {
       }
       const autoGap = orderDiscount - codeSum
       if (autoGap > 0) {
-        const orderDate = (o.created_at || "").slice(0, 10)
-        const matchedPromo = promoPeriods.find(p => orderDate >= p.start && orderDate <= p.end)
-        const autoCat = matchedPromo ? "offre_site" : "auto_discounts"
+        const autoCat = "auto_discounts"
         if (!codeDetails[autoCat]) codeDetails[autoCat] = { discount: 0, orders: 0, codes: {} }
         codeDetails[autoCat].discount += autoGap
         codeDetails[autoCat].orders += 1
         // Track auto discounts as pseudo-codes so they show in the dropdown
-        const autoLabel = matchedPromo ? `[PROMO AUTO] ${matchedPromo.start}→${matchedPromo.end}` : "[REMISE VOLUME]"
+        const autoLabel = "[REMISE VOLUME]"
         if (!codeDetails[autoCat].codes[autoLabel]) codeDetails[autoCat].codes[autoLabel] = { discount: 0, count: 0 }
         codeDetails[autoCat].codes[autoLabel].discount += autoGap
         codeDetails[autoCat].codes[autoLabel].count += 1
+      }
+
+      // Commandes avec au moins un article démarqué (compare_at_price > price)
+      const hasBarre = (o.line_items || []).some((li: any) => {
+        const price = parseFloat(li.price || "0")
+        const compareAt = parseFloat(li.compare_at_price || "0")
+        return compareAt > price && compareAt > 0
+      })
+      if (hasBarre) prixBarresOrders++
+    }
+
+    // "Prix barrés" (démarques compare_at_price, ex-catégorie "offre_site") : ligne d'affichage
+    // alimentée par le calcul line-items (result.prix_barres), pas par un code promo.
+    // Les soldes se font ainsi → ça réconcilie la somme des lignes avec le Total € (= total_generosite).
+    if (result.prix_barres > 0) {
+      codeDetails["offre_site"] = {
+        discount: result.prix_barres,
+        orders: prixBarresOrders,
+        codes: { "[PRIX BARRÉS]": { discount: result.prix_barres, count: prixBarresOrders } },
       }
     }
 

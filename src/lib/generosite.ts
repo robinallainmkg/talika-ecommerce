@@ -27,19 +27,13 @@ export interface GenerositeResult {
   by_category: Record<string, { discount: number; orders: number }>
 }
 
-export interface PromoPeriod {
-  start: string // YYYY-MM-DD
-  end: string   // YYYY-MM-DD
-}
-
 // Calcul CANONIQUE de la générosité, identique partout (page /generosite, /objectives, companion).
 // Formule documentée : (remises + prix barrés − SAV) / CA brut. Codes influenceurs INCLUS
 // (stratégiques), SAV (service_client) EXCLU. Catégorisation 100% via la table (param categoryMap).
-// promoPeriods : les remises auto pendant ces périodes sont classées "offre_site" au lieu de "auto_discounts".
+// Les soldes se font en compare_at_price → tombent dans prix_barres (démarques), pas dans un code.
 export function computeGenerosite(
   orders: any[],
-  categoryMap: Map<string, string>,
-  promoPeriods: PromoPeriod[] = []
+  categoryMap: Map<string, string>
 ): GenerositeResult {
   const by: Record<string, { discount: number; orders: number }> = {}
   const add = (cat: string, amount: number) => {
@@ -77,14 +71,9 @@ export function computeGenerosite(
       codeSum += amount
       if (code) add(categorize(code), amount)
     }
-    // Remises automatiques = écart entre total_discounts et la somme des codes
-    // Pendant les périodes promo → offre_site ; sinon → auto_discounts
+    // Remises automatiques (volume, etc.) = écart entre total_discounts et la somme des codes
     const autoGap = orderDiscount - codeSum
-    if (autoGap > 0) {
-      const orderDate = (o.created_at || "").slice(0, 10)
-      const isDuringPromo = promoPeriods.some(p => orderDate >= p.start && orderDate <= p.end)
-      add(isDuringPromo ? "offre_site" : "auto_discounts", autoGap)
-    }
+    if (autoGap > 0) add("auto_discounts", autoGap)
 
     // Prix barrés + CA brut (valeur catalogue) depuis les line items
     for (const li of o.line_items || []) {

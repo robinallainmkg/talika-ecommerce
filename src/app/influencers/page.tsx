@@ -83,7 +83,6 @@ const GENEROSITE_CATEGORIES: Record<string, string> = {
   influence: "Codes Influenceurs",
   gifting: "Dotations (MKG)",
   welcome: "Codes Génériques (Welcome)",
-  offre_site: "Offres Site (promos)",
   auto_discounts: "Remises automatiques (volume)",
   logistique: "Erreurs Logistiques (LA Poste)",
   service_client: "Retours / SAV",
