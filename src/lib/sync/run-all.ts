@@ -15,7 +15,7 @@
  * les handlers POST dans le même lambda.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js"
-import { getAllOrders, getDiscountCodes } from "@/lib/integrations/shopify"
+import { getAllOrders, getDiscountCodes, getVariantPriceMap } from "@/lib/integrations/shopify"
 import { POST as syncObjectivesRoute } from "@/app/api/objectives/sync/route"
 import { POST as syncKlaviyoRoute } from "@/app/api/klaviyo/sync/route"
 import { POST as syncGoogleRoute } from "@/app/api/google/sync/route"
@@ -87,6 +87,11 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
       created_at_max: now.toISOString(),
     })
 
+    // Les line items de commande Shopify ne portent pas le compare_at_price → on
+    // enrichit avec le compare_at ACTUEL de la variante (prix barrés / soldes).
+    // Sans ça, la générosité "Prix barrés" reste à 0 sur le mois en cours.
+    const variantPriceMap = await getVariantPriceMap()
+
     orders = rawOrders.map((o: any) => ({
       id: o.id,
       email: o.email || "",
@@ -113,7 +118,7 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
         sku: li.sku,
         quantity: li.quantity,
         price: li.price,
-        compare_at_price: li.compare_at_price,
+        compare_at_price: li.compare_at_price || variantPriceMap.get(li.variant_id) || null,
       })),
       shipping_lines: (o.shipping_lines || []).map((sl: any) => ({
         title: sl.title,
