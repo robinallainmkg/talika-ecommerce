@@ -35,7 +35,7 @@ function CardPhoto({ handle, name }: { handle: string | null; name: string }) {
   return <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white">{name?.[0]?.toUpperCase() || "?"}</div>
 }
 
-export default function PipelinePage() {
+export default function CampagnesPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [selected, setSelected] = useState<string>("")
   const [collabs, setCollabs] = useState<Collab[]>([])
@@ -61,7 +61,7 @@ export default function PipelinePage() {
   const loadCollabs = useCallback(async (campaign: string) => {
     if (!campaign) { setCollabs([]); setLoading(false); return }
     setLoading(true)
-    const res = await fetch(`/api/influencers/pipeline?campaign=${campaign}`, { cache: "no-store" })
+    const res = await fetch(`/api/influencers/collabs?campaign=${campaign}`, { cache: "no-store" })
     const data = await res.json()
     setCollabs(data.collabs || [])
     setLoading(false)
@@ -94,7 +94,7 @@ export default function PipelinePage() {
 
   async function moveStage(id: string, stage: Stage) {
     setCollabs((prev) => prev.map((c) => (c.id === id ? { ...c, stage } : c)))
-    await fetch("/api/influencers/pipeline", {
+    await fetch("/api/influencers/collabs", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage }),
     })
     loadCampaigns()
@@ -103,7 +103,7 @@ export default function PipelinePage() {
   async function toggleTheme(c: Collab, theme: string) {
     const themes = c.themes?.includes(theme) ? c.themes.filter((t) => t !== theme) : [...(c.themes || []), theme]
     setCollabs((prev) => prev.map((x) => (x.id === c.id ? { ...x, themes } : x)))
-    await fetch("/api/influencers/pipeline", {
+    await fetch("/api/influencers/collabs", {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, themes }),
     })
   }
@@ -111,7 +111,7 @@ export default function PipelinePage() {
   async function removeCollab(id: string) {
     if (!confirm("Retirer cette influenceuse de la campagne ?")) return
     setCollabs((prev) => prev.filter((c) => c.id !== id))
-    await fetch(`/api/influencers/pipeline?id=${id}`, { method: "DELETE" })
+    await fetch(`/api/influencers/collabs?id=${id}`, { method: "DELETE" })
     loadCampaigns()
   }
 
@@ -139,7 +139,7 @@ export default function PipelinePage() {
             <Link href="/influencers" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900">
               <ArrowLeft className="h-4 w-4" /> Influence
             </Link>
-            <h1 className="text-2xl font-semibold text-zinc-900">Pipeline &amp; campagnes</h1>
+            <h1 className="text-2xl font-semibold text-zinc-900">Campagnes</h1>
             <p className="text-sm text-zinc-500">Une campagne par mois, auto-remplie depuis les ventes/coûts. Tague chaque collab par thème pour voir qui parle de quoi, à quel coût.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -287,7 +287,7 @@ export default function PipelinePage() {
           onSaved={(id) => { setShowCampaign(false); setEditCampaign(null); loadCampaigns().then(() => setSelected(id)) }}
         />
       )}
-      {showAdd && selected && <AddModal campaignId={selected} allInf={allInf} inPipeline={new Set(collabs.map((c) => c.influencer_id))} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); loadCollabs(selected); loadCampaigns() }} />}
+      {showAdd && selected && <AddModal campaignId={selected} allInf={allInf} inCampaign={new Set(collabs.map((c) => c.influencer_id))} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); loadCollabs(selected); loadCampaigns() }} />}
       <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
     </div>
   )
@@ -371,17 +371,17 @@ function CampaignModal({ campaign, onClose, onSaved }: { campaign?: Campaign; on
   )
 }
 
-function AddModal({ campaignId, allInf, inPipeline, onClose, onAdded }: { campaignId: string; allInf: InfLite[]; inPipeline: Set<string>; onClose: () => void; onAdded: () => void }) {
+function AddModal({ campaignId, allInf, inCampaign, onClose, onAdded }: { campaignId: string; allInf: InfLite[]; inCampaign: Set<string>; onClose: () => void; onAdded: () => void }) {
   const [tab, setTab] = useState<"existante" | "nouvelle">("existante")
   const [q, setQ] = useState("")
   const [np, setNp] = useState({ new_name: "", new_handle: "", new_niche: "", new_followers: "" })
   const [saving, setSaving] = useState(false)
   async function add(body: Record<string, unknown>) {
     setSaving(true)
-    await fetch("/api/influencers/pipeline", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ campaign_id: campaignId, ...body }) })
+    await fetch("/api/influencers/collabs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ campaign_id: campaignId, ...body }) })
     setSaving(false); onAdded()
   }
-  const filtered = allInf.filter((i) => !inPipeline.has(i.id) && i.name.toLowerCase().includes(q.toLowerCase()))
+  const filtered = allInf.filter((i) => !inCampaign.has(i.id) && i.name.toLowerCase().includes(q.toLowerCase()))
   return (
     <Modal title="Ajouter à la campagne" onClose={onClose}>
       <div className="mb-3 flex gap-1 rounded-lg bg-zinc-100 p-1 text-sm">
@@ -408,7 +408,7 @@ function AddModal({ campaignId, allInf, inPipeline, onClose, onAdded }: { campai
             <Field label="Niche"><input value={np.new_niche} onChange={(e) => setNp({ ...np, new_niche: e.target.value })} className={inp} /></Field>
             <Field label="Followers"><input type="number" value={np.new_followers} onChange={(e) => setNp({ ...np, new_followers: e.target.value })} className={inp} /></Field>
           </div>
-          <button onClick={() => add(np)} disabled={saving || !np.new_name.trim()} className="mt-2 w-full rounded-lg bg-zinc-900 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">{saving ? "Ajout…" : "Créer + ajouter au pipeline"}</button>
+          <button onClick={() => add(np)} disabled={saving || !np.new_name.trim()} className="mt-2 w-full rounded-lg bg-zinc-900 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">{saving ? "Ajout…" : "Créer + ajouter à la campagne"}</button>
         </>
       )}
     </Modal>
