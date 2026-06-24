@@ -1,15 +1,71 @@
 import nodemailer from "nodemailer"
 
-// Envoi d'email transactionnel via SMTP (ex. Microsoft 365 : smtp.office365.com:587).
-// Les identifiants viennent des variables d'env Vercel (jamais dans le code) :
-//   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM (optionnel)
-// Si elles ne sont pas configurées, on n'envoie rien (le lien d'activation reste
-// le mécanisme de secours, toujours renvoyé par /api/users).
+// Envoi d'email transactionnel (invitations). Trois chemins, par ordre de priorité :
+//   1. Resend (API HTTP) si RESEND_API_KEY est défini — RECOMMANDÉ sur Vercel :
+//      en serverless l'API HTTP est plus fiable que le SMTP (pas de handshake
+//      lent, renvoie un id de livraison) et n'ajoute aucune dépendance (fetch).
+//      L'expéditeur (RESEND_FROM, ex. "Talika <noreply@talika.fr>") doit
+//      appartenir à un domaine VÉRIFIÉ dans Resend (SPF/DKIM posés sur talika.fr).
+//   2. SMTP (nodemailer) si SMTP_HOST/USER/PASS sont définis (ex. Microsoft 365).
+//   3. Sinon : on n'envoie rien → le lien d'activation reste le secours, toujours
+//      renvoyé par /api/users (l'admin le copie et le transmet lui-même).
+
+export function resendConfigured(): boolean {
+  return !!(process.env.RESEND_API_KEY && (process.env.RESEND_FROM || process.env.SMTP_FROM))
+}
 
 export function smtpConfigured(): boolean {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
 }
 
+// Vrai si AU MOINS un canal d'envoi est branché (sinon on reste en mode lien manuel).
+export function mailerConfigured(): boolean {
+  return resendConfigured() || smtpConfigured()
+}
+
+const SUBJECT = "Votre accès au dashboard Talika"
+
+function bodyText(link: string): string {
+  return `Bonjour,
+
+Vous avez été invité au dashboard Talika. Activez votre compte et choisissez votre mot de passe via ce lien (valable 24 h) :
+
+${link}
+
+À bientôt,
+L'équipe Talika`
+}
+
+function bodyHtml(link: string): string {
+  return `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#18181b;line-height:1.5">
+      <p>Bonjour,</p>
+      <p>Vous avez été invité au <strong>dashboard Talika</strong>. Cliquez ci-dessous pour activer votre compte et choisir votre mot de passe (lien valable 24 h) :</p>
+      <p><a href="${link}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Activer mon compte</a></p>
+      <p style="color:#71717a;font-size:13px">Ou copiez ce lien : <br>${link}</p>
+      <p style="color:#71717a;font-size:13px">À bientôt,<br>L'équipe Talika</p>
+    </div>`
+}
+
+// ── Chemin 1 : Resend (API HTTP, pas de dépendance) ──
+async function sendViaResend(to: string, link: string): Promise<boolean> {
+  // RESEND_FROM doit être sur un domaine vérifié ; à défaut on réutilise SMTP_FROM.
+  const from = process.env.RESEND_FROM || `Talika <${process.env.SMTP_FROM}>`
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from, to, subject: SUBJECT, text: bodyText(link), html: bodyHtml(link) }),
+  })
+  if (!res.ok) {
+    console.error("Resend send failed:", res.status, await res.text().catch(() => ""))
+    return false
+  }
+  return true
+}
+
+// ── Chemin 2 : SMTP (nodemailer) ──
 let transporter: nodemailer.Transporter | null = null
 function getTransporter() {
   if (transporter) return transporter
@@ -23,28 +79,21 @@ function getTransporter() {
   return transporter
 }
 
-export async function sendInviteEmail(to: string, link: string): Promise<boolean> {
-  if (!smtpConfigured()) return false
+async function sendViaSmtp(to: string, link: string): Promise<boolean> {
   const from = process.env.SMTP_FROM || process.env.SMTP_USER!
   await getTransporter().sendMail({
     from: `"Talika" <${from}>`,
     to,
-    subject: "Votre accès au dashboard Talika",
-    text: `Bonjour,
-
-Vous avez été invité au dashboard Talika. Activez votre compte et choisissez votre mot de passe via ce lien (valable 24 h) :
-
-${link}
-
-À bientôt,
-L'équipe Talika`,
-    html: `<div style="font-family:system-ui,Arial,sans-serif;font-size:15px;color:#18181b;line-height:1.5">
-      <p>Bonjour,</p>
-      <p>Vous avez été invité au <strong>dashboard Talika</strong>. Cliquez ci-dessous pour activer votre compte et choisir votre mot de passe (lien valable 24 h) :</p>
-      <p><a href="${link}" style="display:inline-block;background:#18181b;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Activer mon compte</a></p>
-      <p style="color:#71717a;font-size:13px">Ou copiez ce lien : <br>${link}</p>
-      <p style="color:#71717a;font-size:13px">À bientôt,<br>L'équipe Talika</p>
-    </div>`,
+    subject: SUBJECT,
+    text: bodyText(link),
+    html: bodyHtml(link),
   })
   return true
+}
+
+// Renvoie true si l'email est parti, false sinon (→ secours = lien manuel).
+export async function sendInviteEmail(to: string, link: string): Promise<boolean> {
+  if (resendConfigured()) return sendViaResend(to, link)
+  if (smtpConfigured()) return sendViaSmtp(to, link)
+  return false
 }
