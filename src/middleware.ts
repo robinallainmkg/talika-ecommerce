@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@supabase/ssr"
-import { ROLE_SCOPE, isAllowedForScope } from "@/lib/roles"
+import { ROLE_SCOPE, isRequestAllowed } from "@/lib/roles"
 
 // Chemins accessibles sans session :
 // - widget public (talika.fr) : bootstrap, message, messages, escalate, order-lookup
@@ -62,16 +62,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Sandbox des sous-rôles : un user "influence" ou "sav" ne voit QUE son espace.
+  // Sous-rôles (influence/sav) : ÉCRITURE dans leur espace, LECTURE partout
+  // ailleurs (au moins la vue pour tout le monde), gestion d'équipe réservée admin.
   // admin / member ne sont pas dans ROLE_SCOPE → aucun cloisonnement.
   const role = (user.user_metadata?.role as string) || "member"
-  const scope = ROLE_SCOPE[role]
-  if (scope && !isAllowedForScope(pathname, scope)) {
+  if (!isRequestAllowed(pathname, request.method, role)) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "accès non autorisé pour ce rôle" }, { status: 403 })
     }
     const url = request.nextUrl.clone()
-    url.pathname = scope.home
+    url.pathname = ROLE_SCOPE[role]?.home || "/dashboard"
     url.search = ""
     return NextResponse.redirect(url)
   }

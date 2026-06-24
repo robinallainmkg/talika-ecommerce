@@ -17,6 +17,9 @@ export const ROLE_SCOPE: Record<string, { home: string; allow: string[] }> = {
 // composants partagés cassent : encarts insights, badges routine de la sidebar…).
 export const SHARED_API = ["/api/insights", "/api/context", "/api/routine"]
 
+// Gestion d'équipe : réservée à l'admin (invitations, suppression de comptes).
+export const ADMIN_ONLY = ["/users", "/api/users"]
+
 export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrateur",
   member: "Membre (accès complet)",
@@ -37,9 +40,24 @@ export function isAllowedForScope(pathname: string, scope: { allow: string[] }):
   )
 }
 
+// Accès d'une REQUÊTE selon le rôle, la méthode et le chemin.
+// - admin / member : tout.
+// - sous-rôle (influence/sav) : ÉCRITURE dans son espace (allow) ; LECTURE (GET +
+//   pages) partout ailleurs ; gestion d'équipe (/users) interdite ; écriture API
+//   hors espace propre interdite (vue seule).
+export function isRequestAllowed(pathname: string, method: string, role: string): boolean {
+  const scope = ROLE_SCOPE[role]
+  if (!scope) return true
+  if (isAllowedForScope(pathname, scope)) return true // espace propre → complet
+  if (ADMIN_ONLY.some((p) => prefixMatch(pathname, p))) return false // équipe = admin
+  if (!pathname.startsWith("/api/")) return true // pages = lecture autorisée
+  return method === "GET" // API hors espace : seul le GET (vue) passe
+}
+
 // Un item de navigation (par href de page) est-il visible pour ce rôle ?
 export function navVisibleForRole(href: string, role: string | null | undefined): boolean {
   const scope = role ? ROLE_SCOPE[role] : undefined
   if (!scope) return true // admin / member → tout
-  return scope.allow.some((p) => !p.startsWith("/api") && prefixMatch(href, p))
+  // Sous-rôles : voient toute la navigation (lecture), sauf la gestion d'équipe.
+  return !ADMIN_ONLY.some((p) => prefixMatch(href, p))
 }
