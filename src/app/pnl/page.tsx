@@ -70,17 +70,20 @@ export default function PnLPage() {
   const [detailName, setDetailName] = useState("")
 
   // ─── Load data ────────────────────────────────────────────────
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  // silent = recharge en arrière-plan sans le spinner plein écran (pas de "refresh"
+  // visible). Utilisé après les opérations structurelles ; les éditions de cellule,
+  // elles, ne rechargent plus du tout (mise à jour locale optimiste).
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const res = await fetch(`/api/pnl?year=${year}`, { cache: "no-store" })
       const json = await res.json()
       if (json.error) throw new Error(json.error)
       setLines(json.lines || [])
     } catch {
-      setLines([])
+      if (!silent) setLines([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [year])
 
@@ -152,20 +155,29 @@ export default function PnLPage() {
     const existing = row.months[month]
     if (existing) {
       if (existing.amount === signed) return
-      await fetch("/api/pnl", {
+      // Mise à jour locale optimiste : la cellule change instantanément, sans rechargement.
+      // L'édition fige la cellule (source:"manual") côté UI comme côté API.
+      setLines((prev) =>
+        prev.map((l) => (l.id === existing.id ? { ...l, amount: signed, source: "manual" } : l))
+      )
+      const res = await fetch("/api/pnl", {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: existing.id, amount: signed }),
       })
+      if (!res.ok) fetchData(true) // resync discret si l'écriture a échoué
     } else {
-      await fetch("/api/pnl", {
+      // Cellule inexistante : on a besoin de l'id renvoyé → on attend la réponse puis on l'insère.
+      const res = await fetch("/api/pnl", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           category: row.category, parent: row.parent, subcategory: row.subcategory,
           month, year, amount: signed, source: "manual", sort_order: row.sort_order,
         }),
       })
+      const json = await res.json().catch(() => null)
+      if (json?.line) setLines((prev) => [...prev, json.line])
+      else fetchData(true)
     }
-    await fetchData()
   }
 
   // Réactiver l'auto sur une cellule figée puis recalculer
@@ -175,7 +187,7 @@ export default function PnLPage() {
       body: JSON.stringify({ id, source: "auto" }),
     })
     await fetch(`/api/pnl/sync?year=${year}`, { method: "POST" })
-    await fetchData()
+    await fetchData(true)
   }
 
   // ─── Recalculer l'auto ─────────────────────────────────────────
@@ -183,7 +195,7 @@ export default function PnLPage() {
     setSyncing(true)
     try {
       await fetch(`/api/pnl/sync?year=${year}`, { method: "POST" })
-      await fetchData()
+      await fetchData(true)
     } finally {
       setSyncing(false)
     }
@@ -207,7 +219,7 @@ export default function PnLPage() {
       }
       setShowAddRow(false)
       setNewRow({ category: REVENUE_CAT, subcategory: "" })
-      await fetchData()
+      await fetchData(true)
     } finally {
       setSaving(false)
     }
@@ -230,7 +242,7 @@ export default function PnLPage() {
       }
       setAddDetailFor(null)
       setDetailName("")
-      await fetchData()
+      await fetchData(true)
     } finally {
       setSaving(false)
     }
@@ -242,7 +254,7 @@ export default function PnLPage() {
       method: "DELETE", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category: row.category, parent: row.parent, subcategory: row.subcategory, year }),
     })
-    await fetchData()
+    await fetchData(true)
   }
 
   async function deleteGroup(category: string, parent: string) {
@@ -251,7 +263,7 @@ export default function PnLPage() {
       method: "DELETE", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ category, parent, year, deleteGroup: true }),
     })
-    await fetchData()
+    await fetchData(true)
   }
 
   function toggleGroup(key: string) {
