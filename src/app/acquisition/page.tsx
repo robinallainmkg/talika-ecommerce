@@ -370,12 +370,18 @@ export default function AcquisitionPage() {
 
                           {/* New Customers + CPA */}
                           <div className="grid grid-cols-2 gap-3">
-                            {channel.new_customers != null && channel.new_customers > 0 && (
+                            {channel.new_customers != null && channel.new_customers > 0 ? (
                               <div className="rounded-lg bg-violet-50 p-2.5 text-center">
                                 <div className="text-xs text-violet-600 font-medium">Nouveaux Clients</div>
                                 <div className="text-lg font-bold text-violet-700">{channel.new_customers}</div>
                               </div>
-                            )}
+                            ) : channel.new_customers == null ? (
+                              <div className="rounded-lg bg-zinc-50 p-2.5 text-center">
+                                <div className="text-xs text-zinc-500 font-medium">Nouveaux Clients</div>
+                                <div className="text-sm font-semibold text-zinc-400 leading-tight mt-0.5">non attribuable seul</div>
+                                <div className="text-[10px] text-zinc-400">→ voir Boussole</div>
+                              </div>
+                            ) : null}
                             {channel.cpa != null && channel.cpa > 0 && (
                               <div className="rounded-lg bg-amber-50 p-2.5 text-center">
                                 <div className="text-xs text-amber-600 font-medium">CPA</div>
