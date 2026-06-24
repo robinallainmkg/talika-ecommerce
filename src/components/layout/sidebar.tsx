@@ -153,6 +153,17 @@ export function Sidebar() {
         }
       }
     } catch { /* silent */ }
+    // Badge opportunités en attente
+    try {
+      const res = await fetch("/api/opportunities?status=pending")
+      const data = await res.json()
+      if (Array.isArray(data) && data.length > 0) {
+        grouped["/opportunities"] = {
+          count: data.length,
+          labels: data.slice(0, 3).map((o: { title: string }) => o.title),
+        }
+      }
+    } catch { /* silent */ }
     setBadges(grouped)
   }, [])
 
