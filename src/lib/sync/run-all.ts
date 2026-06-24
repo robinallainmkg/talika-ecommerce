@@ -20,6 +20,9 @@ import { POST as syncObjectivesRoute } from "@/app/api/objectives/sync/route"
 import { POST as syncKlaviyoRoute } from "@/app/api/klaviyo/sync/route"
 import { POST as syncGoogleRoute } from "@/app/api/google/sync/route"
 import { POST as syncMetaRoute } from "@/app/api/meta/sync/route"
+import { POST as syncAmazonRoute } from "@/app/api/amazon/sync/route"
+import { isAmazonConfigured } from "@/lib/integrations/amazon"
+import { isAmazonAdsConfigured } from "@/lib/integrations/amazon-ads"
 
 export interface SyncStep {
   key: string
@@ -194,15 +197,23 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     if (infCodes && infCodes.length > 0) {
       const codeMap = new Map(infCodes.map((c) => [c.code.toUpperCase(), c.influencer_id]))
 
+      // 1. Construire toutes les lignes candidates EN MÉMOIRE (zéro appel DB dans la
+      //    boucle). Avant : un insert() par line item = des centaines d'allers-retours
+      //    Supabase → ~100 s et timeout du cron. Maintenant : 1 SELECT + inserts en masse.
+      const candidates: Record<string, unknown>[] = []
+      const matchedOrderIds = new Set<string>()
+      const matchedInfluencerIds = new Set<string>()
       for (const order of orders) {
         for (const dc of order.discount_codes || []) {
           const code = (dc.code || "").toUpperCase().trim()
           const influencerId = codeMap.get(code)
           if (!influencerId) continue
           matchedOrders++
+          matchedOrderIds.add(String(order.id))
+          matchedInfluencerIds.add(influencerId)
 
           for (const item of order.line_items || []) {
-            const { error } = await supabase.from("influencer_product_sales").insert({
+            candidates.push({
               influencer_id: influencerId,
               discount_code: code,
               shopify_order_id: String(order.id),
@@ -215,10 +226,59 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
               quantity: item.quantity || 1,
               line_price: parseFloat(item.price || "0") * (item.quantity || 1),
             })
-            if (error?.code === "23505") continue // doublon
-            if (!error) syncedProducts++
           }
         }
+      }
+
+      if (candidates.length > 0) {
+        // 2. Clés déjà présentes en base, bornées aux commandes matchées (chunks pour
+        //    ne pas exploser la longueur du IN). Reproduit l'unicité idx_ips_unique =
+        //    (shopify_order_id, product_id, COALESCE(variant_id,'')).
+        const keyOf = (r: { shopify_order_id: unknown; product_id: unknown; variant_id: unknown }) =>
+          `${r.shopify_order_id}|${r.product_id}|${r.variant_id ?? ""}`
+        const existing = new Set<string>()
+        const orderIdList = [...matchedOrderIds]
+        for (let i = 0; i < orderIdList.length; i += 200) {
+          const { data: rows } = await supabase
+            .from("influencer_product_sales")
+            .select("shopify_order_id, product_id, variant_id")
+            .in("shopify_order_id", orderIdList.slice(i, i + 200))
+          for (const r of rows || []) existing.add(keyOf(r))
+        }
+
+        // 3. Filtrer doublons (déjà en base + intra-lot) puis insert en masse (paquets
+        //    de 500). Pré-filtrer évite tout 23505 → pas d'échec de paquet entier.
+        const seen = new Set<string>()
+        const toInsert = candidates.filter((c) => {
+          const k = keyOf(c as { shopify_order_id: unknown; product_id: unknown; variant_id: unknown })
+          if (existing.has(k) || seen.has(k)) return false
+          seen.add(k)
+          return true
+        })
+
+        for (let i = 0; i < toInsert.length; i += 500) {
+          const batch = toInsert.slice(i, i + 500)
+          const { error } = await supabase.from("influencer_product_sales").insert(batch)
+          if (!error) syncedProducts += batch.length
+        }
+      }
+
+      // 4. Recalcul des totaux par influenceuse matchée (même formule canonique que
+      //    /api/shopify/sync : total_sales = Σ line_price, total_orders = nb commandes
+      //    distinctes). Le cron ne le faisait pas → les revenus influence du dashboard
+      //    restaient figés tant qu'on ne cliquait pas un sync par source.
+      for (const id of matchedInfluencerIds) {
+        const { data: prodSales } = await supabase
+          .from("influencer_product_sales")
+          .select("line_price, shopify_order_id")
+          .eq("influencer_id", id)
+        if (!prodSales) continue
+        const totalSales = prodSales.reduce((s, r) => s + Number(r.line_price), 0)
+        const uniqueOrders = new Set(prodSales.map((r) => r.shopify_order_id)).size
+        await supabase
+          .from("influencers")
+          .update({ total_sales: totalSales, total_orders: uniqueOrders })
+          .eq("id", id)
       }
     }
     return `${matchedOrders} commandes matchées, ${syncedProducts} nouveaux produits`
@@ -279,6 +339,31 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
       out.push(`${t.year}-${t.month}: ${r.summary?.spend ?? "?"}€ (ROAS ${r.summary?.roas ?? "—"})`)
     }
     return out.join(" · ")
+  })
+
+  // ── 7b. Amazon Seller (SP-API : CA + frais) + Amazon Ads (dépense) ──
+  // Comme Meta/Google : le mois courant + les ~2 dernières semaines sont partiels
+  // (décalage de règlement Amazon). On resync les 3 derniers mois (défaut de la
+  // route) pour qu'un mois clos se verrouille sur son total réel.
+  // Tant que les credentials ne sont pas posés → étape IGNORÉE (pas en erreur),
+  // pour ne pas afficher un indicateur rouge permanent en attendant l'API.
+  await step("amazon", "Amazon (Seller + Ads)", async () => {
+    if (!isAmazonConfigured() && !isAmazonAdsConfigured()) {
+      return "non configuré — ignoré (AMAZON_*_FR absents)"
+    }
+    const amzReq = new Request("http://internal/api/amazon/sync", { method: "POST" })
+    const data = await (await syncAmazonRoute(amzReq)).json()
+    const months = (data.months || [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((m: any) => `${m.year}-${m.month}: CA ${m.revenue ?? "?"}€ / frais ${m.fees ?? "?"}€ / ads ${m.ads ?? "?"}€`)
+      .join(" · ")
+    if (!data.success) {
+      // 207 partiel : on remonte les erreurs sans masquer ce qui a marché
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const errs = (data.months || []).flatMap((m: any) => m.errors || [])
+      throw new Error(`${errs.join(" | ") || data.error || "échec sync Amazon"}${months ? ` (${months})` : ""}`)
+    }
+    return months || "ok"
   })
 
   // ── 8. Catalogue Shopify → KB chat IA ──
