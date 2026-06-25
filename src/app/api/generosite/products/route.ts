@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { loadCodeCategoryMap } from "@/lib/generosite"
-import { normalizeCode } from "@/lib/codes"
+import { normalizeCode, GENEROSITE_EXCLUDED_TYPES } from "@/lib/codes"
 
 export const dynamic = "force-dynamic"
 
@@ -105,8 +105,24 @@ export async function GET(request: Request) {
             const app = discApplications[alloc.discount_application_index ?? -1]
             let cat = "auto_discounts"
             if (app?.type === "discount_code" && app?.code) {
+              // Normal case: explicit code in discount_applications
               cat = categorize(app.code)
+            } else if (app?.type === "manual") {
+              // Draft orders / POS: Shopify stores type="manual" with code=null
+              // even when a discount code was entered. Fall back to order.discount_codes.
+              const codes: any[] = order.discount_codes || []
+              if (codes.length === 1 && codes[0].code) {
+                cat = categorize(codes[0].code)
+              } else if (codes.length > 1) {
+                // Multiple codes: use the one with matching amount if possible
+                const matchingCode = codes.find((dc: any) =>
+                  Math.abs(parseFloat(dc.amount || "0") - amt) < 0.5
+                )
+                cat = (matchingCode?.code ? categorize(matchingCode.code) : categorize(codes[0].code)) || "auto_discounts"
+              }
+              // If no codes → genuine manual discount → stays "auto_discounts"
             }
+            // type "automatic" / "script" (GWP, volume) stays "auto_discounts"
             byCat[cat] = (byCat[cat] || 0) + amt
           }
         } else if (orderLineTotal > 0 && orderDiscount > 0) {
@@ -162,7 +178,9 @@ export async function GET(request: Request) {
     const products: VariantStats[] = []
     for (const p of variantMap.values()) {
       const totalGen = p.discount_allocated + p.prix_barre_discount
-      p.generosite_pct = p.ca_brut > 0 ? Math.round((totalGen / p.ca_brut) * 1000) / 10 : 0
+      // Exclude SAV from the pct, consistent with the par-catégorie canonical formula
+      const excluded = GENEROSITE_EXCLUDED_TYPES.reduce((s, t) => s + (p.by_category[t] || 0), 0)
+      p.generosite_pct = p.ca_brut > 0 ? Math.round(((totalGen - excluded) / p.ca_brut) * 1000) / 10 : 0
       p.avg_price = p.quantity_sold > 0 ? Math.round((p.revenue / p.quantity_sold) * 100) / 100 : 0
       p.avg_compare_at = p.quantity_sold > 0 ? Math.round((p.ca_brut / p.quantity_sold) * 100) / 100 : 0
       p.discount_allocated = Math.round(p.discount_allocated * 100) / 100
