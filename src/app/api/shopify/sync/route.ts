@@ -104,6 +104,10 @@ export async function POST(request: Request) {
           quantity: li.quantity,
           price: li.price,
           compare_at_price: li.compare_at_price || variantPriceMap.get(li.variant_id) || null,
+          discount_allocations: (li.discount_allocations || []).map((da: any) => ({
+            amount: da.amount,
+            discount_application_index: da.discount_application_index,
+          })),
         })),
         shipping_lines: (o.shipping_lines || []).map((sl: any) => ({
           title: sl.title,

@@ -126,7 +126,7 @@ export default function GenerositePage() {
   const [products, setProducts] = useState<VariantStats[]>([])
   const [productMonth, setProductMonth] = useState(currentMonth)
   const [productsLoading, setProductsLoading] = useState(false)
-  const [sortField, setSortField] = useState<"generosite_pct" | "discount_allocated" | "quantity_sold" | "revenue">("generosite_pct")
+  const [sortField, setSortField] = useState<"generosite_pct" | "discount_allocated" | "quantity_sold" | "revenue">("discount_allocated")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -199,12 +199,13 @@ export default function GenerositePage() {
         body: JSON.stringify({ type: "orders", year: currentYear, month: currentMonth }),
       })
       await fetchAllMonths()
+      if (tab === "products") await fetchProducts(productMonth)
     } catch (err) {
       console.error("Sync failed:", err)
     } finally {
       setSyncing(false)
     }
-  }, [currentYear, currentMonth, fetchAllMonths])
+  }, [currentYear, currentMonth, fetchAllMonths, tab, fetchProducts, productMonth])
 
   useEffect(() => {
     fetchAllMonths()

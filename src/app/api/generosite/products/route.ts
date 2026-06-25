@@ -69,11 +69,20 @@ export async function GET(request: Request) {
         const sku = item.sku || ""
         const key = variantId ? String(variantId) : `${item.product_id}_${sku}`
 
+        // Skip test/staging products
+        const title: string = item.title || ""
+        const variantTitle: string = item.variant_title || ""
+        if (title.toLowerCase().includes("staging") || variantTitle.toLowerCase().includes("staging")) continue
+
         const catalogPrice = (compareAt > price && compareAt > 0) ? compareAt : price
         const prixBarreDiscount = (compareAt > price && compareAt > 0) ? (compareAt - price) * qty : 0
 
         const lineValue = price * qty
-        const discountShare = orderLineTotal > 0 ? (lineValue / orderLineTotal) * orderDiscount : 0
+        // Use Shopify's exact discount_allocations when available; fall back to proportional
+        const allocations: any[] = item.discount_allocations || []
+        const discountShare = allocations.length > 0
+          ? allocations.reduce((s: number, da: any) => s + parseFloat(da.amount || "0"), 0)
+          : orderLineTotal > 0 ? (lineValue / orderLineTotal) * orderDiscount : 0
 
         const existing = variantMap.get(key)
         if (existing) {
