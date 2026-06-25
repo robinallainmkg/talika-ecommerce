@@ -279,6 +279,14 @@ export default function GenerositePage() {
       .sort((a, b) => b.discount - a.discount)
   }
 
+  // Get amount for a specific code in a specific category/month
+  const getCodeAmountForMonth = (catId: string, code: string, month: number): number => {
+    const d = monthlyData[month]
+    if (!d) return 0
+    const cat = d.categories.find(c => c.id === catId)
+    return cat?.codes?.find(c => c.code === code)?.discount || 0
+  }
+
   // Filter categories: only show those with at least one non-zero month
   const visibleCategories = CATEGORY_ORDER.filter((catId) => {
     if (!categoryLabels[catId]) return false
@@ -422,9 +430,14 @@ export default function GenerositePage() {
                               <td className="py-1.5 pr-4 pl-10">
                                 <span className="font-mono text-xs text-zinc-500">{code.code}</span>
                               </td>
-                              <td colSpan={activeMonths.length} className="py-1.5 text-right text-xs text-zinc-500 pr-4">
-                                {formatCurrency(code.discount)} — {code.count} utilisations
-                              </td>
+                              {activeMonths.map((m) => {
+                                const amt = getCodeAmountForMonth(catId, code.code, m)
+                                return (
+                                  <td key={m} className={`py-1.5 text-right text-xs text-zinc-400 ${m === currentMonth ? "bg-zinc-50" : ""}`}>
+                                    {amt > 0 ? formatCurrency(amt) : "—"}
+                                  </td>
+                                )
+                              })}
                             </tr>
                           ))}
                           </>
