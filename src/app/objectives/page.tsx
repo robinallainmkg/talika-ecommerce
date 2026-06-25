@@ -180,6 +180,9 @@ export default function ObjectivesPage() {
       : 0
 
   const croissanceProgress = Math.min(100, Math.max(0, (croissanceActual / 20) * 100))
+  // Progression du CA réalisé (YTD) vers l'objectif annuel total (12 mois = Σ ca_2025 × 1,20)
+  const annualProgress =
+    totalTarget2026 > 0 ? Math.min(100, Math.max(0, (totalCA2026 / totalTarget2026) * 100)) : 0
 
   // ---- Status helpers ----
   function growthStatus(croissance: number) {
@@ -294,7 +297,7 @@ export default function ObjectivesPage() {
               <Card>
                 <CardContent>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-zinc-500">Croissance CA</span>
+                    <span className="text-sm font-medium text-zinc-500">Chiffre d&apos;affaires</span>
                     <span className="text-zinc-400">
                       <TrendingUp className="h-5 w-5" />
                     </span>
@@ -317,6 +320,24 @@ export default function ObjectivesPage() {
                   <div className="flex justify-between mt-1">
                     <span className="text-xs text-zinc-400">{formatCurrency(totalCA2026)} (YTD)</span>
                     <span className="text-xs text-zinc-400">vs {formatCurrency(ytdCA2025)} en 2025</span>
+                  </div>
+
+                  {/* Progression vers l'objectif annuel (12 mois) */}
+                  <div className="mt-3 pt-3 border-t border-zinc-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-zinc-400">Objectif annuel (12 mois)</span>
+                      <span className="text-xs font-semibold text-zinc-600">{annualProgress.toFixed(0)}%</span>
+                    </div>
+                    <div className="w-full bg-zinc-100 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                        style={{ width: `${annualProgress}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-xs text-zinc-400">{formatCurrency(totalCA2026)} réalisés</span>
+                      <span className="text-xs text-zinc-400">sur {formatCurrency(totalTarget2026)}</span>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
