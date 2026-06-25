@@ -22,10 +22,13 @@ export const CODE_TYPE_LABELS: Record<string, string> = {
   offre_site: "Prix barrés", // démarques compare_at_price (soldes) — alimenté par le calcul line-items, pas par un code
   auto_discounts: "Remises automatiques (volume)",
   logistique: "Erreurs Logistiques (La Poste)",
-  service_client: "Retours / SAV (exclu)",
+  service_client: "Retours / SAV",
+  laphal: "Laphal 3PL",
   presse: "Presse",
   autre: "Autres codes",
 }
 
-// Catégories EXCLUES du taux de générosité (SAV = pas de la vraie générosité).
-export const GENEROSITE_EXCLUDED_TYPES = ["service_client"] as const
+// Catégories EXCLUES du taux de générosité (pas de perte réelle pour Talika).
+// service_client = remises SAV (client remboursé, produit retourné)
+// laphal = codes émis quand Laphal (3PL) fait une erreur de prépa → Laphal rembourse, Talika ne perd rien.
+export const GENEROSITE_EXCLUDED_TYPES = ["service_client", "laphal"] as const

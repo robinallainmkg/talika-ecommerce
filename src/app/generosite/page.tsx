@@ -20,6 +20,7 @@ import {
   Package,
   ArrowUpDown,
 } from "lucide-react"
+import { GENEROSITE_EXCLUDED_TYPES } from "@/lib/codes"
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -87,6 +88,7 @@ const CATEGORY_ICONS: Record<string, typeof Gift> = {
   offre_site: Tag,
   auto_discounts: Percent,
   logistique: Truck,
+  laphal: Package,
   service_client: Headphones,
   autre: HelpCircle,
 }
@@ -98,7 +100,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   offre_site: "text-amber-600",
   auto_discounts: "text-cyan-600",
   logistique: "text-red-600",
-  service_client: "text-zinc-500",
+  laphal: "text-zinc-400",
+  service_client: "text-zinc-400",
   autre: "text-zinc-500",
 }
 
@@ -109,6 +112,7 @@ const CATEGORY_ORDER = [
   "offre_site",
   "auto_discounts",
   "logistique",
+  "laphal",
   "service_client",
   "autre",
 ]
@@ -120,6 +124,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   offre_site: "Offre site",
   auto_discounts: "Remises auto",
   logistique: "Logistique",
+  laphal: "Laphal",
   service_client: "SAV",
   autre: "Autres",
   prix_barres: "Prix barrés",
@@ -382,6 +387,7 @@ export default function GenerositePage() {
                         const colorClass = CATEGORY_COLORS[catId] || "text-zinc-500"
                         const isExpanded = expandedCats.has(catId)
                         const codes = getCodesForCategory(catId)
+                        const isExcluded = (GENEROSITE_EXCLUDED_TYPES as readonly string[]).includes(catId)
                         return (
                           <>
                           <tr key={catId} className="border-b border-zinc-50 hover:bg-zinc-50/50 cursor-pointer" onClick={() => toggleCat(catId)}>
@@ -391,7 +397,10 @@ export default function GenerositePage() {
                                   isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-zinc-400" /> : <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
                                 ) : null}
                                 <Icon className={`h-4 w-4 ${colorClass}`} />
-                                <span className="text-zinc-700">{categoryLabels[catId]}</span>
+                                <span className={isExcluded ? "text-zinc-400" : "text-zinc-700"}>{categoryLabels[catId]}</span>
+                                {isExcluded && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-400 font-medium leading-none">exclu</span>
+                                )}
                               </div>
                             </td>
                             {activeMonths.map((m) => {
@@ -400,24 +409,26 @@ export default function GenerositePage() {
                               const hasPrev = m > 1 && prevPct > 0
                               const delta = hasPrev ? pct - prevPct : 0
                               const trendColor = !hasPrev || pct === 0
-                                ? "text-zinc-500"
-                                : delta > 0.3
-                                  ? "text-red-600"
-                                  : delta < -0.3
-                                    ? "text-emerald-600"
-                                    : "text-zinc-600"
+                                ? "text-zinc-400"
+                                : isExcluded
+                                  ? "text-zinc-400"
+                                  : delta > 0.3
+                                    ? "text-red-600"
+                                    : delta < -0.3
+                                      ? "text-emerald-600"
+                                      : "text-zinc-600"
                               return (
                                 <td
                                   key={m}
                                   className={`py-2.5 text-right ${trendColor} ${
                                     m === currentMonth ? "bg-zinc-50" : ""
                                   }`}
-                                  title={pct > 0 ? `${formatCurrency(getCategoryDiscount(catId, m))}${hasPrev ? ` (${delta > 0 ? "+" : ""}${delta.toFixed(1)}pts)` : ""}` : ""}
+                                  title={pct > 0 ? `${formatCurrency(getCategoryDiscount(catId, m))}${hasPrev && !isExcluded ? ` (${delta > 0 ? "+" : ""}${delta.toFixed(1)}pts)` : ""}` : ""}
                                 >
                                   {pct > 0 ? (
                                     <span className="flex items-center justify-end gap-1">
-                                      {hasPrev && delta > 0.3 && <span className="text-[10px]">▲</span>}
-                                      {hasPrev && delta < -0.3 && <span className="text-[10px]">▼</span>}
+                                      {!isExcluded && hasPrev && delta > 0.3 && <span className="text-[10px]">▲</span>}
+                                      {!isExcluded && hasPrev && delta < -0.3 && <span className="text-[10px]">▼</span>}
                                       {pct.toFixed(1)}%
                                     </span>
                                   ) : "—"}
@@ -482,7 +493,10 @@ export default function GenerositePage() {
 
                       {/* Taux global row */}
                       <tr className="font-semibold">
-                        <td className="py-2.5 pr-4 text-zinc-500">Taux global (%)</td>
+                        <td className="py-2.5 pr-4 text-zinc-500">
+                          <span>Taux global </span>
+                          <span className="text-[10px] font-normal text-zinc-400">(hors exclu)</span>
+                        </td>
                         {activeMonths.map((m) => {
                           const rate = getMonthRate(m)
                           const prevRate = m > 1 ? getMonthRate(m - 1) : 0
@@ -577,7 +591,7 @@ export default function GenerositePage() {
                           const isExpanded = expandedProducts.has(rowKey)
                           const isHigh = p.generosite_pct > 30
                           const byCat = p.by_category || {}
-                          const catOrder = ["influence", "gifting", "welcome", "offre_site", "auto_discounts", "logistique", "service_client", "presse", "autre", "prix_barres"]
+                          const catOrder = ["influence", "gifting", "welcome", "offre_site", "auto_discounts", "logistique", "laphal", "service_client", "presse", "autre", "prix_barres"]
                           const catEntries = [
                             ...catOrder.filter(c => (byCat[c] || 0) > 0).map(c => [c, byCat[c]] as [string, number]),
                             ...Object.entries(byCat).filter(([c]) => !catOrder.includes(c) && byCat[c] > 0),
@@ -616,19 +630,25 @@ export default function GenerositePage() {
                                 <td className="py-2 text-right text-zinc-700 font-medium">{formatCurrency(p.revenue)}</td>
                               </tr>
                               {isExpanded && catEntries.length > 0 && catEntries.map(([cat, amt]) => {
+                                const isCatExcluded = (GENEROSITE_EXCLUDED_TYPES as readonly string[]).includes(cat)
                                 const Icon = cat === "prix_barres" ? Tag : (CATEGORY_ICONS[cat] || HelpCircle)
-                                const color = cat === "prix_barres" ? "text-amber-500" : (CATEGORY_COLORS[cat] || "text-zinc-400")
+                                const color = isCatExcluded ? "text-zinc-400" : (cat === "prix_barres" ? "text-amber-500" : (CATEGORY_COLORS[cat] || "text-zinc-400"))
                                 const label = CATEGORY_LABELS[cat] || cat
                                 const pct = p.ca_brut > 0 ? Math.round((amt / p.ca_brut) * 1000) / 10 : 0
                                 return (
-                                  <tr key={`${rowKey}-${cat}`} className="bg-zinc-50/60 border-b border-zinc-50">
+                                  <tr key={`${rowKey}-${cat}`} className={`border-b border-zinc-50 ${isCatExcluded ? "bg-zinc-100/40" : "bg-zinc-50/60"}`}>
                                     <td className="py-1.5 pl-7 pr-2" colSpan={2}>
                                       <div className="flex items-center gap-1.5">
                                         <Icon className={`h-3 w-3 ${color}`} />
-                                        <span className="text-xs text-zinc-500">{label}</span>
+                                        <span className={`text-xs ${isCatExcluded ? "text-zinc-400" : "text-zinc-500"}`}>{label}</span>
+                                        {isCatExcluded && (
+                                          <span className="text-[10px] px-1 py-0.5 rounded bg-zinc-200 text-zinc-400 font-medium leading-none">exclu</span>
+                                        )}
                                       </div>
                                     </td>
-                                    <td className={`py-1.5 text-right text-xs font-medium ${color}`}>{pct}%</td>
+                                    <td className={`py-1.5 text-right text-xs font-medium ${color}`}>
+                                      {isCatExcluded ? <s>{pct}%</s> : `${pct}%`}
+                                    </td>
                                     <td className="py-1.5 text-right text-xs text-zinc-500" colSpan={6}>{formatCurrency(amt)}</td>
                                   </tr>
                                 )
