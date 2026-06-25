@@ -72,6 +72,14 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
     if (json.url) window.open(json.url, "_blank")
   }
 
+  async function deleteInvoice(id: string) {
+    if (!confirm("Supprimer cette facture ? (le coût saisi du mois n'est pas modifié)")) return
+    setData((prev) => (prev ? { ...prev, invoices: prev.invoices.filter((iv) => iv.id !== id) } : prev))
+    await fetch("/api/influencers/invoices", {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+    })
+  }
+
   async function uploadDoc(file: File) {
     if (!influencerId) return
     setUploadingDoc(true)
@@ -219,16 +227,19 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
               {data!.invoices.length === 0 ? <p className="text-sm text-zinc-400">Aucune facture jointe.</p> : (
                 <div className="space-y-1">
                   {data!.invoices.map((iv) => (
-                    <button key={iv.id} onClick={() => viewInvoice(iv.id)} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-zinc-50">
-                      <span className="inline-flex items-center gap-2 min-w-0">
+                    <div key={iv.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-50">
+                      <button onClick={() => viewInvoice(iv.id)} className="inline-flex min-w-0 items-center gap-2 text-left">
                         <FileText className="h-4 w-4 shrink-0 text-zinc-400" />
                         <span className="truncate text-zinc-600">{periodLabel(iv.year, iv.month)} · {iv.file_name}</span>
-                      </span>
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-zinc-300" />
+                      </button>
                       <span className="ml-2 inline-flex shrink-0 items-center gap-1.5">
                         {iv.amount != null && <span className="text-zinc-500">{formatCurrency(iv.amount)}</span>}
-                        <ExternalLink className="h-3.5 w-3.5 text-zinc-400" />
+                        <button onClick={() => deleteInvoice(iv.id)} className="text-zinc-300 hover:text-red-500" title="Supprimer la facture">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </span>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}
