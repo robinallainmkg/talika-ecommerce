@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { loadCodeCategoryMap } from "@/lib/generosite"
+import { normalizeCode } from "@/lib/codes"
 
 export const dynamic = "force-dynamic"
 
@@ -24,6 +26,7 @@ interface VariantStats {
   avg_price: number
   avg_compare_at: number
   orders: number
+  by_category: Record<string, number>
 }
 
 export async function GET(request: Request) {
@@ -34,27 +37,35 @@ export async function GET(request: Request) {
 
     const months = month ? [parseInt(month)] : Array.from({ length: 12 }, (_, i) => i + 1)
 
-    const allOrders: any[] = []
-    for (const m of months) {
-      const { data: cacheEntry } = await supabase
-        .from("data_cache")
-        .select("data")
-        .eq("key", `shopify_orders_${year}_${m}`)
-        .single()
-      const orders = (cacheEntry?.data as any)?.orders || []
-      allOrders.push(...orders)
-    }
+    const [allOrdersRaw, categoryMap] = await Promise.all([
+      (async () => {
+        const all: any[] = []
+        for (const m of months) {
+          const { data: cacheEntry } = await supabase
+            .from("data_cache")
+            .select("data")
+            .eq("key", `shopify_orders_${year}_${m}`)
+            .single()
+          all.push(...((cacheEntry?.data as any)?.orders || []))
+        }
+        return all
+      })(),
+      loadCodeCategoryMap(),
+    ])
 
-    if (allOrders.length === 0) {
+    if (allOrdersRaw.length === 0) {
       return NextResponse.json({ products: [], period: { year, month: month ? parseInt(month) : null } })
     }
 
+    const categorize = (code: string) => categoryMap.get(normalizeCode(code)) || "autre"
+
     const variantMap = new Map<string, VariantStats>()
 
-    for (const order of allOrders) {
+    for (const order of allOrdersRaw) {
       if (order.financial_status === "voided" || order.cancelled_at) continue
       const orderDiscount = parseFloat(order.total_discounts || "0")
-      const lineItems = order.line_items || []
+      const lineItems: any[] = order.line_items || []
+      const discApplications: any[] = order.discount_applications || []
 
       let orderLineTotal = 0
       for (const item of lineItems) {
@@ -62,6 +73,10 @@ export async function GET(request: Request) {
       }
 
       for (const item of lineItems) {
+        const title: string = item.title || ""
+        const variantTitle: string = item.variant_title || ""
+        if (title.toLowerCase().includes("staging") || variantTitle.toLowerCase().includes("staging")) continue
+
         const price = parseFloat(item.price || "0")
         const compareAt = parseFloat(item.compare_at_price || "0")
         const qty = item.quantity || 1
@@ -69,20 +84,47 @@ export async function GET(request: Request) {
         const sku = item.sku || ""
         const key = variantId ? String(variantId) : `${item.product_id}_${sku}`
 
-        // Skip test/staging products
-        const title: string = item.title || ""
-        const variantTitle: string = item.variant_title || ""
-        if (title.toLowerCase().includes("staging") || variantTitle.toLowerCase().includes("staging")) continue
-
         const catalogPrice = (compareAt > price && compareAt > 0) ? compareAt : price
         const prixBarreDiscount = (compareAt > price && compareAt > 0) ? (compareAt - price) * qty : 0
-
         const lineValue = price * qty
+
         // Use Shopify's exact discount_allocations when available; fall back to proportional
         const allocations: any[] = item.discount_allocations || []
         const discountShare = allocations.length > 0
           ? allocations.reduce((s: number, da: any) => s + parseFloat(da.amount || "0"), 0)
           : orderLineTotal > 0 ? (lineValue / orderLineTotal) * orderDiscount : 0
+
+        // Build per-category breakdown
+        const byCat: Record<string, number> = {}
+        if (prixBarreDiscount > 0) byCat["prix_barres"] = prixBarreDiscount
+
+        if (allocations.length > 0) {
+          for (const alloc of allocations) {
+            const amt = parseFloat(alloc.amount || "0")
+            if (amt <= 0) continue
+            const app = discApplications[alloc.discount_application_index ?? -1]
+            let cat = "auto_discounts"
+            if (app?.type === "discount_code" && app?.code) {
+              cat = categorize(app.code)
+            }
+            byCat[cat] = (byCat[cat] || 0) + amt
+          }
+        } else if (orderLineTotal > 0 && orderDiscount > 0) {
+          // Fallback: proportional, but categorize by order codes
+          const frac = lineValue / orderLineTotal
+          const codes: any[] = order.discount_codes || []
+          let codeSum = 0
+          for (const dc of codes) {
+            const code = dc.code || ""
+            const codeAmt = parseFloat(dc.amount || "0")
+            codeSum += codeAmt
+            const amt = codeAmt * frac
+            if (amt <= 0) continue
+            byCat[code ? categorize(code) : "autre"] = ((byCat[code ? categorize(code) : "autre"]) || 0) + amt
+          }
+          const autoGap = (orderDiscount - codeSum) * frac
+          if (autoGap > 0.01) byCat["auto_discounts"] = (byCat["auto_discounts"] || 0) + autoGap
+        }
 
         const existing = variantMap.get(key)
         if (existing) {
@@ -92,12 +134,15 @@ export async function GET(request: Request) {
           existing.discount_allocated += discountShare
           existing.prix_barre_discount += prixBarreDiscount
           existing.orders += 1
+          for (const [cat, amt] of Object.entries(byCat)) {
+            existing.by_category[cat] = (existing.by_category[cat] || 0) + amt
+          }
         } else {
           variantMap.set(key, {
             product_id: item.product_id || 0,
             variant_id: variantId,
-            title: item.title || "Inconnu",
-            variant_title: item.variant_title || "",
+            title,
+            variant_title: variantTitle,
             sku,
             quantity_sold: qty,
             revenue: lineValue,
@@ -108,6 +153,7 @@ export async function GET(request: Request) {
             avg_price: 0,
             avg_compare_at: 0,
             orders: 1,
+            by_category: { ...byCat },
           })
         }
       }
@@ -123,6 +169,10 @@ export async function GET(request: Request) {
       p.prix_barre_discount = Math.round(p.prix_barre_discount * 100) / 100
       p.revenue = Math.round(p.revenue * 100) / 100
       p.ca_brut = Math.round(p.ca_brut * 100) / 100
+      // Round by_category amounts
+      for (const cat of Object.keys(p.by_category)) {
+        p.by_category[cat] = Math.round(p.by_category[cat] * 100) / 100
+      }
       products.push(p)
     }
 

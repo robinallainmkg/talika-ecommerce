@@ -75,6 +75,7 @@ interface VariantStats {
   avg_price: number
   avg_compare_at: number
   orders: number
+  by_category: Record<string, number>
 }
 
 // ─── Constants ────────────────────────────────────────────────────
@@ -112,6 +113,19 @@ const CATEGORY_ORDER = [
   "autre",
 ]
 
+const CATEGORY_LABELS: Record<string, string> = {
+  gifting: "Dotations",
+  influence: "Influenceurs",
+  welcome: "Codes génériques",
+  offre_site: "Offre site",
+  auto_discounts: "Remises auto",
+  logistique: "Logistique",
+  service_client: "SAV",
+  autre: "Autres",
+  prix_barres: "Prix barrés",
+  presse: "Presse",
+}
+
 const MONTH_LABELS = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
 
 // ─── Page ─────────────────────────────────────────────────────────
@@ -131,6 +145,7 @@ export default function GenerositePage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set())
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
 
   const toggleCat = (catId: string) => {
     setExpandedCats(prev => {
@@ -545,24 +560,67 @@ export default function GenerositePage() {
                         {[...products]
                           .sort((a, b) => sortDir === "desc" ? (b[sortField] - a[sortField]) : (a[sortField] - b[sortField]))
                           .map((p) => {
+                          const rowKey = `${p.variant_id || p.product_id}-${p.sku}`
+                          const isExpanded = expandedProducts.has(rowKey)
                           const isHigh = p.generosite_pct > 30
+                          const byCat = p.by_category || {}
+                          const catOrder = ["influence", "gifting", "welcome", "offre_site", "auto_discounts", "logistique", "service_client", "presse", "autre", "prix_barres"]
+                          const catEntries = [
+                            ...catOrder.filter(c => (byCat[c] || 0) > 0).map(c => [c, byCat[c]] as [string, number]),
+                            ...Object.entries(byCat).filter(([c]) => !catOrder.includes(c) && byCat[c] > 0),
+                          ]
                           return (
-                            <tr key={`${p.variant_id || p.product_id}-${p.sku}`} className="border-b border-zinc-50 hover:bg-zinc-50/50">
-                              <td className="py-2 pr-2">
-                                <div className="text-zinc-900 font-medium text-xs">{p.title}</div>
-                                {p.variant_title && <div className="text-zinc-400 text-[11px]">{p.variant_title}</div>}
-                              </td>
-                              <td className="py-2 text-xs font-mono text-zinc-500">{p.sku || "—"}</td>
-                              <td className={`py-2 text-right font-semibold ${isHigh ? "text-red-600" : p.generosite_pct > 20 ? "text-amber-600" : "text-emerald-600"}`}>
-                                {p.generosite_pct}%
-                              </td>
-                              <td className="py-2 text-right text-zinc-600">{formatCurrency(p.discount_allocated)}</td>
-                              <td className="py-2 text-right text-zinc-600">{p.prix_barre_discount > 0 ? formatCurrency(p.prix_barre_discount) : "—"}</td>
-                              <td className="py-2 text-right text-zinc-600">{p.quantity_sold}</td>
-                              <td className="py-2 text-right text-zinc-600">{formatCurrency(p.avg_price)}</td>
-                              <td className="py-2 text-right text-zinc-500">{p.avg_compare_at !== p.avg_price ? formatCurrency(p.avg_compare_at) : "—"}</td>
-                              <td className="py-2 text-right text-zinc-700 font-medium">{formatCurrency(p.revenue)}</td>
-                            </tr>
+                            <>
+                              <tr
+                                key={rowKey}
+                                className="border-b border-zinc-50 hover:bg-zinc-50/50 cursor-pointer"
+                                onClick={() => setExpandedProducts(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey)
+                                  return next
+                                })}
+                              >
+                                <td className="py-2 pr-2">
+                                  <div className="flex items-center gap-1.5">
+                                    {isExpanded
+                                      ? <ChevronDown className="h-3 w-3 text-zinc-400 shrink-0" />
+                                      : <ChevronRight className="h-3 w-3 text-zinc-400 shrink-0" />}
+                                    <div>
+                                      <div className="text-zinc-900 font-medium text-xs">{p.title}</div>
+                                      {p.variant_title && <div className="text-zinc-400 text-[11px]">{p.variant_title}</div>}
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="py-2 text-xs font-mono text-zinc-500">{p.sku || "—"}</td>
+                                <td className={`py-2 text-right font-semibold ${isHigh ? "text-red-600" : p.generosite_pct > 20 ? "text-amber-600" : "text-emerald-600"}`}>
+                                  {p.generosite_pct}%
+                                </td>
+                                <td className="py-2 text-right text-zinc-600">{formatCurrency(p.discount_allocated)}</td>
+                                <td className="py-2 text-right text-zinc-600">{p.prix_barre_discount > 0 ? formatCurrency(p.prix_barre_discount) : "—"}</td>
+                                <td className="py-2 text-right text-zinc-600">{p.quantity_sold}</td>
+                                <td className="py-2 text-right text-zinc-600">{formatCurrency(p.avg_price)}</td>
+                                <td className="py-2 text-right text-zinc-500">{p.avg_compare_at !== p.avg_price ? formatCurrency(p.avg_compare_at) : "—"}</td>
+                                <td className="py-2 text-right text-zinc-700 font-medium">{formatCurrency(p.revenue)}</td>
+                              </tr>
+                              {isExpanded && catEntries.length > 0 && catEntries.map(([cat, amt]) => {
+                                const Icon = cat === "prix_barres" ? Tag : (CATEGORY_ICONS[cat] || HelpCircle)
+                                const color = cat === "prix_barres" ? "text-amber-500" : (CATEGORY_COLORS[cat] || "text-zinc-400")
+                                const label = CATEGORY_LABELS[cat] || cat
+                                const pct = p.ca_brut > 0 ? Math.round((amt / p.ca_brut) * 1000) / 10 : 0
+                                return (
+                                  <tr key={`${rowKey}-${cat}`} className="bg-zinc-50/60 border-b border-zinc-50">
+                                    <td className="py-1.5 pl-7 pr-2" colSpan={2}>
+                                      <div className="flex items-center gap-1.5">
+                                        <Icon className={`h-3 w-3 ${color}`} />
+                                        <span className="text-xs text-zinc-500">{label}</span>
+                                      </div>
+                                    </td>
+                                    <td className={`py-1.5 text-right text-xs font-medium ${color}`}>{pct}%</td>
+                                    <td className="py-1.5 text-right text-xs text-zinc-500" colSpan={6}>{formatCurrency(amt)}</td>
+                                  </tr>
+                                )
+                              })}
+                            </>
                           )
                         })}
                       </tbody>

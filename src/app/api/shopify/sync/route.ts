@@ -94,6 +94,7 @@ export async function POST(request: Request) {
           target_type: da.target_type,
           type: da.type,
           value: da.value,
+          code: da.code || null,
         })),
         line_items: (o.line_items || []).map((li: any) => ({
           product_id: li.product_id,
