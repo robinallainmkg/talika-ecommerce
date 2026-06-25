@@ -25,6 +25,7 @@ type CustomerOrder = {
   financialStatus: string | null
   fulfillmentStatus: string | null
   trackingUrl: string | null
+  products: { title: string; quantity: number }[]
 }
 
 type Customer = {
@@ -102,10 +103,19 @@ export function VisitorPanel({ conversation }: { conversation: ConversationDetai
         <p className="text-xs text-zinc-400">Aucune commande trouvée pour {conversation.visitor_email}.</p>
       ) : (
         <div className="space-y-2">
-          <p className="text-xs text-zinc-500">
-            {customer.ordersCount} commande{customer.ordersCount > 1 ? "s" : ""}
-            {customer.totalSpent ? ` · ${customer.totalSpent} ${customer.currency || ""} (récentes)` : ""}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-zinc-500">
+              {customer.ordersCount} commande{customer.ordersCount > 1 ? "s" : ""}
+              {customer.totalSpent ? ` · ${customer.totalSpent} ${customer.currency || ""}` : ""}
+            </p>
+            {customer.ordersCount >= 3 ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">★ Cliente fidèle</span>
+            ) : customer.ordersCount >= 2 ? (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Récurrente</span>
+            ) : (
+              <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-500">1ʳᵉ commande</span>
+            )}
+          </div>
           {customer.orders.map((o) => (
             <div key={o.name} className="rounded-lg border border-zinc-200 bg-white p-2 text-xs">
               <div className="flex items-center justify-between">
@@ -115,6 +125,15 @@ export function VisitorPanel({ conversation }: { conversation: ConversationDetai
               <div className="mt-0.5 text-zinc-600">
                 {o.total} {o.currency} · {o.fulfillmentStatus || o.financialStatus || "—"}
               </div>
+              {o.products.length > 0 && (
+                <ul className="mt-1 space-y-0.5 text-zinc-600">
+                  {o.products.map((p, i) => (
+                    <li key={i} className="truncate" title={p.title}>
+                      <span className="text-zinc-400">{p.quantity}×</span> {p.title}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {o.trackingUrl && (
                 <a href={o.trackingUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-blue-600 hover:underline">
                   Suivi <ExternalLink className="h-3 w-3" />

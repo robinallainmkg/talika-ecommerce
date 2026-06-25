@@ -41,14 +41,15 @@ export type CustomerOrder = {
   financialStatus: string | null
   fulfillmentStatus: string | null
   trackingUrl: string | null
+  products: { title: string; quantity: number }[]
 }
 
 export type CustomerInfo = {
   found: boolean
-  ordersCount: number
-  totalSpent: string | null
+  ordersCount: number // nombre de commandes À VIE (fidélité)
+  totalSpent: string | null // total dépensé à vie
   currency: string | null
-  orders: CustomerOrder[]
+  orders: CustomerOrder[] // détail des commandes récentes (max 5)
 }
 
 export async function lookupCustomerByEmail(email: string): Promise<CustomerInfo> {
@@ -59,14 +60,23 @@ export async function lookupCustomerByEmail(email: string): Promise<CustomerInfo
   const clean = email.trim().toLowerCase()
   if (!clean || !clean.includes("@")) return empty
 
+  // Via l'objet client : nombre de commandes À VIE + total dépensé (= fidélité),
+  // et les lignes produits des commandes récentes (= quels produits achetés).
   const query = `
     query($search: String!) {
-      orders(first: 5, query: $search, sortKey: CREATED_AT, reverse: true) {
+      customers(first: 1, query: $search) {
         nodes {
-          name createdAt
-          displayFinancialStatus displayFulfillmentStatus
-          totalPriceSet { shopMoney { amount currencyCode } }
-          fulfillments(first: 1) { trackingInfo { url } }
+          numberOfOrders
+          amountSpent { amount currencyCode }
+          orders(first: 5, sortKey: CREATED_AT, reverse: true) {
+            nodes {
+              name createdAt
+              displayFinancialStatus displayFulfillmentStatus
+              totalPriceSet { shopMoney { amount currencyCode } }
+              lineItems(first: 8) { nodes { title quantity } }
+              fulfillments(first: 1) { trackingInfo { url } }
+            }
+          }
         }
       }
     }`
@@ -85,12 +95,18 @@ export async function lookupCustomerByEmail(email: string): Promise<CustomerInfo
     displayFinancialStatus: string | null
     displayFulfillmentStatus: string | null
     totalPriceSet: { shopMoney: { amount: string; currencyCode: string } }
+    lineItems: { nodes: Array<{ title: string; quantity: number }> }
     fulfillments: Array<{ trackingInfo: Array<{ url: string | null }> }>
   }
-  const nodes: Node[] = json.data?.orders?.nodes || []
-  if (nodes.length === 0) return empty
+  type CustomerNode = {
+    numberOfOrders: string | number
+    amountSpent: { amount: string; currencyCode: string } | null
+    orders: { nodes: Node[] }
+  }
+  const customer: CustomerNode | undefined = json.data?.customers?.nodes?.[0]
+  if (!customer) return empty
 
-  const orders: CustomerOrder[] = nodes.map((o) => ({
+  const orders: CustomerOrder[] = (customer.orders?.nodes || []).map((o) => ({
     name: o.name,
     createdAt: o.createdAt,
     total: o.totalPriceSet.shopMoney.amount,
@@ -98,10 +114,14 @@ export async function lookupCustomerByEmail(email: string): Promise<CustomerInfo
     financialStatus: o.displayFinancialStatus,
     fulfillmentStatus: o.displayFulfillmentStatus,
     trackingUrl: o.fulfillments[0]?.trackingInfo[0]?.url || null,
+    products: (o.lineItems?.nodes || []).map((l) => ({ title: l.title, quantity: l.quantity })),
   }))
-  const currency = orders[0]?.currency || null
-  const totalSpent = orders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0).toFixed(2)
-  return { found: true, ordersCount: orders.length, totalSpent, currency, orders }
+  const ordersCount = Number(customer.numberOfOrders) || orders.length
+  const currency = customer.amountSpent?.currencyCode || orders[0]?.currency || null
+  const totalSpent = customer.amountSpent?.amount
+    ? parseFloat(customer.amountSpent.amount).toFixed(2)
+    : null
+  return { found: true, ordersCount, totalSpent, currency, orders }
 }
 
 export async function lookupOrder(orderNumber: string, email: string): Promise<OrderStatus | null> {
