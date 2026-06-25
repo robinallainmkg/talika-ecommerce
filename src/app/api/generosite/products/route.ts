@@ -65,7 +65,22 @@ export async function GET(request: Request) {
       if (order.financial_status === "voided" || order.cancelled_at) continue
       const orderDiscount = parseFloat(order.total_discounts || "0")
       const lineItems: any[] = order.line_items || []
-      const discApplications: any[] = order.discount_applications || []
+
+      // Build order-level category map — same logic as computeGenerosite (par-catégorie).
+      // Source of truth: order.discount_codes (reliable even for manual/draft orders).
+      const orderByCat: Record<string, number> = {}
+      let codeTotal = 0
+      for (const dc of (order.discount_codes || [])) {
+        const code = typeof dc === "string" ? dc : dc.code || ""
+        const amt = parseFloat(typeof dc === "string" ? "0" : dc.amount || "0")
+        if (code && amt > 0) {
+          codeTotal += amt
+          const cat = categorize(code)
+          orderByCat[cat] = (orderByCat[cat] || 0) + amt
+        }
+      }
+      const autoGap = orderDiscount - codeTotal
+      if (autoGap > 0.01) orderByCat["auto_discounts"] = (orderByCat["auto_discounts"] || 0) + autoGap
 
       let orderLineTotal = 0
       for (const item of lineItems) {
@@ -94,52 +109,23 @@ export async function GET(request: Request) {
           ? allocations.reduce((s: number, da: any) => s + parseFloat(da.amount || "0"), 0)
           : orderLineTotal > 0 ? (lineValue / orderLineTotal) * orderDiscount : 0
 
-        // Build per-category breakdown
+        // Category breakdown: same source as computeGenerosite (par-catégorie).
+        // Amounts come from discount_allocations (exact per-line), categories from
+        // order.discount_codes — then split the line's discount proportionally.
         const byCat: Record<string, number> = {}
         if (prixBarreDiscount > 0) byCat["prix_barres"] = prixBarreDiscount
 
-        if (allocations.length > 0) {
-          for (const alloc of allocations) {
-            const amt = parseFloat(alloc.amount || "0")
-            if (amt <= 0) continue
-            const app = discApplications[alloc.discount_application_index ?? -1]
-            let cat = "auto_discounts"
-            if (app?.type === "discount_code" && app?.code) {
-              // Normal case: explicit code in discount_applications
-              cat = categorize(app.code)
-            } else if (app?.type === "manual") {
-              // Draft orders / POS: Shopify stores type="manual" with code=null
-              // even when a discount code was entered. Fall back to order.discount_codes.
-              const codes: any[] = order.discount_codes || []
-              if (codes.length === 1 && codes[0].code) {
-                cat = categorize(codes[0].code)
-              } else if (codes.length > 1) {
-                // Multiple codes: use the one with matching amount if possible
-                const matchingCode = codes.find((dc: any) =>
-                  Math.abs(parseFloat(dc.amount || "0") - amt) < 0.5
-                )
-                cat = (matchingCode?.code ? categorize(matchingCode.code) : categorize(codes[0].code)) || "auto_discounts"
-              }
-              // If no codes → genuine manual discount → stays "auto_discounts"
+        if (discountShare > 0) {
+          if (orderDiscount > 0) {
+            // Distribute this line's discount across categories in the same
+            // proportion as the order-level category breakdown.
+            for (const [cat, orderAmt] of Object.entries(orderByCat)) {
+              const lineAmt = discountShare * (orderAmt / orderDiscount)
+              if (lineAmt > 0.01) byCat[cat] = (byCat[cat] || 0) + lineAmt
             }
-            // type "automatic" / "script" (GWP, volume) stays "auto_discounts"
-            byCat[cat] = (byCat[cat] || 0) + amt
+          } else {
+            byCat["auto_discounts"] = (byCat["auto_discounts"] || 0) + discountShare
           }
-        } else if (orderLineTotal > 0 && orderDiscount > 0) {
-          // Fallback: proportional, but categorize by order codes
-          const frac = lineValue / orderLineTotal
-          const codes: any[] = order.discount_codes || []
-          let codeSum = 0
-          for (const dc of codes) {
-            const code = dc.code || ""
-            const codeAmt = parseFloat(dc.amount || "0")
-            codeSum += codeAmt
-            const amt = codeAmt * frac
-            if (amt <= 0) continue
-            byCat[code ? categorize(code) : "autre"] = ((byCat[code ? categorize(code) : "autre"]) || 0) + amt
-          }
-          const autoGap = (orderDiscount - codeSum) * frac
-          if (autoGap > 0.01) byCat["auto_discounts"] = (byCat["auto_discounts"] || 0) + autoGap
         }
 
         const existing = variantMap.get(key)
