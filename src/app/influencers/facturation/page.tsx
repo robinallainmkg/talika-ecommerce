@@ -5,7 +5,7 @@ import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
 import { MonthTabs } from "@/components/influence/month-tabs"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
-import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell } from "lucide-react"
+import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell, Trash2 } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
 interface Invoice {
@@ -218,6 +218,29 @@ export default function FacturationPage() {
     })
     const data = await res.json()
     if (data.url) window.open(data.url, "_blank")
+  }
+
+  async function deleteInvoice(c: Collab, inv: Invoice) {
+    if (!window.confirm(`Supprimer la facture « ${inv.file_name} » ?\n\nLe coût du mois (forfait / commission) n'est pas modifié.`)) return
+    // Maj optimiste + recalcul des KPI dépendant de la présence de facture.
+    const next = collabs.map((cc) => {
+      if (cc.influencer_id !== c.influencer_id) return cc
+      const invoices = cc.invoices.filter((i) => i.id !== inv.id)
+      return { ...cc, invoices, has_invoice: invoices.length > 0 }
+    })
+    setCollabs(next)
+    const active = next.filter((x) => x.status !== "sans_facturation")
+    setTotals((t) => ({ ...t, with_invoice: active.filter((x) => x.has_invoice).length }))
+    setMissingByMonth((mb) => ({ ...mb, [month]: next.filter((x) => x.status === "a_regler" && !x.has_invoice).length }))
+    const res = await fetch("/api/influencers/invoices", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: inv.id }),
+    })
+    if (!res.ok) {
+      setFeedback({ type: "error", text: "Suppression impossible — actualise la page." })
+      load()
+    }
   }
 
   const defaultNextMonth = () => (month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 })
@@ -499,13 +522,21 @@ export default function FacturationPage() {
                       {c.invoices.length > 0 ? (
                         <div className="space-y-1">
                           {c.invoices.map((inv) => (
-                            <button key={inv.id} onClick={() => viewInvoice(inv.id)}
-                              className="flex items-center gap-1.5 text-xs text-emerald-700 hover:underline">
-                              <Check className="h-3.5 w-3.5" />
-                              <FileText className="h-3.5 w-3.5" />
-                              <span className="max-w-[160px] truncate">{inv.file_name}</span>
-                              <ExternalLink className="h-3 w-3 text-zinc-400" />
-                            </button>
+                            <div key={inv.id} className="flex items-center gap-1.5">
+                              <button onClick={() => viewInvoice(inv.id)}
+                                className="flex min-w-0 items-center gap-1.5 text-xs text-emerald-700 hover:underline">
+                                <Check className="h-3.5 w-3.5 shrink-0" />
+                                <FileText className="h-3.5 w-3.5 shrink-0" />
+                                <span className="max-w-[160px] truncate">{inv.file_name}</span>
+                                <ExternalLink className="h-3 w-3 shrink-0 text-zinc-400" />
+                              </button>
+                              {canUpload && (
+                                <button onClick={() => deleteInvoice(c, inv)} title="Supprimer la facture"
+                                  className="shrink-0 text-zinc-300 hover:text-red-500">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
                           ))}
                           {canUpload && (
                             <label className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-700">
