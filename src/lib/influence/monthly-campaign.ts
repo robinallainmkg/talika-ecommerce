@@ -1,7 +1,7 @@
 // Campagnes mensuelles : 1 campagne par mois, auto-remplie avec les influenceuses
 // "actives" du mois = celles qui ont un coût enregistré (forfait et/ou commission).
-// Une influenceuse qui fait une vente génère une commission (via le cron) → elle
-// apparaît donc automatiquement dans la campagne de son mois.
+// Les ventes seules n'ajoutent PAS au board (sinon les codes evergreen polluent
+// « Actif ») ; une influ sans coût se glisse à la main.
 //
 // Source de vérité = les tables coûts réconciliées (influencer_fixed_fees /
 // influencer_commissions). La campagne ne fait que les AGRÉGER (overlay), elle ne
@@ -22,24 +22,22 @@ export interface SyncMonthlyResult {
 }
 
 /**
- * Influenceuses "actives" sur (year, month) = un forfait, OU une commission,
- * OU au moins une vente produit via son code ce mois-là. Le volet ventes rend
- * littéral le « une influ qui fait une vente est ajoutée à la campagne du mois ».
+ * Influenceuses "actives" sur (year, month) = celles qui ont un COÛT enregistré
+ * ce mois-là : un forfait OU une commission. Les ventes seules (un code evergreen
+ * qui tourne) n'ajoutent PLUS personne au board — elles polluaient « Actif » avec
+ * des influ qu'on ne suit pas activement. Une vraie collab a un coût ; sinon on la
+ * glisse à la main (bouton Ajouter).
  */
 async function activeInfluencerIds(
   supabase: SupabaseClient, year: number, month: number
 ): Promise<string[]> {
-  const start = `${year}-${String(month).padStart(2, "0")}-01`
-  const end = `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, "0")}-01`
-  const [fees, comms, sales] = await Promise.all([
+  const [fees, comms] = await Promise.all([
     supabase.from("influencer_fixed_fees").select("influencer_id").eq("year", year).eq("month", month),
     supabase.from("influencer_commissions").select("influencer_id").eq("year", year).eq("month", month),
-    supabase.from("influencer_product_sales").select("influencer_id").gte("order_date", start).lt("order_date", end),
   ])
   const ids = new Set<string>()
   for (const r of fees.data || []) if (r.influencer_id) ids.add(r.influencer_id)
   for (const r of comms.data || []) if (r.influencer_id) ids.add(r.influencer_id)
-  for (const r of sales.data || []) if (r.influencer_id) ids.add(r.influencer_id)
   return [...ids]
 }
 
