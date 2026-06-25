@@ -350,18 +350,20 @@ export default function CoutsInfluencePage() {
                         <div className="mt-0.5 text-right text-[10px] text-emerald-600">✓ {invoicesByInf[r.influencer_id].length} facture(s)</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2.5 text-right align-top">
-                      <input type="number" step="0.1" min="0" inputMode="decimal" disabled={!canEdit}
-                        value={rateDraft[r.influencer_id] ?? ""}
-                        onChange={(e) => setRateDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
-                        className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
-                        placeholder="—"
-                        title={r.rate_explicit ? "Taux fixé pour ce mois" : "Taux hérité (report du mois précédent ou taux de l'influ) — modifie pour fixer ce mois"} />
-                      {!r.rate_explicit && (rateDraft[r.influencer_id] ?? "") === (rateInitial[r.influencer_id] ?? "") && rateOf(r.influencer_id) > 0 && (
-                        <div className="mt-0.5 text-[10px] text-zinc-400">hérité</div>
-                      )}
+                    <td className="px-3 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {!r.rate_explicit && (rateDraft[r.influencer_id] ?? "") === (rateInitial[r.influencer_id] ?? "") && rateOf(r.influencer_id) > 0 && (
+                          <span className="text-[10px] text-zinc-400" title="Taux hérité (report du mois précédent ou taux de l'influ)">hérité</span>
+                        )}
+                        <input type="number" step="0.1" min="0" inputMode="decimal" disabled={!canEdit}
+                          value={rateDraft[r.influencer_id] ?? ""}
+                          onChange={(e) => setRateDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
+                          className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
+                          placeholder="—"
+                          title={r.rate_explicit ? "Taux fixé pour ce mois" : "Taux hérité (report du mois précédent ou taux de l'influ) — modifie pour fixer ce mois"} />
+                      </div>
                     </td>
-                    <td className="px-3 py-2.5 text-right align-top">
+                    <td className="px-3 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {liveSuggested(r) != null && (parseFloat(commDraft[r.influencer_id]) || 0) === 0 && (
                           <button type="button" disabled={!canEdit}
