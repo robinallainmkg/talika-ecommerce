@@ -12,6 +12,7 @@ interface Row {
   influencer_id: string
   name: string
   commission_rate: number
+  rate_explicit?: boolean
   month_sales: number
   suggested_commission: number | null
   saved_commission: number | null
@@ -31,6 +32,8 @@ export default function CoutsInfluencePage() {
   const [allInfluencers, setAllInfluencers] = useState<{ id: string; name: string; commission_rate: number }[]>([])
   const [feeDraft, setFeeDraft] = useState<Record<string, string>>({})
   const [commDraft, setCommDraft] = useState<Record<string, string>>({})
+  const [rateDraft, setRateDraft] = useState<Record<string, string>>({})
+  const [rateInitial, setRateInitial] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
@@ -82,12 +85,16 @@ export default function CoutsInfluencePage() {
       // On ne pré-remplit QUE ce qui est déjà enregistré (jamais la suggestion).
       const fd: Record<string, string> = {}
       const cd: Record<string, string> = {}
+      const rd: Record<string, string> = {}
       for (const r of list) {
         fd[r.influencer_id] = r.fixed_fee != null ? String(r.fixed_fee) : ""
         cd[r.influencer_id] = r.saved_commission != null ? String(r.saved_commission) : ""
+        rd[r.influencer_id] = r.commission_rate ? String(r.commission_rate) : ""
       }
       setFeeDraft(fd)
       setCommDraft(cd)
+      setRateDraft(rd)
+      setRateInitial({ ...rd })
     } finally {
       setLoading(false)
     }
@@ -101,8 +108,11 @@ export default function CoutsInfluencePage() {
     if (!inf) return
     setRows((prev) => [
       ...prev,
-      { influencer_id: inf.id, name: inf.name, commission_rate: inf.commission_rate, month_sales: 0, suggested_commission: null, saved_commission: null, fixed_fee: null },
+      { influencer_id: inf.id, name: inf.name, commission_rate: inf.commission_rate, rate_explicit: false, month_sales: 0, suggested_commission: null, saved_commission: null, fixed_fee: null },
     ])
+    const v = inf.commission_rate ? String(inf.commission_rate) : ""
+    setRateDraft((p) => ({ ...p, [id]: v }))
+    setRateInitial((p) => ({ ...p, [id]: v }))
   }
 
   async function uploadInvoice(influencerId: string, file: File) {
@@ -159,11 +169,17 @@ export default function CoutsInfluencePage() {
   async function save() {
     setSaving(true)
     setFeedback(null)
-    const entries = rows.map((r) => ({
-      influencer_id: r.influencer_id,
-      fixed_fee: feeDraft[r.influencer_id] ?? "",
-      commission: commDraft[r.influencer_id] ?? "",
-    }))
+    const entries = rows.map((r) => {
+      const id = r.influencer_id
+      const e: { influencer_id: string; fixed_fee: string; commission: string; rate?: string } = {
+        influencer_id: id,
+        fixed_fee: feeDraft[id] ?? "",
+        commission: commDraft[id] ?? "",
+      }
+      // Le taux n'est envoyé QUE s'il a changé → sinon on laisse le report/défaut agir.
+      if ((rateDraft[id] ?? "") !== (rateInitial[id] ?? "")) e.rate = rateDraft[id] ?? ""
+      return e
+    })
     try {
       const res = await fetch("/api/influencers/commissions", {
         method: "POST",
@@ -219,6 +235,11 @@ export default function CoutsInfluencePage() {
     }
   }
 
+  const rateOf = (id: string) => parseFloat(rateDraft[id]) || 0
+  const liveSuggested = (r: Row): number | null =>
+    r.month_sales > 0 && rateOf(r.influencer_id) > 0
+      ? Math.round((r.month_sales * rateOf(r.influencer_id)) / 100 * 100) / 100
+      : null
   const rowTotal = (id: string) =>
     (parseFloat(feeDraft[id]) || 0) + (parseFloat(commDraft[id]) || 0)
   const grandTotal = rows.reduce((s, r) => s + rowTotal(r.influencer_id), 0)
@@ -297,6 +318,7 @@ export default function CoutsInfluencePage() {
                 <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-400">
                   <th className="px-3 py-2.5">Influenceuse</th>
                   <th className="px-3 py-2.5 text-right">Forfait (€)</th>
+                  <th className="px-3 py-2.5 text-right">Taux %</th>
                   <th className="px-3 py-2.5 text-right">Commission (€)</th>
                   <th className="px-3 py-2.5 text-right">Total</th>
                 </tr>
@@ -306,8 +328,8 @@ export default function CoutsInfluencePage() {
                   <tr key={r.influencer_id} className="border-b border-zinc-100">
                     <td className="px-3 py-2.5">
                       <button onClick={() => setDrawerId(r.influencer_id)} className="text-left font-medium text-zinc-900 hover:underline">{r.name}</button>
-                      {r.commission_rate > 0 && (
-                        <div className="text-[11px] text-zinc-400">commission {r.commission_rate}%</div>
+                      {r.month_sales > 0 && (
+                        <div className="text-[11px] text-zinc-400">{formatCurrency(r.month_sales)} de ventes</div>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right">
@@ -328,14 +350,25 @@ export default function CoutsInfluencePage() {
                         <div className="mt-0.5 text-right text-[10px] text-emerald-600">✓ {invoicesByInf[r.influencer_id].length} facture(s)</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2.5 text-right">
+                    <td className="px-3 py-2.5 text-right align-top">
+                      <input type="number" step="0.1" min="0" inputMode="decimal" disabled={!canEdit}
+                        value={rateDraft[r.influencer_id] ?? ""}
+                        onChange={(e) => setRateDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
+                        className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
+                        placeholder="—"
+                        title={r.rate_explicit ? "Taux fixé pour ce mois" : "Taux hérité (report du mois précédent ou taux de l'influ) — modifie pour fixer ce mois"} />
+                      {!r.rate_explicit && (rateDraft[r.influencer_id] ?? "") === (rateInitial[r.influencer_id] ?? "") && rateOf(r.influencer_id) > 0 && (
+                        <div className="mt-0.5 text-[10px] text-zinc-400">hérité</div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right align-top">
                       <div className="flex items-center justify-end gap-1.5">
-                        {r.suggested_commission != null && (parseFloat(commDraft[r.influencer_id]) || 0) === 0 && (
+                        {liveSuggested(r) != null && (parseFloat(commDraft[r.influencer_id]) || 0) === 0 && (
                           <button type="button" disabled={!canEdit}
-                            onClick={() => setCommDraft((p) => ({ ...p, [r.influencer_id]: String(r.suggested_commission) }))}
+                            onClick={() => setCommDraft((p) => ({ ...p, [r.influencer_id]: String(liveSuggested(r)) }))}
                             className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-40"
-                            title="Appliquer la commission suggérée">
-                            ≈ {formatCurrency(r.suggested_commission)}
+                            title="Appliquer la commission suggérée (ventes × taux)">
+                            ≈ {formatCurrency(liveSuggested(r)!)}
                           </button>
                         )}
                         <input type="number" step="0.01" inputMode="decimal" disabled={!canEdit}

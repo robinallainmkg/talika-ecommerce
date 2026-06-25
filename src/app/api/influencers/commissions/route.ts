@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     const monthStart = `${year}-${pad(month)}-01`
     const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${pad(month + 1)}-01`
 
-    const [{ data: influencers }, { data: sales }, { data: savedComm }, { data: fees }] =
+    const [{ data: influencers }, { data: sales }, { data: savedComm }, { data: fees }, { data: rates }] =
       await Promise.all([
         supabase.from("influencers").select("id, name, commission_rate, has_fixed_fee, status"),
         supabase
@@ -48,6 +48,9 @@ export async function GET(request: Request) {
           .select("influencer_id, amount")
           .eq("year", year)
           .eq("month", month),
+        supabase
+          .from("influencer_commission_rates")
+          .select("influencer_id, year, month, rate"),
       ])
 
     const salesByInf: Record<string, number> = {}
@@ -59,13 +62,26 @@ export async function GET(request: Request) {
     const feeByInf: Record<string, number> = {}
     for (const f of fees || []) feeByInf[f.influencer_id] = Number(f.amount || 0)
 
+    // Taux effectif = dernier taux saisi <= (year,month) (report auto du mois
+    // précédent), sinon le taux attaché à l'influ. rate_explicit = saisi CE mois-ci.
+    const targetP = year * 12 + (month - 1)
+    const rateByInf: Record<string, { rate: number; period: number }> = {}
+    for (const r of rates || []) {
+      const p = Number(r.year) * 12 + (Number(r.month) - 1)
+      if (p > targetP) continue
+      const cur = rateByInf[r.influencer_id]
+      if (!cur || p > cur.period) rateByInf[r.influencer_id] = { rate: Number(r.rate) || 0, period: p }
+    }
+
     const all = (influencers || []).map((inf) => {
       const monthSales = salesByInf[inf.id] || 0
-      const rate = Number(inf.commission_rate) || 0
+      const resolved = rateByInf[inf.id]
+      const rate = resolved ? resolved.rate : (Number(inf.commission_rate) || 0)
       return {
         influencer_id: inf.id,
         name: inf.name,
         commission_rate: rate,
+        rate_explicit: !!resolved && resolved.period === targetP,
         has_fixed_fee: !!inf.has_fixed_fee,
         month_sales: Math.round(monthSales * 100) / 100,
         suggested_commission: rate > 0 && monthSales > 0 ? Math.round((monthSales * rate) / 100 * 100) / 100 : null,
@@ -103,6 +119,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "month, year, entries requis" }, { status: 400 })
     }
 
+    const user = await getSessionUser()
+
     // Mois verrouillé : édition bloquée, SAUF pour l'admin (qui garde la main).
     const { data: lock } = await supabase
       .from("influence_month_locks")
@@ -110,14 +128,11 @@ export async function POST(request: Request) {
       .eq("year", year)
       .eq("month", month)
       .maybeSingle()
-    if (lock) {
-      const user = await getSessionUser()
-      if ((user?.user_metadata?.role as string) !== "admin") {
-        return NextResponse.json(
-          { error: "Mois verrouillé — seul un admin peut éditer.", locked: true },
-          { status: 423 }
-        )
-      }
+    if (lock && (user?.user_metadata?.role as string) !== "admin") {
+      return NextResponse.json(
+        { error: "Mois verrouillé — seul un admin peut éditer.", locked: true },
+        { status: 423 }
+      )
     }
 
     const num = (v: any) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v))
@@ -126,6 +141,8 @@ export async function POST(request: Request) {
     const commUpserts: any[] = []
     const feeClear: string[] = []
     const commClear: string[] = []
+    const rateUpserts: any[] = []
+    const rateClear: string[] = []
 
     for (const e of entries) {
       if (!e.influencer_id) continue
@@ -135,6 +152,14 @@ export async function POST(request: Request) {
       else feeClear.push(e.influencer_id)
       if (comm != null) commUpserts.push({ influencer_id: e.influencer_id, amount: comm, month, year })
       else commClear.push(e.influencer_id)
+      // Le taux n'est touché QUE s'il est explicitement envoyé (l'UI ne l'envoie
+      // que si l'utilisateur l'a modifié). Présent + vide = on efface l'override
+      // de ce mois (retour au report/au taux de l'influ).
+      if ("rate" in e) {
+        const rt = num(e.rate)
+        if (rt != null) rateUpserts.push({ influencer_id: e.influencer_id, year, month, rate: rt, updated_by: user?.email ?? null })
+        else rateClear.push(e.influencer_id)
+      }
     }
 
     if (feeUpserts.length)
@@ -145,6 +170,10 @@ export async function POST(request: Request) {
       await supabase.from("influencer_fixed_fees").delete().eq("year", year).eq("month", month).in("influencer_id", feeClear)
     if (commClear.length)
       await supabase.from("influencer_commissions").delete().eq("year", year).eq("month", month).in("influencer_id", commClear)
+    if (rateUpserts.length)
+      await supabase.from("influencer_commission_rates").upsert(rateUpserts, { onConflict: "influencer_id,year,month" })
+    if (rateClear.length)
+      await supabase.from("influencer_commission_rates").delete().eq("year", year).eq("month", month).in("influencer_id", rateClear)
 
     // Recalcul des totaux par influenceuse touchée (cohérent avec /fees)
     const feeTouched = Array.from(new Set([...feeUpserts.map((f) => f.influencer_id), ...feeClear]))
