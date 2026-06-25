@@ -768,23 +768,9 @@ export async function GET() {
         }
       }
 
-      // Reconquête clients standard en DRAFT = clients perdus non relancés
-      // CHURNER 6 MONTHS (live) ne génère que 519€/an avec 11,7% d'ouverture.
-      const reconquete = flows.find(
-        (f) => /reconqu/i.test(f.name) && f.status === "draft"
-      )
-      if (reconquete) {
-        newOpportunities.push({
-          title: "Reconquête clients : flow DRAFT depuis 9+ mois (à activer)",
-          description:
-            "Le flow Reconquête des clients est en DRAFT depuis sept. 2025. CHURNER 6 MONTHS (live) ne génère que 519€/an (taux d'ouverture 11,7%). Ces clients inactifs ont payé 177–490€ pour un appareil — ils ont de la valeur à réveiller avec une offre de retour ciblée.",
-          category: "klaviyo",
-          impact: "medium",
-          prompt:
-            "Le flow 'Reconquête des clients - Standard' (Klaviyo, ID RLeD26) est en DRAFT depuis septembre 2025. Mon flow CHURNER 6 MONTHS (live) ne génère que 519€/an avec 11,7% d'ouverture. Les clients inactifs 12+ mois ont investi dans un appareil à 177–490€. Aide-moi à écrire un flow reconquête : angle, offre de retour (code promo ? produit offert ? exclusivité ?), nombre d'emails, timing.",
-        })
-        findings.push("Klaviyo: Reconquête clients en DRAFT depuis sept. 2025")
-      }
+      // Note : "Reconquête des clients - Standard" est le doublon draft de
+      // CHURNER 6 MONTHS (live) — ne PAS générer une opportunité séparée.
+      // L'amélioration du CHURNER est gérée via une opportunité dédiée.
     } catch {
       findings.push("Klaviyo flows: analyse ignorée (erreur)")
     }
