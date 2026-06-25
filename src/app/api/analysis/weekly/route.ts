@@ -734,7 +734,135 @@ export async function GET() {
       findings.push("Canaux: rotation ignorée (erreur)")
     }
 
-    // ── 10. INSERT NEW OPPORTUNITIES (dédup par titre, status pending) ──
+    // ── 10. KLAVIYO — FLOWS STRATÉGIQUES DORMANTS ──
+    // Détecte les flows haute valeur encore en DRAFT qui laissent du CA sur la table.
+    // Source : cache `klaviyo_flows` rempli par le cron Klaviyo.
+    try {
+      const { data: klavFlowsCache } = await supabase
+        .from("data_cache")
+        .select("data")
+        .eq("key", "klaviyo_flows")
+        .single()
+
+      const flows = ((klavFlowsCache?.data as { flows?: { id: string; name: string; status: string }[] })?.flows || [])
+
+      // Browse Abandonment FR en DRAFT = CA perdu chaque mois
+      // L'Abandoned Cart (live) génère ~80k€/an ; le Browse Abandonment
+      // touche les visiteurs haute valeur AVANT qu'ils ajoutent au panier.
+      const browseAbFR = flows.find(
+        (f) => /browse.?abandon/i.test(f.name) && /\bfr\b/i.test(f.name)
+      )
+      if (browseAbFR?.status === "draft") {
+        const e_klav_ba = eagerness(weights, "klaviyo")
+        if (e_klav_ba >= 0.6) {
+          newOpportunities.push({
+            title: "Browse Abandonment FR : activer ce flow dormant",
+            description:
+              "Ce flow capture les visiteurs qui regardent LED Mask (290€) ou Hair Force Cap (490€) sans ajouter au panier. L'Abandoned Cart live génère 80 000€/an — le Browse Abandonment arrive encore plus tôt dans le funnel, sur des produits premium à très haute intention d'achat.",
+            category: "klaviyo",
+            impact: "high",
+            prompt:
+              "Le flow Browse Abandonment FR (Klaviyo, ID SY3tSS) est en DRAFT depuis avril 2024. Mon Abandoned Cart live génère ~80 000€/an. Ce flow cible les visiteurs qui ont vu LED Mask (290€) ou Hair Force Cap (490€) sans aller jusqu'au panier. Aide-moi à l'activer : contenu des 2-3 emails, timing (1h / 24h / 72h), angle pour convertir sans discount agressif sur des produits à 290–490€.",
+          })
+          findings.push("Klaviyo: Browse Abandonment FR toujours en DRAFT")
+        }
+      }
+
+      // Reconquête clients standard en DRAFT = clients perdus non relancés
+      // CHURNER 6 MONTHS (live) ne génère que 519€/an avec 11,7% d'ouverture.
+      const reconquete = flows.find(
+        (f) => /reconqu/i.test(f.name) && f.status === "draft"
+      )
+      if (reconquete) {
+        newOpportunities.push({
+          title: "Reconquête clients : flow DRAFT depuis 9+ mois (à activer)",
+          description:
+            "Le flow Reconquête des clients est en DRAFT depuis sept. 2025. CHURNER 6 MONTHS (live) ne génère que 519€/an (taux d'ouverture 11,7%). Ces clients inactifs ont payé 177–490€ pour un appareil — ils ont de la valeur à réveiller avec une offre de retour ciblée.",
+          category: "klaviyo",
+          impact: "medium",
+          prompt:
+            "Le flow 'Reconquête des clients - Standard' (Klaviyo, ID RLeD26) est en DRAFT depuis septembre 2025. Mon flow CHURNER 6 MONTHS (live) ne génère que 519€/an avec 11,7% d'ouverture. Les clients inactifs 12+ mois ont investi dans un appareil à 177–490€. Aide-moi à écrire un flow reconquête : angle, offre de retour (code promo ? produit offert ? exclusivité ?), nombre d'emails, timing.",
+        })
+        findings.push("Klaviyo: Reconquête clients en DRAFT depuis sept. 2025")
+      }
+    } catch {
+      findings.push("Klaviyo flows: analyse ignorée (erreur)")
+    }
+
+    // ── 11. CUSTOMER JOURNEY — UPSELLS PREMIUM NON ACTIVÉS ──
+    // Analyse les 5 derniers mois pour identifier les clients qui ont acheté
+    // un appareil mais pas encore son upsell/cross-sell naturel.
+    try {
+      const trailing5 = await Promise.all(
+        [0, 1, 2, 3, 4].map((b) => {
+          const m = monthOffset(year, month, b)
+          return loadOrders(m.year, m.month)
+        })
+      )
+      const allOrders5 = trailing5.flat()
+
+      if (allOrders5.length > 50) {
+        const emailsBoughtTC7 = new Set<string>()
+        const emailsBoughtLEDMask = new Set<string>()
+        const emailsBoughtHairCap = new Set<string>()
+        const emailsBoughtHairSerum = new Set<string>()
+
+        for (const o of allOrders5) {
+          const email = (o.email || "").toLowerCase()
+          if (!email) continue
+          for (const item of (o.line_items || []) as { title?: string }[]) {
+            const t = item.title || ""
+            if (/TC7\+?/i.test(t)) emailsBoughtTC7.add(email)
+            if (/led\s?(?:therapy\s?)?mask|masque\s?led/i.test(t)) emailsBoughtLEDMask.add(email)
+            if (/hair\s?force\s?(?:led\s?)?cap|hair\s?(?:led\s?)?cap/i.test(t)) emailsBoughtHairCap.add(email)
+            if (/hair\s?force\s?s[eé]rum|s[eé]rum\s?hair/i.test(t)) emailsBoughtHairSerum.add(email)
+          }
+        }
+
+        // Upsell TC7+ → LED Mask (290€)
+        // Data réelle : seuls 8 acheteurs TC7+ sur 5 mois ont aussi acheté LED Mask.
+        // Le flow post-achat TC7+ (XFAHEM) est live — on y ajoute l'upsell LED Mask.
+        let tc7WithoutLED = 0
+        for (const email of emailsBoughtTC7) {
+          if (!emailsBoughtLEDMask.has(email)) tc7WithoutLED++
+        }
+        const tc7Total = emailsBoughtTC7.size
+
+        const e_klav2 = eagerness(weights, "klaviyo")
+        if (tc7WithoutLED >= Math.round(30 / e_klav2) && tc7Total > 0) {
+          const pct = Math.round((tc7WithoutLED / tc7Total) * 100)
+          newOpportunities.push({
+            title: `${tc7WithoutLED} acheteurs TC7+ sans LED Mask — upsell 290€ à activer`,
+            description: `${pct}% des acheteurs TC7+ (${tc7WithoutLED}/${tc7Total} sur 5 mois) n'ont pas encore le LED Mask (290€). C'est l'upsell premium le plus logique : même cible, même budget, même bénéfice régénération peau. Le flow post-achat TC7+ est live — y ajouter un email upsell LED Mask à J+30.`,
+            category: "klaviyo",
+            impact: "high",
+            prompt: `Sur 5 mois, ${tc7WithoutLED} acheteurs du TC7+ (${pct}%) n'ont pas le LED Mask (290€). Le flow Post-Achat TC7+ (XFAHEM) est live depuis le 24/06. Aide-moi à créer l'email upsell LED Mask : timing (J+30 après TC7+ ?), angle (complémentarité, upgrade routine, résultats boostés), offre (sans remise ou livraison gratuite ?), sujet d'email, structure du contenu.`,
+          })
+          findings.push(`Customer journey: ${tc7WithoutLED} acheteurs TC7+ sans LED Mask (${pct}%)`)
+        }
+
+        // Cross-sell Hair Cap → Sérum (consommable récurrent, 38€)
+        let hairCapWithoutSerum = 0
+        for (const email of emailsBoughtHairCap) {
+          if (!emailsBoughtHairSerum.has(email)) hairCapWithoutSerum++
+        }
+
+        if (hairCapWithoutSerum >= 15) {
+          newOpportunities.push({
+            title: `${hairCapWithoutSerum} acheteurs Hair Cap sans sérum — cross-sell récurrent`,
+            description: `${hairCapWithoutSerum} clients du Hair Force Cap n'ont pas encore le Sérum Hair Force (38€, rechargeable). C'est le consommable naturel de l'appareil. Le flow post-achat Hair Cap (SbuN3f) est live — y ajouter un email cross-sell sérum à J+14 = revenu récurrent.`,
+            category: "klaviyo",
+            impact: "medium",
+            prompt: `${hairCapWithoutSerum} acheteurs du Hair Force LED Cap n'ont pas encore le Sérum Hair Force (38€). Le sérum est le consommable naturel de l'appareil. Le flow post-achat Hair Cap (SbuN3f) est live depuis le 24/06. Aide-moi à rédiger l'email cross-sell sérum : timing (J+14 ?), angle (résultats amplifiés avec le sérum), offre bundle, sujet, structure.`,
+          })
+          findings.push(`Customer journey: ${hairCapWithoutSerum} acheteurs Hair Cap sans sérum`)
+        }
+      }
+    } catch {
+      findings.push("Customer journey: analyse ignorée (erreur)")
+    }
+
+    // ── 12. INSERT NEW OPPORTUNITIES (dédup par titre, status pending) ──
     let createdCount = 0
     for (const opp of newOpportunities) {
       const { data: existing } = await supabase
