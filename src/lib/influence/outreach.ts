@@ -1,0 +1,115 @@
+// Outreach influence — drip email "entonnoir ouvert" (Talika UK).
+// Envoi délégué à src/lib/mailer (Resend HTTP OU SMTP — ex. Resend branché en SMTP).
+// L'état du drip vit dans influencers.metadata.outreach ; le journal dans outreach_log.
+// DRY par défaut : aucun email ne part sans dry=false ET un canal mail configuré.
+import { sendMail, mailerConfigured } from "@/lib/mailer"
+
+export type OutreachStatus =
+  | "À contacter" | "À qualifier"
+  | "Étape 1 envoyée" | "Étape 2 envoyée" | "Étape 3 envoyée"
+  | "Répondu" | "Intéressée" | "Pas intéressée"
+  | "Bounce" | "Désinscrit" | "Exclu"
+
+export const TERMINAL: OutreachStatus[] = [
+  "À qualifier", "Répondu", "Intéressée", "Pas intéressée", "Bounce", "Désinscrit", "Exclu",
+]
+
+export interface OutreachState {
+  status: OutreachStatus
+  step: number                       // dernière étape envoyée (0 = aucune)
+  sent: Record<string, string>       // { "1": iso, "2": iso, "3": iso }
+  email_status?: string              // verified | agency | à sourcer
+  personalisation?: string
+  replied_at?: string
+  reply_summary?: string
+}
+
+// Cadence (jours depuis l'envoi précédent)
+export const DAYS_STEP2 = 4          // J+4 après étape 1
+export const DAYS_STEP3 = 5          // J+5 après étape 2 (≈ J+9)
+export const DAILY_CAP = 10          // warm-up domaine neuf (10 → 20 → 30/j)
+
+export function defaultState(partial?: Partial<OutreachState>): OutreachState {
+  return { status: "À contacter", step: 0, sent: {}, ...partial }
+}
+
+// Quelle étape est DUE maintenant pour ce contact (ou null) ?
+export function dueStep(s: OutreachState | undefined | null, now = new Date()): 1 | 2 | 3 | null {
+  if (!s) return 1
+  if (TERMINAL.includes(s.status)) return null
+  const days = (iso?: string) => (iso ? (now.getTime() - new Date(iso).getTime()) / 86400000 : Infinity)
+  if (s.status === "À contacter" && !s.sent["1"]) return 1
+  if (s.sent["1"] && !s.sent["2"] && days(s.sent["1"]) >= DAYS_STEP2) return 2
+  if (s.sent["2"] && !s.sent["3"] && days(s.sent["2"]) >= DAYS_STEP3) return 3
+  return null
+}
+
+// ─── Templates (anglais UK, entonnoir ouvert) ───
+interface Ctx { first_name: string; personalisation?: string; sender: string }
+
+export function renderStep(step: 1 | 2 | 3, c: Ctx): { subject: string; text: string; html: string } {
+  const perso = c.personalisation ? c.personalisation : ""
+  const sender = c.sender || "Talika UK"
+  let subject = "", text = ""
+  if (step === 1) {
+    subject = `Talika x ${c.first_name} — a hello from a French beauty house (since 1948)`
+    text =
+`Hi ${c.first_name},
+
+I'm reaching out from Talika — a French beauty house and a pioneer in eye-contour care and cosmetic innovation since 1948 (75+ years). Today we're especially known for our LED light-therapy beauty devices.
+
+I've really enjoyed your skincare content${perso}, and as we grow Talika in the UK we're looking to work with a small circle of skincare creators we genuinely admire.
+
+Would you be open to collaborating with us? And if so, how do you usually like to work — gifting, affiliate, or paid? I'd love to share a few of our hero products and let you pick what you'd most like to try.
+
+No pressure at all — just keen to start a conversation.
+
+Warm wishes,
+${sender}
+
+(If you'd rather not hear from me, just reply 'unsubscribe' and I'll take you off my list.)`
+  } else if (step === 2) {
+    subject = `Re: Talika x ${c.first_name}`
+    text =
+`Hi ${c.first_name},
+
+Just gently floating this back to the top of your inbox 🙂 We'd genuinely love to explore working together — and to send you something to try, whatever format suits you best.
+
+If now isn't the right time, no worries at all.
+
+Warm wishes,
+${sender}`
+  } else {
+    subject = `One last hello from Talika 👋`
+    text =
+`Hi ${c.first_name},
+
+Last note from me, promise. A quick snapshot of what we'd love to put in your hands:
+• our LED face mask (light-therapy, anti-ageing)
+• Time Control 7+ — a 7-in-1 anti-ageing device for the eye & face contour
+• and our Hair Force LED cap, if hair's ever your thing
+
+If any of it appeals, just reply and tell me which you'd like to try — I'll arrange it, no strings.
+
+Either way, thank you for the lovely content.
+${sender}
+Talika UK`
+  }
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1b1b1b">${text.replace(/\n/g, "<br>")}</div>`
+  return { subject, text, html }
+}
+
+// ─── Envoi (délégué au mailer : Resend HTTP ou SMTP) ───
+// Configuré si un canal mail existe (RESEND_API_KEY ou SMTP_* — donc Resend-en-SMTP OK).
+export function outreachConfigured(): boolean {
+  return mailerConfigured()
+}
+
+export async function sendOutreach(to: string, subject: string, html: string, text: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  return sendMail({
+    to, subject, html, text,
+    // from explicite si fourni, sinon le mailer retombe sur SMTP_FROM (companion-ecommerce.com)
+    from: process.env.OUTREACH_FROM || process.env.RESEND_FROM || undefined,
+    replyTo: process.env.OUTREACH_REPLY_TO || undefined,
+  })
+}

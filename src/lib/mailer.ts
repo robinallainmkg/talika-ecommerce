@@ -97,3 +97,39 @@ export async function sendInviteEmail(to: string, link: string): Promise<boolean
   if (smtpConfigured()) return sendViaSmtp(to, link)
   return false
 }
+
+// ── Envoi générique (sujet/corps libres) — réutilisé par l'outreach influence.
+// Même logique de canaux : Resend HTTP si RESEND_API_KEY, sinon SMTP (ex. Resend
+// branché en SMTP : SMTP_HOST=smtp.resend.com, SMTP_USER=resend, SMTP_PASS=<clé re_…>).
+export interface MailMsg { to: string; subject: string; html: string; text: string; from?: string; replyTo?: string }
+
+export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; error?: string }> {
+  // 1. Resend HTTP (si clé API directe)
+  if (process.env.RESEND_API_KEY && (m.from || process.env.RESEND_FROM)) {
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: m.from || process.env.RESEND_FROM, to: m.to, subject: m.subject,
+          html: m.html, text: m.text, ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+        }),
+      })
+      if (!res.ok) return { ok: false, error: `Resend HTTP ${res.status} ${await res.text().catch(() => "")}`.slice(0, 300) }
+      const d = await res.json().catch(() => ({})) as { id?: string }
+      return { ok: true, id: d?.id }
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+  }
+  // 2. SMTP (nodemailer) — y compris Resend-en-SMTP
+  if (smtpConfigured()) {
+    try {
+      const info = await getTransporter().sendMail({
+        from: m.from || process.env.SMTP_FROM || process.env.SMTP_USER!,
+        to: m.to, subject: m.subject, text: m.text, html: m.html,
+        ...(m.replyTo ? { replyTo: m.replyTo } : {}),
+      })
+      return { ok: true, id: (info as { messageId?: string })?.messageId }
+    } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+  }
+  return { ok: false, error: "Aucun canal mail configuré (RESEND_API_KEY ou SMTP_*)." }
+}

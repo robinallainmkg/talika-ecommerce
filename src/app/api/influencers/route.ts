@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { loadExcludedKeys, billingKey } from "@/lib/influence/billing-status"
+import { normalizeMarket } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
 
@@ -29,11 +30,13 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const year = parseInt(searchParams.get("year") || "2026")
     const month = searchParams.get("month") ? parseInt(searchParams.get("month")!) : null // null = all year
+    const market = normalizeMarket(searchParams.get("market"))
 
-    // 1. Fetch influencers with their codes
+    // 1. Fetch influencers with their codes (scopés par marché)
     const { data: influencers, error } = await supabase
       .from("influencers")
       .select(`*, influencer_codes (*)`)
+      .eq("market", market)
       .order("name", { ascending: true })
 
     if (error) {
@@ -61,10 +64,10 @@ export async function GET(request: Request) {
     const cachePattern = month
       ? `shopify_orders_${year}_${month}`
       : `shopify_orders_${year}_%`
-    const { data: cacheEntries } = await supabase
-      .from("data_cache")
-      .select("key, data")
-      .like("key", cachePattern)
+    // Stats ventes = uniquement FR (codes Shopify FR). UK = pas encore de connecteur.
+    const { data: cacheEntries } = market === "FR"
+      ? await supabase.from("data_cache").select("key, data").like("key", cachePattern)
+      : { data: null as { key: string; data: unknown }[] | null }
 
     // Parse all orders for the year
     // data_cache format: { count: N, orders: [...] } or direct array
@@ -197,6 +200,7 @@ export async function POST(request: Request) {
     const { data: existing } = await supabase
       .from("influencers")
       .select("*")
+      .eq("market", normalizeMarket(body.market))
       .ilike("name", name)
       .limit(1)
     if (existing && existing.length > 0) {
@@ -205,6 +209,7 @@ export async function POST(request: Request) {
 
     const insertData: Record<string, unknown> = {
       name,
+      market: normalizeMarket(body.market),
       instagram_handle: body.instagram_handle || null,
       tiktok_handle: body.tiktok_handle || null,
       email: body.email || null,

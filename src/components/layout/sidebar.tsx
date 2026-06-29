@@ -40,6 +40,7 @@ const NAV: Entry[] = [
   {
     name: "Influence", icon: Users, children: [
       { name: "Influenceurs", href: "/influencers" },
+      { name: "Outreach (UK)", href: "/influencers/outreach" },
       { name: "Campagnes", href: "/influencers/campagnes" },
       { name: "Coûts influence", href: "/influencers/couts" },
       { name: "Facturation", href: "/influencers/facturation" },
@@ -85,6 +86,8 @@ export function Sidebar() {
   const [role, setRole] = useState<string | null>(null)
   const [sections, setSections] = useState<unknown>(undefined)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  // Switch de marché FR/UK = dans le header (market-switch.tsx, autre session), même
+  // cookie tk_market. On ne le duplique pas ici ; on garde juste le lien "Outreach (UK)".
 
   // Rôle + sections de l'utilisateur → on filtre la navigation par section.
   useEffect(() => {
