@@ -55,6 +55,20 @@ export default function OutreachPage() {
     } finally { setBusy(false) }
   }
 
+  const sendOne = async (id: string, name: string) => {
+    if (!confirm(`Envoyer POUR DE VRAI l'étape due à ${name} ? (1 email)`)) return
+    setBusy(true); setNote("")
+    try {
+      const res = await fetch("/api/influencers/outreach", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ market: "UK", dry: false, ids: [id], max: 1 }),
+      })
+      const j = await res.json()
+      setNote(res.ok ? `Envoi à ${name} : ${j.results?.[0]?.result || "?"}` : (j.error || "Erreur"))
+      load()
+    } finally { setBusy(false) }
+  }
+
   const patch = async (id: string, body: Record<string, unknown>) => {
     await fetch("/api/influencers/outreach", {
       method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -143,6 +157,7 @@ export default function OutreachPage() {
               <th className="px-3 py-2.5">Statut</th>
               <th className="px-3 py-2.5">Due</th>
               <th className="px-3 py-2.5">Dernier envoi</th>
+              <th className="px-3 py-2.5">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
@@ -170,6 +185,13 @@ export default function OutreachPage() {
                   </td>
                   <td className="px-3 py-2.5">{r.due ? <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[11px] font-bold text-white">ét.{r.due}</span> : <span className="text-zinc-300">—</span>}</td>
                   <td className="px-3 py-2.5 text-xs text-zinc-400">{lastSent ? new Date(lastSent).toLocaleDateString("fr-FR") : "—"}</td>
+                  <td className="px-3 py-2.5">
+                    <button onClick={() => sendOne(r.id, r.name)} disabled={busy || !r.due || !r.email || !data?.configured}
+                      title={!r.email ? "email à sourcer" : !r.due ? "rien de dû" : !data?.configured ? "mail non configuré" : "Envoyer (réel · 1 email)"}
+                      className="flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-30">
+                      <Send className="h-3 w-3" /> Envoyer
+                    </button>
+                  </td>
                 </tr>
               )
             })}
