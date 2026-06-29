@@ -2,9 +2,10 @@ import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { normalizeMarket } from "@/lib/market"
 import {
-  dueStep, renderStep, sendOutreach, outreachConfigured, defaultState,
-  DAILY_CAP, TERMINAL, type OutreachState, type OutreachStatus,
+  dueStep, outreachConfigured, defaultState, appBaseUrl,
+  DAILY_CAP, type OutreachState, type OutreachStatus,
 } from "@/lib/influence/outreach"
+import { sendDueBatch } from "@/lib/influence/outreach-run"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -23,8 +24,6 @@ interface Influencer {
 
 const stateOf = (inf: Influencer): OutreachState =>
   ((inf.metadata?.outreach as OutreachState) || defaultState())
-
-const firstName = (name: string) => (name || "there").trim().split(/\s+/)[0].replace(/[(),]/g, "")
 
 async function saveState(inf: Influencer, st: OutreachState) {
   const metadata = { ...(inf.metadata || {}), outreach: st }
@@ -61,77 +60,27 @@ export async function GET(request: Request) {
   })
 }
 
-// POST { action:"send", ids?, dry?, max?, market? } — envoie l'étape DUE (DRY par défaut)
+// POST { ids?, dry?, max?, market? } — envoie l'étape DUE (DRY par défaut). Délègue à sendDueBatch.
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   const market = normalizeMarket(body.market)
   const dry = body.dry !== false                       // sécurité : DRY sauf dry:false explicite
-  const max = Number(body.max) || DAILY_CAP
-  const sender = process.env.OUTREACH_SENDER || "Robin · Talika UK"
-
   if (!dry && !outreachConfigured()) {
     return NextResponse.json(
-      { error: "Resend non configuré : il faut RESEND_API_KEY + OUTREACH_FROM (ou RESEND_FROM) sur companion-ecommerce.com." },
+      { error: "Canal mail non configuré : RESEND_API_KEY ou SMTP_* (+ OUTREACH_FROM sur companion-ecommerce.com)." },
       { status: 400 }
     )
   }
-
-  let q = supabase
-    .from("influencers")
-    .select("id,name,instagram_handle,email,tier,category,metadata")
-    .eq("market", market)
-    .order("name", { ascending: true })
-  if (Array.isArray(body.ids) && body.ids.length) q = q.in("id", body.ids)
-  const { data, error } = await q
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  const now = new Date()
-  const results: { name: string; email: string | null; step?: number; result: string; detail?: string }[] = []
-  let sent = 0
-
-  for (const inf of data as Influencer[]) {
-    if (sent >= max) break
-    const st = stateOf(inf)
-    if (TERMINAL.includes(st.status)) continue
-    const step = dueStep(st, now)
-    if (!step) continue
-    const email = (inf.email || "").trim()
-    const estat = (st.email_status || "").toLowerCase()
-    if (!email || !email.includes("@") || estat.includes("sourcer")) {
-      results.push({ name: inf.name, email: inf.email, result: "skip", detail: "email manquant / à sourcer" })
-      continue
-    }
-
-    const { subject, text, html } = renderStep(step, {
-      first_name: firstName(inf.name), personalisation: st.personalisation, sender,
+  try {
+    const res = await sendDueBatch(supabase, {
+      market,
+      ids: Array.isArray(body.ids) && body.ids.length ? body.ids : undefined,
+      dry, max: Number(body.max) || DAILY_CAP, baseUrl: appBaseUrl(),
     })
-
-    let status = "dry", provider: string | undefined, errMsg: string | undefined
-    if (!dry) {
-      const r = await sendOutreach(email, subject, html, text)
-      status = r.ok ? "sent" : "error"
-      provider = r.id; errMsg = r.error
-    }
-
-    await supabase.from("outreach_log").insert({
-      influencer_id: inf.id, market, step, channel: "email",
-      to_email: email, subject, status, provider_id: provider || null, error: errMsg || null,
-    })
-
-    if (status === "sent" || status === "dry") {
-      const newStatus = (`Étape ${step} envoyée`) as OutreachStatus
-      const next: OutreachState = {
-        ...st, status: dry ? st.status : newStatus,
-        step: dry ? st.step : step,
-        sent: dry ? st.sent : { ...st.sent, [String(step)]: now.toISOString() },
-      }
-      if (!dry) await saveState(inf, next)
-      sent++
-    }
-    results.push({ name: inf.name, email, step, result: status, detail: errMsg })
+    return NextResponse.json({ market, dry, ...res })
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "send failed" }, { status: 500 })
   }
-
-  return NextResponse.json({ market, dry, attempted: results.length, sent, results })
 }
 
 // PATCH { id, status?, replied?, reply_summary?, personalisation?, email_status? }

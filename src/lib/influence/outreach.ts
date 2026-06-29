@@ -113,3 +113,28 @@ export async function sendOutreach(to: string, subject: string, html: string, te
     replyTo: process.env.OUTREACH_REPLY_TO || undefined,
   })
 }
+
+// ─── Tracking des ouvertures (pixel maison) ───
+// URL publique de l'app (pour le pixel + liens). Fallback = prod connue.
+export function appBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`
+  return "https://talika-ecommerce.vercel.app"
+}
+
+// Pixel 1x1 invisible → /api/influencers/outreach/open journalise l'ouverture.
+// ⚠️ Indicatif seulement : Apple Mail Privacy pré-charge les images (gonfle les opens),
+// et les images bloquées masquent de vraies ouvertures. La RÉPONSE reste le vrai signal.
+export function injectPixel(html: string, influencerId: string, step: number, baseUrl = appBaseUrl()): string {
+  const src = `${baseUrl}/api/influencers/outreach/open?i=${encodeURIComponent(influencerId)}&s=${step}`
+  return `${html}<img src="${src}" width="1" height="1" alt="" style="display:none;width:1px;height:1px" />`
+}
+
+// Classement heuristique d'une réponse (sans LLM) à partir de l'objet/extrait.
+export function classifyReply(text: string): OutreachStatus {
+  const t = (text || "").toLowerCase()
+  if (/unsubscribe|opt[\s-]?out|remove me|stop emailing|do not contact|se désabonner/.test(t)) return "Désinscrit"
+  if (/not interested|no thanks|no thank you|not for me|we'll pass|decline|pas intéress/.test(t)) return "Pas intéressée"
+  if (/interested|i'?d love|sounds (great|good)|happy to|count me in|keen|let'?s (chat|talk|do)|send (it|me|over)|my address|gifting|collab/.test(t)) return "Intéressée"
+  return "Répondu"
+}
