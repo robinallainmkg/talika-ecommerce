@@ -27,7 +27,18 @@ export interface OutreachState {
 // Cadence (jours depuis l'envoi précédent)
 export const DAYS_STEP2 = 4          // J+4 après étape 1
 export const DAYS_STEP3 = 5          // J+5 après étape 2 (≈ J+9)
-export const DAILY_CAP = 10          // warm-up domaine neuf (10 → 20 → 30/j)
+export const DAILY_CAP = 10          // plafond de repli si pas de date de départ
+
+// Warm-up domaine neuf : plafond d'envois/jour qui MONTE progressivement selon le
+// nombre de jours depuis le 1er envoi réel. Envoyer trop, trop vite, depuis un domaine
+// jeune = spam + réputation grillée. Rampe douce sur ~1 mois.
+export function warmupCap(daysSinceStart: number): number {
+  if (daysSinceStart <= 4) return 8        // semaine 1
+  if (daysSinceStart <= 11) return 15      // semaine 2
+  if (daysSinceStart <= 18) return 25      // semaine 3
+  if (daysSinceStart <= 25) return 40      // semaine 4
+  return 60                                // régime établi
+}
 
 export function defaultState(partial?: Partial<OutreachState>): OutreachState {
   return { status: "À contacter", step: 0, sent: {}, ...partial }

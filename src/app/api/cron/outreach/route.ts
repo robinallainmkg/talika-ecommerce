@@ -16,7 +16,7 @@ import { sendMail } from "@/lib/mailer"
 import { fetchRecentMessages, imapConfigured } from "@/lib/influence/imap"
 import { sendDueBatch } from "@/lib/influence/outreach-run"
 import {
-  classifyReply, appBaseUrl, defaultState, DAILY_CAP, type OutreachState,
+  classifyReply, appBaseUrl, defaultState, warmupCap, type OutreachState,
 } from "@/lib/influence/outreach"
 
 export const dynamic = "force-dynamic"
@@ -45,12 +45,14 @@ export async function GET(request: Request) {
   const byEmail = new Map<string, Contact>()
   for (const c of list) if (c.email) byEmail.set(c.email.trim().toLowerCase(), c)
 
-  // 1. RÉPONSES (IMAP) → pipeline
+  // 1. RÉPONSES + BOUNCES (IMAP) → pipeline
   const newReplies: { name: string; email: string | null; subject: string; status: string }[] = []
+  const bounced: string[] = []
   let replyError: string | undefined
   if (imapConfigured()) {
     try {
-      for (const m of await fetchRecentMessages(60)) {
+      const scan = await fetchRecentMessages(60)
+      for (const m of scan.messages) {
         const c = byEmail.get(m.from_email)
         if (!c) continue
         const st = stateOf(c)
@@ -60,6 +62,17 @@ export async function GET(request: Request) {
         await supabase.from("influencers").update({ metadata: { ...(c.metadata || {}), outreach: st }, updated_at: now.toISOString() }).eq("id", c.id)
         await supabase.from("outreach_log").insert({ influencer_id: c.id, market: MARKET, step: st.step || 0, channel: "reply", status: cls, subject: m.subject.slice(0, 200) })
         newReplies.push({ name: c.name, email: c.email, subject: m.subject, status: cls })
+      }
+      // Bounces : adresse en échec → statut "Bounce" (terminal, stoppe le drip → protège la réputation)
+      for (const email of scan.bounceRecipients) {
+        const c = byEmail.get(email)
+        if (!c) continue
+        const st = stateOf(c)
+        if (st.status === "Bounce") continue
+        st.status = "Bounce"
+        await supabase.from("influencers").update({ metadata: { ...(c.metadata || {}), outreach: st }, updated_at: now.toISOString() }).eq("id", c.id)
+        await supabase.from("outreach_log").insert({ influencer_id: c.id, market: MARKET, step: st.step || 0, channel: "bounce", status: "bounce", to_email: email })
+        bounced.push(c.name)
       }
     } catch (e) { replyError = e instanceof Error ? e.message : String(e) }
   }
@@ -71,13 +84,21 @@ export async function GET(request: Request) {
   const openIds = new Set((opensLog || []).map((o: { influencer_id: string }) => o.influencer_id))
   const opens = list.filter((c) => openIds.has(c.id)).map((c) => c.name)
 
-  // 3. BATCH warm-up (jours ouvrés ; DRY sauf OUTREACH_ENABLED=1)
+  // 3. BATCH warm-up (jours ouvrés ; DRY sauf OUTREACH_ENABLED=1 ; plafond qui MONTE)
   const enabled = process.env.OUTREACH_ENABLED === "1"
   const day = now.getUTCDay()
   const isWeekday = day >= 1 && day <= 5
+  // Plafond du jour = rampe warm-up selon les jours depuis le 1er envoi réel.
+  const { data: firstSent } = await supabase
+    .from("outreach_log").select("created_at")
+    .eq("channel", "email").eq("status", "sent")
+    .order("created_at", { ascending: true }).limit(1)
+  const startIso = (firstSent && firstSent[0]?.created_at) || null
+  const warmupDay = startIso ? Math.floor((now.getTime() - new Date(startIso).getTime()) / 86400000) : 0
+  const cap = Number(process.env.OUTREACH_DAILY_CAP) || warmupCap(warmupDay)
   let batch = { attempted: 0, sent: 0, results: [] as { name: string; result: string; step?: number }[] }
   if (isWeekday) {
-    batch = await sendDueBatch(supabase, { market: MARKET, dry: !enabled, max: DAILY_CAP, baseUrl: appBaseUrl() })
+    batch = await sendDueBatch(supabase, { market: MARKET, dry: !enabled, max: cap, baseUrl: appBaseUrl() })
   }
   const contactedToday = batch.results.filter((r) => r.result === "sent" || r.result === "dry")
 
@@ -86,7 +107,7 @@ export async function GET(request: Request) {
   for (const c of list) { const s = stateOf(c).status; counts[s] = (counts[s] || 0) + 1 }
 
   // 4. RÉCAP email (seulement s'il se passe quelque chose)
-  const activity = newReplies.length || opens.length || contactedToday.length
+  const activity = newReplies.length || opens.length || contactedToday.length || bounced.length
   let digestSent = false
   if (activity) {
     const li = (a: string[]) => a.length ? a.map((x) => `<li>${x}</li>`).join("") : "<li>—</li>"
@@ -96,15 +117,16 @@ export async function GET(request: Request) {
     const html =
       `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#1b1b1b">
       <h2 style="color:#0F5563">Talika UK · outreach — récap</h2>
-      <p>Mode d'envoi : <b>${mode}</b></p>
+      <p>Mode d'envoi : <b>${mode}</b> · 🔥 warm-up jour ${warmupDay}, plafond <b>${cap}/jour</b></p>
       <h3>📨 Réponses (${newReplies.length})</h3><ul>${li(repl)}</ul>
       <h3>👀 Ouvertures 24 h (${opens.length})</h3><ul>${li(opens)}</ul>
       <h3>✉️ Contactées aujourd'hui (${contactedToday.length})</h3><ul>${li(cont)}</ul>
+      ${bounced.length ? `<h3 style="color:#C0392B">↩️ Bounces — drip stoppé (${bounced.length})</h3><ul>${li(bounced)}</ul>` : ""}
       <h3>📊 Pipeline</h3><ul>${Object.entries(counts).map(([k, v]) => `<li>${k} : ${v}</li>`).join("")}</ul>
       ${replyError ? `<p style="color:#C0392B">⚠️ IMAP : ${replyError}</p>` : ""}
       <p style="color:#888;font-size:12px">Les profils "Intéressée" sont à traiter en priorité. Réponds-leur depuis talika@companion-ecommerce.com.</p>
       </div>`
-    const text = `Talika UK outreach — Mode ${mode}\nRéponses: ${repl.join(" | ") || "—"}\nOuvertures: ${opens.join(", ") || "—"}\nContactées: ${cont.join(", ") || "—"}`
+    const text = `Talika UK outreach — Mode ${mode} · warm-up jour ${warmupDay}, plafond ${cap}/j\nRéponses: ${repl.join(" | ") || "—"}\nOuvertures: ${opens.join(", ") || "—"}\nContactées: ${cont.join(", ") || "—"}\nBounces: ${bounced.join(", ") || "—"}`
     const r = await sendMail({
       to: process.env.OUTREACH_DIGEST_TO || "robinallainmkg@gmail.com",
       subject: `Talika UK outreach — ${newReplies.length} réponse(s), ${contactedToday.length} contactée(s)`,
@@ -114,8 +136,8 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
-    enabled, weekday: isWeekday,
-    replies: newReplies, opens, contacted: contactedToday, counts,
+    enabled, weekday: isWeekday, warmupDay, cap,
+    replies: newReplies, bounced, opens, contacted: contactedToday, counts,
     batch: { sent: batch.sent, attempted: batch.attempted, dry: !enabled },
     digestSent, replyError,
   })
