@@ -8,6 +8,7 @@ import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { Header } from "@/components/layout/header"
 import { Plus, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw, Send } from "lucide-react"
 import { OutreachCompose } from "@/components/influence/outreach-compose"
+import { useMarket } from "@/components/layout/market-gate"
 
 const inp = "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
 
@@ -37,6 +38,7 @@ function CardPhoto({ handle, name }: { handle: string | null; name: string }) {
 }
 
 export default function CampagnesPage() {
+  const market = useMarket()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [selected, setSelected] = useState<string>("")
   const [collabs, setCollabs] = useState<Collab[]>([])
@@ -52,14 +54,14 @@ export default function CampagnesPage() {
   const toggleSel = (id: string) => setSel((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   const loadCampaigns = useCallback(async () => {
-    const res = await fetch("/api/influencers/campaigns", { cache: "no-store" })
+    const res = await fetch(`/api/influencers/campaigns?market=${market}`, { cache: "no-store" })
     const data = await res.json()
     // Campagnes mensuelles d'abord, plus récentes en tête.
     const list: Campaign[] = (data.campaigns || []).sort((a: Campaign, b: Campaign) =>
       (b.year ?? 0) - (a.year ?? 0) || (b.month ?? 0) - (a.month ?? 0))
     setCampaigns(list)
-    setSelected((cur) => cur || list[0]?.id || "")
-  }, [])
+    setSelected((cur) => (list.some((c) => c.id === cur) ? cur : list[0]?.id || ""))
+  }, [market])
 
   const loadCollabs = useCallback(async (campaign: string) => {
     if (!campaign) { setCollabs([]); return }
@@ -71,11 +73,11 @@ export default function CampagnesPage() {
   useEffect(() => { loadCampaigns() }, [loadCampaigns])
   useEffect(() => { loadCollabs(selected); setSel(new Set()) }, [selected, loadCollabs])
   useEffect(() => {
-    fetch("/api/influencers?year=2026", { cache: "no-store" })
+    fetch(`/api/influencers?year=2026&market=${market}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setAllInf((d.influencers || []).map((i: { id: string; name: string }) => ({ id: i.id, name: i.name })).sort((a: InfLite, b: InfLite) => a.name.localeCompare(b.name))))
       .catch(() => {})
-  }, [])
+  }, [market])
 
   const selectedCampaign = useMemo(() => campaigns.find((c) => c.id === selected), [campaigns, selected])
   const palette = useMemo(() => selectedCampaign?.themes || [], [selectedCampaign])
@@ -304,6 +306,7 @@ export default function CampagnesPage() {
       {(showCampaign || editCampaign) && (
         <CampaignModal
           campaign={editCampaign || undefined}
+          market={market}
           onClose={() => { setShowCampaign(false); setEditCampaign(null) }}
           onSaved={(id) => { setShowCampaign(false); setEditCampaign(null); loadCampaigns().then(() => setSelected(id)) }}
         />
@@ -322,7 +325,7 @@ export default function CampagnesPage() {
   )
 }
 
-function CampaignModal({ campaign, onClose, onSaved }: { campaign?: Campaign; onClose: () => void; onSaved: (id: string) => void }) {
+function CampaignModal({ campaign, market, onClose, onSaved }: { campaign?: Campaign; market: string; onClose: () => void; onSaved: (id: string) => void }) {
   const now = new Date()
   const [form, setForm] = useState({
     name: campaign?.name ?? "",
@@ -345,7 +348,7 @@ function CampaignModal({ campaign, onClose, onSaved }: { campaign?: Campaign; on
   async function save() {
     if (!form.name.trim()) return
     setSaving(true)
-    const body = { ...form, themes, budget: form.budget }
+    const body = { ...form, themes, budget: form.budget, market }
     const res = await fetch("/api/influencers/campaigns", {
       method: editing ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { normalizeMarket } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
 
@@ -9,12 +10,14 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
-// GET — liste des campagnes (+ nb d'influenceuses par campagne)
-export async function GET() {
+// GET — liste des campagnes du marché (+ nb d'influenceuses par campagne)
+export async function GET(request: Request) {
   try {
+    const market = normalizeMarket(new URL(request.url).searchParams.get("market"))
     const { data: campaigns } = await supabase
       .from("influence_campaigns")
       .select("*")
+      .eq("market", market)
       .order("created_at", { ascending: false })
     const { data: collabs } = await supabase
       .from("influence_campaign_collabs")
@@ -51,6 +54,7 @@ export async function POST(request: Request) {
       .from("influence_campaigns")
       .insert({
         name: b.name.trim(),
+        market: normalizeMarket(b.market),
         year, month, themes,
         theme: themes.length ? themes.join(", ") : STR(b.theme), // compat ancien champ
         objective: STR(b.objective),
