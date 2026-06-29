@@ -165,9 +165,16 @@ export async function POST(request: Request) {
             /^\s*(oui+|ouais|ouaip|ok(ay)?|d['’ ]?accord|vas[- ]?y|je veux bien|volontiers|carr[ée]ment|avec plaisir|bien s[ûu]r|yes|yep|sure|go|allez|parfait|super|g[ée]nial|svp|stp|s['’ ]?il vous pla[îi]t|please)\b/i
           const PRODUCT_HINT =
             /\b(led|time ?control|tc7|lipocils|liposourcils|mascara|eye|yeux|regard|cils|sourcils|hair ?force|cheveux|bust|buste|gommage|brume|vitamine|vit ?c|free ?skin|smile|photo|patch|s[eé]rum|cr[eè]me|masque|mask|quintessence|booster|cica|enzyme|peeling|nettoyant|d[eé]maquill|soleil)\b/i
+          // Un message qui COMMENCE par un connecteur de continuation (« et… »,
+          // « non… », « du coup… », « à la suite », « et après ») poursuit le sujet
+          // en cours même s'il fait >10 mots (ex. « non, je demande si je peux faire
+          // 2 séances qui se suivent » → dérivait sur Free Skin).
+          const FOLLOWUP_START =
+            /^\s*(et\b|non\b|mais\b|donc\b|alors\b|du coup|aussi\b|sinon\b|par contre|c['’]est\b|ça\b|et si|et sinon|à la suite|et apr[èe]s|ensuite|et ensuite|pourquoi\b|comment\b)/i
           const wordCount = message.trim().split(/\s+/).length
           const isFollowUp =
-            AFFIRMATION.test(message) || (!PRODUCT_HINT.test(message) && wordCount <= 10)
+            AFFIRMATION.test(message) ||
+            (!PRODUCT_HINT.test(message) && (FOLLOWUP_START.test(message) || wordCount <= 12))
           let retrievalText = message
           if (isFollowUp) {
             const lastUserContent = (historyRows || []).find((r) => r.role === "user")?.content || ""
