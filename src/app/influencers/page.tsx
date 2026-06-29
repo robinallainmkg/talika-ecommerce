@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { getMarketCookie } from "@/components/layout/market-switch"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { formatCurrency } from "@/lib/utils"
 import {
@@ -171,7 +172,7 @@ export default function InfluencersPage() {
     setError(null)
     try {
       const [infRes, codesRes] = await Promise.all([
-        fetch(`/api/influencers?year=${selectedYear}${selectedMonth ? `&month=${selectedMonth}` : ""}`, { cache: "no-store" }),
+        fetch(`/api/influencers?year=${selectedYear}${selectedMonth ? `&month=${selectedMonth}` : ""}&market=${getMarketCookie()}`, { cache: "no-store" }),
         fetch("/api/influencers/codes", { cache: "no-store" }),
       ])
       const infJson = await infRes.json()
@@ -384,26 +385,15 @@ export default function InfluencersPage() {
         title="Gestion Influenceurs"
         subtitle="Tracking, commissions et performance des influenceurs"
         actions={
-          <div className="flex gap-2 items-center flex-wrap">
-            <select
-              className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm"
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-            >
-              <option value={2024}>2024</option>
-              <option value={2025}>2025</option>
-              <option value={2026}>2026</option>
-            </select>
-            <Button size="sm" onClick={() => setShowAddModal(true)}>
-              <Plus className="h-4 w-4" />
-              Ajouter
-            </Button>
-          </div>
+          <Button size="sm" onClick={() => setShowAddModal(true)}>
+            <Plus className="h-4 w-4" />
+            Ajouter
+          </Button>
         }
       />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        <MonthTabs allowAll month={selectedMonth} onSelect={setSelectedMonth} />
+        <MonthTabs allowAll month={selectedMonth} onSelect={setSelectedMonth} year={selectedYear} onYearChange={setSelectedYear} />
         <DataInsights page="influencers" />
 
         {/* Error banner */}

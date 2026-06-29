@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { Header } from "@/components/layout/header"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
-import { Loader2, ArrowLeft, RefreshCw, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell, Trash2 } from "lucide-react"
+import { Loader2, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell, Trash2 } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
 interface Invoice {
@@ -294,30 +295,15 @@ export default function FacturationPage() {
   const visibleCollabs = onlyMissing ? collabs.filter(isMissing) : collabs
 
   return (
-    <div className="space-y-6 p-8">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <Link href="/influencers" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900">
-              <ArrowLeft className="h-4 w-4" /> Influence
-            </Link>
-            <h1 className="text-2xl font-semibold text-zinc-900">Facturation</h1>
-            <p className="text-sm text-zinc-500">
-              Les collabs à régler ce mois (un paiement dû = une collab). Joins la facture et garde le bon libellé de facturation.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <button onClick={load} className="flex items-center gap-1 rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-50">
-              <RefreshCw className="h-4 w-4" /> Actualiser
-            </button>
-          </div>
-        </div>
-        {/* Onglets mois */}
-        <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} badges={missingByMonth} />
+    <div>
+      <Header
+        title="Facturation"
+        subtitle="Les collabs à régler ce mois — joins la facture et garde le bon libellé de facturation."
+      />
+      <div className="space-y-6 p-8">
+        <div className="space-y-4">
+          {/* Période : mois + année */}
+          <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} badges={missingByMonth} year={year} onYearChange={setYear} years={years} />
       </div>
 
       {isLocked && (
@@ -579,6 +565,7 @@ export default function FacturationPage() {
       </p>
 
       <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
+      </div>
     </div>
   )
 }

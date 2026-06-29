@@ -11,24 +11,46 @@ export const MONTHS_FULL = [
   "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
 ]
 
+const DEFAULT_YEARS = [2024, 2025, 2026]
+
 // Strip d'onglets de mois, partagé par les vues Influence (Facturation, Coûts,
-// scoreboard). `badges` = compteur ambre par mois (1-12), optionnel.
+// scoreboard, Campagnes). `badges` = compteur ambre par mois (1-12), optionnel.
 // `allowAll` ajoute un onglet "Année" (sélection = null) pour les vues annuelles.
+// `year`/`onYearChange` (optionnels) affichent le sélecteur d'année DANS le strip,
+// juste à côté des mois — pour une barre période uniforme dans toutes les vues.
 export function MonthTabs({
   month,
   onSelect,
   badges,
   allowAll = false,
   className,
+  year,
+  onYearChange,
+  years = DEFAULT_YEARS,
 }: {
   month: number | null
   onSelect: (m: number | null) => void
   badges?: Record<number, number>
   allowAll?: boolean
   className?: string
+  year?: number
+  onYearChange?: (y: number) => void
+  years?: number[]
 }) {
   return (
-    <div className={cn("flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1", className)}>
+    <div className={cn("flex flex-wrap items-center gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1", className)}>
+      {year != null && onYearChange && (
+        <select
+          value={year}
+          onChange={(e) => onYearChange(Number(e.target.value))}
+          className="mr-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-sm font-medium text-zinc-700 focus:border-zinc-900 focus:outline-none"
+          aria-label="Année"
+        >
+          {years.map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+      )}
       {allowAll && (
         <button
           onClick={() => onSelect(null)}

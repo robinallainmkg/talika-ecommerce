@@ -1,12 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
 import { STAGES, type Stage } from "@/lib/influence/pipeline"
 import { MONTH_NAMES } from "@/lib/influence/monthly-campaign"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
-import { ArrowLeft, Plus, RefreshCw, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw } from "lucide-react"
+import { Header } from "@/components/layout/header"
+import { Plus, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw } from "lucide-react"
 
 const inp = "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
 
@@ -39,7 +39,6 @@ export default function CampagnesPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [selected, setSelected] = useState<string>("")
   const [collabs, setCollabs] = useState<Collab[]>([])
-  const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -59,12 +58,10 @@ export default function CampagnesPage() {
   }, [])
 
   const loadCollabs = useCallback(async (campaign: string) => {
-    if (!campaign) { setCollabs([]); setLoading(false); return }
-    setLoading(true)
+    if (!campaign) { setCollabs([]); return }
     const res = await fetch(`/api/influencers/collabs?campaign=${campaign}`, { cache: "no-store" })
     const data = await res.json()
     setCollabs(data.collabs || [])
-    setLoading(false)
   }, [])
 
   useEffect(() => { loadCampaigns() }, [loadCampaigns])
@@ -133,15 +130,10 @@ export default function CampagnesPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
-      <div className="p-4 sm:p-6 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <Link href="/influencers" className="mb-1 inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900">
-              <ArrowLeft className="h-4 w-4" /> Influence
-            </Link>
-            <h1 className="text-2xl font-semibold text-zinc-900">Campagnes</h1>
-            <p className="text-sm text-zinc-500">Une campagne par mois, auto-remplie depuis les ventes/coûts. Tague chaque collab par thème pour voir qui parle de quoi, à quel coût.</p>
-          </div>
+      <Header
+        title="Campagnes"
+        subtitle="Une campagne par mois, auto-remplie depuis les ventes/coûts. Tague chaque collab par thème."
+        actions={
           <div className="flex flex-wrap items-center gap-2">
             <select value={selected} onChange={(e) => setSelected(e.target.value)} className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
               {campaigns.length === 0 && <option value="">Aucune campagne</option>}
@@ -165,11 +157,10 @@ export default function CampagnesPage() {
                 <UserPlus className="h-4 w-4" /> Ajouter
               </button>
             )}
-            <button onClick={() => loadCollabs(selected)} className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50" title="Rafraîchir">
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
           </div>
-        </div>
+        }
+      />
+      <div className="p-4 sm:p-6 space-y-4">
 
         {/* Récap coût par thème (lentille "coûts" de la campagne du mois) */}
         {selected && (palette.length > 0 || rollup.total > 0) && (

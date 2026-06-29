@@ -1,12 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import Link from "next/link"
 import { formatCurrency } from "@/lib/utils"
-import { Loader2, Save, ArrowLeft, RefreshCw, Plus, Lock, Unlock, Paperclip } from "lucide-react"
+import { Loader2, Save, Plus, Lock, Unlock, Paperclip } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { Header } from "@/components/layout/header"
 
 interface Row {
   influencer_id: string
@@ -247,30 +247,12 @@ export default function CoutsInfluencePage() {
 
   return (
     <div className="min-h-screen bg-zinc-50">
+      <Header
+        title="Coûts influence du mois"
+        subtitle="Forfait et/ou commission par influenceuse, par mois — alimente le dashboard Acquisition."
+      />
       <div className="mx-auto max-w-4xl p-4 sm:p-6 space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <Link href="/influencers" className="mb-1 inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600">
-              <ArrowLeft className="h-3 w-3" /> Influenceurs
-            </Link>
-            <h1 className="text-2xl font-semibold text-zinc-900">Coûts influence du mois</h1>
-            <p className="max-w-xl text-sm text-zinc-500">
-              Pour chaque influenceuse ce mois : un <strong>forfait</strong>, une <strong>commission</strong>, ou les deux
-              (le plus souvent un seul). La commission peut se pré-remplir depuis ses ventes. Ça alimente le dashboard Acquisition.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <select value={year} onChange={(e) => setYear(Number(e.target.value))}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm">
-              {[2024, 2025, 2026].map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <button onClick={load} className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50" title="Rafraîchir">
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-        </div>
-
-        <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} />
+        <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} year={year} onYearChange={setYear} />
 
         {/* Statut de verrouillage du mois */}
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm ${isLocked ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white"}`}>

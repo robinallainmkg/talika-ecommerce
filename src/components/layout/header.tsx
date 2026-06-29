@@ -1,7 +1,6 @@
 "use client"
 
-import { Bell, Search, RefreshCw } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { MarketSwitch } from "@/components/layout/market-switch"
 
 interface HeaderProps {
   title: string
@@ -9,6 +8,10 @@ interface HeaderProps {
   actions?: React.ReactNode
 }
 
+// Header global uniforme : titre + sous-titre à gauche, actions de page puis le
+// switch marché (FR/UK) à droite. Plus de boutons fantômes (recherche/cloche/
+// refresh) qui ne faisaient rien — remplacés par le switch marché, utile partout
+// puisque le companion est dupliqué par marché.
 export function Header({ title, subtitle, actions }: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 flex min-h-[4rem] items-center justify-between gap-2 border-b border-zinc-200 bg-white/80 px-4 sm:px-6 backdrop-blur-sm py-2">
@@ -18,17 +21,9 @@ export function Header({ title, subtitle, actions }: HeaderProps) {
           <p className="text-xs sm:text-sm text-zinc-500 truncate">{subtitle}</p>
         )}
       </div>
-      <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         {actions}
-        <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
-          <Search className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
-          <Bell className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="sm">
-          <RefreshCw className="h-4 w-4" />
-        </Button>
+        <MarketSwitch />
       </div>
     </header>
   )
