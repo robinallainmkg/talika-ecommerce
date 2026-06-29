@@ -154,10 +154,27 @@ export async function POST(request: Request) {
             return
           }
 
-          // Récupération sur le MESSAGE COURANT uniquement. (Une tentative d'inclure
-          // le tour précédent décalait la recherche d'un cran : chaque question
-          // récupérait le sujet de la précédente → réponses à côté. Abandonnée.)
-          const embeddings = await embedTexts([message])
+          // Récupération contextuelle CIBLÉE. Par défaut on cherche sur le message
+          // courant SEUL (il porte son sujet : il nomme un produit, ou c'est une vraie
+          // question) → pas de décalage. MAIS pour un SUIVI court — affirmation
+          // (« oui »), ou message sans nom de produit (« sur la notice 4 fois/sem »,
+          // « et le matin ? ») — le message seul ne porte aucun sujet : embeddé tel
+          // quel il récupère un produit au hasard et le bot dérive (ex. « oui » →
+          // Gommage). Dans CE cas seulement, on récupère sur le dernier échange.
+          const AFFIRMATION =
+            /^\s*(oui+|ouais|ouaip|ok(ay)?|d['’ ]?accord|vas[- ]?y|je veux bien|volontiers|carr[ée]ment|avec plaisir|bien s[ûu]r|yes|yep|sure|go|allez|parfait|super|g[ée]nial|svp|stp|s['’ ]?il vous pla[îi]t|please)\b/i
+          const PRODUCT_HINT =
+            /\b(led|time ?control|tc7|lipocils|liposourcils|mascara|eye|yeux|regard|cils|sourcils|hair ?force|cheveux|bust|buste|gommage|brume|vitamine|vit ?c|free ?skin|smile|photo|patch|s[eé]rum|cr[eè]me|masque|mask|quintessence|booster|cica|enzyme|peeling|nettoyant|d[eé]maquill|soleil)\b/i
+          const wordCount = message.trim().split(/\s+/).length
+          const isFollowUp =
+            AFFIRMATION.test(message) || (!PRODUCT_HINT.test(message) && wordCount <= 10)
+          let retrievalText = message
+          if (isFollowUp) {
+            const lastUserContent = (historyRows || []).find((r) => r.role === "user")?.content || ""
+            const ctx = `${lastUserContent} ${lastAssistantContent}`.trim()
+            if (ctx) retrievalText = `${ctx} ${message}`.slice(0, 450)
+          }
+          const embeddings = await embedTexts([retrievalText])
 
           const rag = await retrieveContext(db, embeddings[0])
 
