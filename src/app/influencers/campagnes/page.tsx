@@ -6,7 +6,8 @@ import { STAGES, type Stage } from "@/lib/influence/pipeline"
 import { MONTH_NAMES } from "@/lib/influence/monthly-campaign"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { Header } from "@/components/layout/header"
-import { Plus, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw } from "lucide-react"
+import { Plus, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw, Send } from "lucide-react"
+import { OutreachCompose } from "@/components/influence/outreach-compose"
 
 const inp = "w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-900 focus:outline-none"
 
@@ -46,6 +47,9 @@ export default function CampagnesPage() {
   const [editCampaign, setEditCampaign] = useState<Campaign | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [allInf, setAllInf] = useState<InfLite[]>([])
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [showCompose, setShowCompose] = useState(false)
+  const toggleSel = (id: string) => setSel((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
 
   const loadCampaigns = useCallback(async () => {
     const res = await fetch("/api/influencers/campaigns", { cache: "no-store" })
@@ -65,7 +69,7 @@ export default function CampagnesPage() {
   }, [])
 
   useEffect(() => { loadCampaigns() }, [loadCampaigns])
-  useEffect(() => { loadCollabs(selected) }, [selected, loadCollabs])
+  useEffect(() => { loadCollabs(selected); setSel(new Set()) }, [selected, loadCollabs])
   useEffect(() => {
     fetch("/api/influencers?year=2026", { cache: "no-store" })
       .then((r) => r.json())
@@ -88,6 +92,19 @@ export default function CampagnesPage() {
     const total = collabs.reduce((s, c) => s + cost(c), 0)
     return { stats, untaggedCount: untagged.length, untaggedCost: untagged.reduce((s, c) => s + cost(c), 0), total }
   }, [palette, collabs])
+
+  const selectedCollabs = collabs.filter((c) => sel.has(c.id))
+
+  // Après un envoi outreach réel : passe les prospects sélectionnés en "Contacté", reset.
+  async function afterCompose() {
+    await Promise.all(
+      selectedCollabs.filter((c) => c.stage === "prospect").map((c) =>
+        fetch("/api/influencers/collabs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, stage: "contacte" }) })
+      )
+    )
+    setShowCompose(false); setSel(new Set())
+    loadCollabs(selected); loadCampaigns()
+  }
 
   async function moveStage(id: string, stage: Stage) {
     setCollabs((prev) => prev.map((c) => (c.id === id ? { ...c, stage } : c)))
@@ -187,6 +204,17 @@ export default function CampagnesPage() {
           </div>
         )}
 
+        {/* Barre d'action sélection → Outreach */}
+        {sel.size > 0 && (
+          <div className="flex items-center gap-3 rounded-xl border border-zinc-900 bg-zinc-900 px-4 py-2.5 text-white">
+            <span className="text-sm font-medium">{sel.size} sélectionnée{sel.size > 1 ? "s" : ""}</span>
+            <button onClick={() => setShowCompose(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-zinc-100">
+              <Send className="h-4 w-4" /> Outreach
+            </button>
+            <button onClick={() => setSel(new Set())} className="text-sm text-zinc-300 hover:text-white">Désélectionner</button>
+          </div>
+        )}
+
         {campaigns.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center text-sm text-zinc-500">
             Crée une première campagne pour commencer.
@@ -216,6 +244,8 @@ export default function CampagnesPage() {
                         className="group cursor-pointer rounded-lg border border-zinc-200 bg-white p-2.5 shadow-sm hover:border-zinc-300"
                       >
                         <div className="flex items-start gap-2">
+                          <input type="checkbox" checked={sel.has(c.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(c.id)}
+                            className="mt-1 h-3.5 w-3.5 shrink-0 cursor-pointer accent-zinc-900" title="Sélectionner pour l'outreach" />
                           <CardPhoto handle={c.instagram_handle} name={c.name} />
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-medium text-zinc-900">{c.name}</div>
@@ -280,6 +310,14 @@ export default function CampagnesPage() {
       )}
       {showAdd && selected && <AddModal campaignId={selected} allInf={allInf} inCampaign={new Set(collabs.map((c) => c.influencer_id))} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); loadCollabs(selected); loadCampaigns() }} />}
       <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
+      {showCompose && sel.size > 0 && (
+        <OutreachCompose
+          ids={selectedCollabs.map((c) => c.influencer_id)}
+          names={selectedCollabs.map((c) => c.name)}
+          onClose={() => setShowCompose(false)}
+          onDone={afterCompose}
+        />
+      )}
     </div>
   )
 }

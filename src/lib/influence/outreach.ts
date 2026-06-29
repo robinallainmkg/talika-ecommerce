@@ -3,6 +3,9 @@
 // L'état du drip vit dans influencers.metadata.outreach ; le journal dans outreach_log.
 // DRY par défaut : aucun email ne part sans dry=false ET un canal mail configuré.
 import { sendMail, mailerConfigured } from "@/lib/mailer"
+import { TEMPLATES, mergeTemplate, htmlWrap } from "./templates"
+export { TEMPLATES, mergeTemplate, htmlWrap } from "./templates"
+export type { RawTemplate } from "./templates"
 
 export type OutreachStatus =
   | "À contacter" | "À qualifier"
@@ -55,59 +58,15 @@ export function dueStep(s: OutreachState | undefined | null, now = new Date()): 
   return null
 }
 
-// ─── Templates (anglais UK, entonnoir ouvert) ───
+// ─── Rendu du drip (templates dans ./templates) ───
 interface Ctx { first_name: string; personalisation?: string; sender: string }
 
 export function renderStep(step: 1 | 2 | 3, c: Ctx): { subject: string; text: string; html: string } {
-  const perso = c.personalisation ? c.personalisation : ""
-  const sender = c.sender || "Talika UK"
-  let subject = "", text = ""
-  if (step === 1) {
-    subject = `Talika x ${c.first_name} — a hello from a French beauty house (since 1948)`
-    text =
-`Hi ${c.first_name},
-
-I'm reaching out from Talika — a French beauty house and a pioneer in eye-contour care and cosmetic innovation since 1948 (75+ years). Today we're especially known for our LED light-therapy beauty devices.
-
-I've really enjoyed your skincare content${perso}, and as we grow Talika in the UK we're looking to work with a small circle of skincare creators we genuinely admire.
-
-Would you be open to collaborating with us? And if so, how do you usually like to work — gifting, affiliate, or paid? I'd love to share a few of our hero products and let you pick what you'd most like to try.
-
-No pressure at all — just keen to start a conversation.
-
-Warm wishes,
-${sender}
-
-(If you'd rather not hear from me, just reply 'unsubscribe' and I'll take you off my list.)`
-  } else if (step === 2) {
-    subject = `Re: Talika x ${c.first_name}`
-    text =
-`Hi ${c.first_name},
-
-Just gently floating this back to the top of your inbox 🙂 We'd genuinely love to explore working together — and to send you something to try, whatever format suits you best.
-
-If now isn't the right time, no worries at all.
-
-Warm wishes,
-${sender}`
-  } else {
-    subject = `One last hello from Talika 👋`
-    text =
-`Hi ${c.first_name},
-
-Last note from me, promise. A quick snapshot of what we'd love to put in your hands:
-• our LED face mask (light-therapy, anti-ageing)
-• Time Control 7+ — a 7-in-1 anti-ageing device for the eye & face contour
-• and our Hair Force LED cap, if hair's ever your thing
-
-If any of it appeals, just reply and tell me which you'd like to try — I'll arrange it, no strings.
-
-Either way, thank you for the lovely content.
-${sender}
-Talika UK`
-  }
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1b1b1b">${text.replace(/\n/g, "<br>")}</div>`
-  return { subject, text, html }
+  const tpl = TEMPLATES.find((t) => t.key === `step${step}`) || TEMPLATES[0]
+  const vars = { first_name: c.first_name, personalisation: c.personalisation || "", sender: c.sender || "Talika UK" }
+  const subject = mergeTemplate(tpl.subject, vars)
+  const text = mergeTemplate(tpl.body, vars)
+  return { subject, text, html: htmlWrap(text) }
 }
 
 // ─── Envoi (délégué au mailer : Resend HTTP ou SMTP) ───
