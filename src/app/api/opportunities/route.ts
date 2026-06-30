@@ -10,6 +10,12 @@ const supabase = createClient(
 // GET — list opportunities (pending by default, or all)
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
+  // Les opportunités sont une feature FR (générées depuis la data FR). Sur un
+  // autre marché (UK), pas d'opportunités → liste vide, sinon le badge sidebar
+  // affiche le compteur FR en UK (confusant). Marché via ?market= ou cookie tk_market.
+  const rawMarket = (searchParams.get("market") || (request.headers.get("cookie") || "").match(/(?:^|;\s*)tk_market=([A-Za-z]{2})/)?.[1] || "FR").toUpperCase()
+  if (rawMarket !== "FR") return NextResponse.json([])
+
   const status = searchParams.get("status") || "pending"
 
   let query = supabase
