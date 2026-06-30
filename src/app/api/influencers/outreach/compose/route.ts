@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import {
-  mergeTemplate, htmlWrap, injectPixel, sendOutreach, outreachConfigured,
-  appBaseUrl, defaultState, type OutreachState,
+  mergeTemplate, sendOutreach, outreachConfigured, defaultState, type OutreachState,
 } from "@/lib/influence/outreach"
 
 export const dynamic = "force-dynamic"
@@ -58,11 +57,10 @@ export async function POST(request: Request) {
     }
     const subject = mergeTemplate(subjectTpl, vars)
     const text = mergeTemplate(bodyTpl, vars)
-    const html = injectPixel(htmlWrap(text), inf.id, 1, appBaseUrl())
 
     let status = "dry", provider: string | undefined, errMsg: string | undefined
     if (!dry) {
-      const r = await sendOutreach(email, subject, html, text)
+      const r = await sendOutreach(email, subject, text)
       status = r.ok ? "sent" : "error"; provider = r.id; errMsg = r.error
     }
     await supabase.from("outreach_log").insert({

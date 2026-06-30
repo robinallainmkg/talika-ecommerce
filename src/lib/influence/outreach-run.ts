@@ -2,7 +2,7 @@
 // DRY par défaut : n'envoie réellement que si dry === false.
 import type { SupabaseClient } from "@supabase/supabase-js"
 import {
-  dueStep, renderStep, sendOutreach, defaultState, injectPixel,
+  dueStep, renderStep, sendOutreach, defaultState,
   DAILY_CAP, TERMINAL, type OutreachState, type OutreachStatus,
 } from "@/lib/influence/outreach"
 
@@ -55,12 +55,11 @@ export async function sendDueBatch(supabase: SupabaseClient, opts: BatchOpts): P
       results.push({ name: inf.name, email: inf.email, result: "skip", detail: "email manquant / à sourcer" })
       continue
     }
-    const { subject, text, html } = renderStep(step, { first_name: firstName(inf.name), personalisation: st.personalisation, sender })
-    const htmlTracked = injectPixel(html, inf.id, step, opts.baseUrl)
+    const { subject, text } = renderStep(step, { first_name: firstName(inf.name), personalisation: st.personalisation, sender })
 
     let status = "dry", provider: string | undefined, errMsg: string | undefined
     if (!dry) {
-      const r = await sendOutreach(email, subject, htmlTracked, text)
+      const r = await sendOutreach(email, subject, text)
       status = r.ok ? "sent" : "error"; provider = r.id; errMsg = r.error
     }
     await supabase.from("outreach_log").insert({

@@ -75,9 +75,10 @@ export function outreachConfigured(): boolean {
   return mailerConfigured()
 }
 
-export async function sendOutreach(to: string, subject: string, html: string, text: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+export async function sendOutreach(to: string, subject: string, text: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  // Outreach 1:1 = TEXTE BRUT (pas de HTML ni pixel) → meilleure délivrabilité (boîte Principale).
   return sendMail({
-    to, subject, html, text,
+    to, subject, text,
     // from explicite si fourni, sinon le mailer retombe sur SMTP_FROM (companion-ecommerce.com)
     from: process.env.OUTREACH_FROM || process.env.RESEND_FROM || undefined,
     replyTo: process.env.OUTREACH_REPLY_TO || undefined,

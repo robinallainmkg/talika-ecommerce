@@ -101,7 +101,7 @@ export async function sendInviteEmail(to: string, link: string): Promise<boolean
 // ── Envoi générique (sujet/corps libres) — réutilisé par l'outreach influence.
 // Même logique de canaux : Resend HTTP si RESEND_API_KEY, sinon SMTP (ex. Resend
 // branché en SMTP : SMTP_HOST=smtp.resend.com, SMTP_USER=resend, SMTP_PASS=<clé re_…>).
-export interface MailMsg { to: string; subject: string; html: string; text: string; from?: string; replyTo?: string }
+export interface MailMsg { to: string; subject: string; text: string; html?: string; from?: string; replyTo?: string }
 
 export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; error?: string }> {
   // 1. Resend HTTP (si clé API directe)
@@ -112,7 +112,7 @@ export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; 
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           from: m.from || process.env.RESEND_FROM, to: m.to, subject: m.subject,
-          html: m.html, text: m.text, ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+          text: m.text, ...(m.html ? { html: m.html } : {}), ...(m.replyTo ? { reply_to: m.replyTo } : {}),
         }),
       })
       if (!res.ok) return { ok: false, error: `Resend HTTP ${res.status} ${await res.text().catch(() => "")}`.slice(0, 300) }
@@ -125,7 +125,7 @@ export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; 
     try {
       const info = await getTransporter().sendMail({
         from: m.from || process.env.SMTP_FROM || process.env.SMTP_USER!,
-        to: m.to, subject: m.subject, text: m.text, html: m.html,
+        to: m.to, subject: m.subject, text: m.text, ...(m.html ? { html: m.html } : {}),
         ...(m.replyTo ? { replyTo: m.replyTo } : {}),
       })
       return { ok: true, id: (info as { messageId?: string })?.messageId }
