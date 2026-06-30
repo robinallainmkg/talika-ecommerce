@@ -75,13 +75,18 @@ export function outreachConfigured(): boolean {
   return mailerConfigured()
 }
 
+// Identité d'envoi outreach. En DUR par défaut (domaine vérifié dans Resend) pour ne PAS
+// dépendre d'une variable Vercel : l'email part de talika@ ET les réponses y reviennent
+// (boîte Hostinger surveillée en IMAP). Surchargeable via OUTREACH_FROM / OUTREACH_REPLY_TO.
+const OUTREACH_FROM_DEFAULT = "Talika <talika@companion-ecommerce.com>"
+const OUTREACH_REPLY_DEFAULT = "talika@companion-ecommerce.com"
+
 export async function sendOutreach(to: string, subject: string, text: string): Promise<{ ok: boolean; id?: string; error?: string }> {
   // Outreach 1:1 = TEXTE BRUT (pas de HTML ni pixel) → meilleure délivrabilité (boîte Principale).
   return sendMail({
     to, subject, text,
-    // from explicite si fourni, sinon le mailer retombe sur SMTP_FROM (companion-ecommerce.com)
-    from: process.env.OUTREACH_FROM || process.env.RESEND_FROM || undefined,
-    replyTo: process.env.OUTREACH_REPLY_TO || undefined,
+    from: process.env.OUTREACH_FROM || OUTREACH_FROM_DEFAULT,
+    replyTo: process.env.OUTREACH_REPLY_TO || OUTREACH_REPLY_DEFAULT,
   })
 }
 
