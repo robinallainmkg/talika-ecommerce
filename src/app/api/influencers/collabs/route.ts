@@ -16,6 +16,7 @@ const NUM = (v: unknown) => (v === "" || v == null || isNaN(Number(v)) ? null : 
 interface InfRow {
   id: string; name: string; instagram_handle: string | null
   category: string | null; billing_name: string | null; commission_rate: number | null
+  email: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
 
     const ids = [...new Set((collabs || []).map((c) => c.influencer_id))]
     const { data: infs } = ids.length
-      ? await supabase.from("influencers").select("id, name, instagram_handle, category, billing_name, commission_rate, metadata").in("id", ids)
+      ? await supabase.from("influencers").select("id, name, instagram_handle, category, billing_name, commission_rate, email, metadata").in("id", ids)
       : { data: [] as InfRow[] }
     const byId: Record<string, InfRow> = {}
     for (const i of (infs || []) as InfRow[]) byId[i.id] = i
@@ -63,6 +64,7 @@ export async function GET(request: Request) {
         id: c.id,
         influencer_id: c.influencer_id,
         name: inf?.name || "?",
+        email: inf?.email || null,
         instagram_handle: inf?.instagram_handle || null,
         niche: inf?.category || null,
         followers: meta.followers ?? meta.followers_count ?? null,

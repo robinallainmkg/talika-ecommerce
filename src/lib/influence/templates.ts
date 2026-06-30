@@ -12,16 +12,14 @@ export const TEMPLATES: RawTemplate[] = [
 
 I'm reaching out from Talika — a French beauty house and a pioneer in eye-contour care and cosmetic innovation since 1948 (75+ years). Today we're especially known for our LED light-therapy beauty devices.
 
-I've really enjoyed your skincare content{personalisation}, and as we grow Talika in the UK we're looking to work with a small circle of skincare creators we genuinely admire.
+I've really enjoyed your skincare content{personalisation}, and as we grow Talika in the UK we're looking to work with a small circle of skincare creators we genuinely believe in.
 
-Would you be open to collaborating with us? And if so, how do you usually like to work — gifting, affiliate, or paid? I'd love to share a few of our hero products and let you pick what you'd most like to try.
+Would you be open to collaborating with us? And if so, how do you usually like to work? I'd love to share a few of our hero products and let you pick what you'd most like to try.
 
 No pressure at all — just keen to start a conversation.
 
 Warm wishes,
-{sender}
-
-(If you'd rather not hear from me, just reply 'unsubscribe' and I'll take you off my list.)`,
+{sender}`,
   },
   {
     key: "step2", label: "Étape 2 — relance douce",

@@ -8,7 +8,7 @@ interface Props {
   ids: string[]
   names: string[]
   onClose: () => void
-  onDone: (sent: number) => void
+  onDone: (results: { id: string; result: string }[]) => void
 }
 
 export function OutreachCompose({ ids, names, onClose, onDone }: Props) {
@@ -60,7 +60,7 @@ export function OutreachCompose({ ids, names, onClose, onDone }: Props) {
       if (!res.ok) { setNote(j.error || "Erreur"); return }
       const skips = (j.results || []).filter((r: { result: string }) => r.result === "skip").length
       setNote(`${dry ? "Aperçu DRY" : "Envoyé"} : ${j.sent}/${j.attempted}${skips ? ` · ${skips} sans email (ignoré)` : ""}`)
-      if (!dry) onDone(j.sent)
+      if (!dry) onDone(j.results || [])
     } finally { setBusy(false) }
   }
 

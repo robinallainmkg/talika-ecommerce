@@ -18,7 +18,7 @@ interface Campaign {
   objective?: string | null; budget?: number | null; theme?: string | null
 }
 interface Collab {
-  id: string; influencer_id: string; name: string; instagram_handle: string | null
+  id: string; influencer_id: string; name: string; email: string | null; instagram_handle: string | null
   niche: string | null; followers: number | null; stage: Stage; owner: string | null
   next_action: string | null; next_action_date: string | null
   themes: string[]; fee: number; commission: number; commission_rate: number | null
@@ -97,10 +97,13 @@ export default function CampagnesPage() {
 
   const selectedCollabs = collabs.filter((c) => sel.has(c.id))
 
-  // Après un envoi outreach réel : passe les prospects sélectionnés en "Contacté", reset.
-  async function afterCompose() {
+  // Après un envoi outreach réel : SEULES les cartes réellement envoyées passent en
+  // "Contacté". Les contacts sans email (skip) RESTENT en Prospect (sinon on croit
+  // à tort qu'ils ont été contactés).
+  async function afterCompose(results: { id: string; result: string }[]) {
+    const sentIds = new Set(results.filter((r) => r.result === "sent").map((r) => r.id))
     await Promise.all(
-      selectedCollabs.filter((c) => c.stage === "prospect").map((c) =>
+      selectedCollabs.filter((c) => c.stage === "prospect" && sentIds.has(c.influencer_id)).map((c) =>
         fetch("/api/influencers/collabs", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id, stage: "contacte" }) })
       )
     )
@@ -255,6 +258,7 @@ export default function CampagnesPage() {
                               {c.instagram_handle && <span className="inline-flex items-center gap-0.5"><Instagram className="h-3 w-3" />{c.instagram_handle.replace(/^@/, "")}</span>}
                               {c.followers != null && <span>· {Number(c.followers).toLocaleString("fr-FR")}</span>}
                             </div>
+                            {!c.email && <span className="mt-0.5 inline-block rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700" title="Pas d'email — ne peut pas être contactée par outreach">✉️ email manquant</span>}
                           </div>
                           <button onClick={(e) => { e.stopPropagation(); removeCollab(c.id) }} className="opacity-0 group-hover:opacity-100 text-zinc-300 hover:text-red-500" title="Retirer">
                             <Trash2 className="h-3.5 w-3.5" />

@@ -39,13 +39,13 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const now = new Date()
-  const results: { name: string; email: string | null; result: string; detail?: string }[] = []
+  const results: { id: string; name: string; email: string | null; result: string; detail?: string }[] = []
   let sent = 0
 
   for (const inf of (data || []) as Inf[]) {
     const email = (inf.email || "").trim()
     if (!email || !email.includes("@")) {
-      results.push({ name: inf.name, email: inf.email, result: "skip", detail: "email manquant" })
+      results.push({ id: inf.id, name: inf.name, email: inf.email, result: "skip", detail: "email manquant" })
       continue
     }
     const st = (inf.metadata?.outreach as OutreachState) || defaultState()
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     } else if (status === "dry") {
       sent++
     }
-    results.push({ name: inf.name, email, result: status, detail: errMsg })
+    results.push({ id: inf.id, name: inf.name, email, result: status, detail: errMsg })
   }
 
   return NextResponse.json({ dry, attempted: results.length, sent, results })
