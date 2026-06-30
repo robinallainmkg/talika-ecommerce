@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar"
+import { Header } from "@/components/layout/header"
 import { sectionForPath } from "@/lib/roles"
 import { useMarket, MarketEmptyState } from "@/components/layout/market-gate"
 
@@ -29,7 +30,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <Sidebar />
       <main className="min-h-screen bg-zinc-50 lg:ml-64">
-        {gated ? <MarketEmptyState section={SECTION_TITLE[section!] || section!} /> : children}
+        {gated ? (
+          // En UK gated, on ne rend pas la page (état vide) MAIS on garde le
+          // Header commun → le switch marché reste accessible (sinon on est
+          // coincé en UK sans pouvoir revenir en FR).
+          <>
+            <Header title={SECTION_TITLE[section!] || section!} />
+            <MarketEmptyState section={SECTION_TITLE[section!] || section!} />
+          </>
+        ) : children}
       </main>
     </>
   )
