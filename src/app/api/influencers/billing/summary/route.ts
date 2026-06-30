@@ -18,18 +18,25 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const year = parseInt(searchParams.get("year") || String(new Date().getFullYear()))
+    // Marché courant (?market= sinon cookie tk_market, défaut FR) → on ne compte
+    // que les collabs de ce marché, sinon les badges "sans facture" affichent les
+    // chiffres FR même quand on a basculé en UK (confusant).
+    const rawMarket = (searchParams.get("market") || (request.headers.get("cookie") || "").match(/(?:^|;\s*)tk_market=([A-Za-z]{2})/)?.[1] || "FR").toUpperCase()
+    const market = rawMarket === "UK" ? "UK" : "FR"
 
-    const [{ data: fees }, { data: comms }, { data: invoices }] = await Promise.all([
+    const [{ data: fees }, { data: comms }, { data: invoices }, { data: marketInfs }] = await Promise.all([
       supabase.from("influencer_fixed_fees").select("influencer_id, month, amount").eq("year", year),
       supabase.from("influencer_commissions").select("influencer_id, month, amount").eq("year", year),
       supabase.from("influencer_cost_invoices").select("influencer_id, month").eq("year", year),
+      supabase.from("influencers").select("id").eq("market", market),
     ])
+    const marketIds = new Set((marketInfs || []).map((i) => i.id))
 
     // Collabs par mois (set d'influenceuses avec un montant dû).
     const collabByMonth: Record<number, Set<string>> = {}
     const addAmounts = (rows: { influencer_id: string; month: number; amount: number | string }[] | null) => {
       for (const r of rows || []) {
-        if (Number(r.amount || 0) > 0 && r.month) (collabByMonth[r.month] ??= new Set()).add(r.influencer_id)
+        if (marketIds.has(r.influencer_id) && Number(r.amount || 0) > 0 && r.month) (collabByMonth[r.month] ??= new Set()).add(r.influencer_id)
       }
     }
     addAmounts(fees)
@@ -37,7 +44,7 @@ export async function GET(request: Request) {
 
     const invByMonth: Record<number, Set<string>> = {}
     for (const inv of invoices || []) {
-      if (inv.month) (invByMonth[inv.month] ??= new Set()).add(inv.influencer_id)
+      if (marketIds.has(inv.influencer_id) && inv.month) (invByMonth[inv.month] ??= new Set()).add(inv.influencer_id)
     }
 
     // Statuts : une collab "reportée", "payée" ou "sans facturation" n'est plus

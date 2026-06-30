@@ -16,7 +16,17 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
-export async function GET() {
+export async function GET(request: Request) {
+  // La routine ops est aujourd'hui 100% FR/Shopify (cron, cache commandes, codes,
+  // objectifs, fees). Sur un autre marché (UK) il n'y a pas encore de routine →
+  // on ne renvoie aucun check, pour ne pas afficher de badges/notifications FR
+  // trompeurs quand on a basculé en UK. Marché lu via ?market= ou le cookie tk_market.
+  const sp = new URL(request.url).searchParams
+  const rawMarket = (sp.get("market") || (request.headers.get("cookie") || "").match(/(?:^|;\s*)tk_market=([A-Za-z]{2})/)?.[1] || "FR").toUpperCase()
+  if (rawMarket !== "FR") {
+    return NextResponse.json({ period: "", month: 0, year: 0, progress: 100, done: 0, total: 0, checks: [] })
+  }
+
   const now = new Date()
   const year = now.getFullYear()
   const month = now.getMonth() + 1
