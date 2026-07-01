@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { Lightbulb, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Lightbulb, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Copy, Check } from "lucide-react"
+import { buildFullPrompt } from "@/lib/claude-prompt"
 
 interface Insight {
   id: string
@@ -23,6 +24,25 @@ export function DataInsights({ page }: { page: string }) {
   const [insights, setInsights] = useState<Insight[]>([])
   const [expanded, setExpanded] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const contextRef = useRef<string | null>(null)
+
+  // Copie un "prompt dossier" pour Claude Code : contexte business live +
+  // l'insight comme mission (même mécanique que /opportunities).
+  const copyInsightPrompt = async (insight: Insight) => {
+    if (contextRef.current === null) {
+      try {
+        const res = await fetch("/api/context")
+        contextRef.current = res.ok ? await res.text() : ""
+      } catch {
+        contextRef.current = ""
+      }
+    }
+    const mission = `Insight détecté par le companion sur la page "${insight.page}" (sévérité ${insight.severity}) : « ${insight.title} » — ${insight.description}\n\nAnalyse ce signal en profondeur : vérifie les chiffres sous-jacents dans la data, explique la cause racine, et propose un plan d'action chiffré.`
+    navigator.clipboard.writeText(buildFullPrompt(mission, contextRef.current || null))
+    setCopiedId(insight.id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
 
   const fetchInsights = useCallback(async () => {
     try {
@@ -76,10 +96,24 @@ export function DataInsights({ page }: { page: string }) {
               >
                 <div className="flex items-start gap-2">
                   <Icon className={`h-4 w-4 mt-0.5 flex-shrink-0 ${config.iconColor}`} />
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium ${config.text}`}>{insight.title}</p>
                     <p className="text-xs text-zinc-600 mt-0.5 leading-relaxed">{insight.description}</p>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      copyInsightPrompt(insight)
+                    }}
+                    title="Copier le prompt Claude Code (avec contexte business)"
+                    className="flex-shrink-0 rounded-md p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-white/70 transition-colors"
+                  >
+                    {copiedId === insight.id ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
                 </div>
               </div>
             )

@@ -662,6 +662,88 @@ export async function GET() {
       findings.push("Influence: analyse des noms ignorée (erreur)")
     }
 
+    // ── 6bis. ROI INFLUENCE — coût réel vs CA tracké par code ──
+    // "Prises de parole ROIstes" (recentrage juillet 2026) : forfaits + commissions
+    // vs CA par code, par influenceuse. Bande saine ≈ 12-20% (commission seule = 12%).
+    // On optimise le MIX (affiliation vs forfait), on ne coupe JAMAIS le canal.
+    try {
+      const next6 = monthOffset(year, month, -1)
+      const monthStart6 = `${year}-${String(month).padStart(2, "0")}-01`
+      const monthEnd6 = `${next6.year}-${String(next6.month).padStart(2, "0")}-01`
+
+      const [{ data: fees6 }, { data: comms6 }, { data: sales6 }] = await Promise.all([
+        supabase.from("influencer_fixed_fees").select("influencer_id, amount").eq("year", year).eq("month", month),
+        supabase.from("influencer_commissions").select("influencer_id, amount").eq("year", year).eq("month", month),
+        supabase
+          .from("influencer_product_sales")
+          .select("influencer_id, line_price")
+          .gte("order_date", monthStart6)
+          .lt("order_date", monthEnd6),
+      ])
+
+      const costBy: Record<string, number> = {}
+      for (const f of fees6 || []) if (f.influencer_id) costBy[f.influencer_id] = (costBy[f.influencer_id] || 0) + (Number(f.amount) || 0)
+      for (const c of comms6 || []) if (c.influencer_id) costBy[c.influencer_id] = (costBy[c.influencer_id] || 0) + (Number(c.amount) || 0)
+      const caBy: Record<string, number> = {}
+      for (const s of sales6 || []) if (s.influencer_id) caBy[s.influencer_id] = (caBy[s.influencer_id] || 0) + (Number(s.line_price) || 0)
+
+      const ids6 = [...new Set([...Object.keys(costBy), ...Object.keys(caBy)])]
+      const totalCost = Object.values(costBy).reduce((a, b) => a + b, 0)
+
+      if (ids6.length > 0 && totalCost > 500) {
+        const { data: infl6 } = await supabase.from("influencers").select("id, name").in("id", ids6)
+        const name6: Record<string, string> = Object.fromEntries((infl6 || []).map((i) => [i.id, i.name as string]))
+        const rows6 = ids6
+          .map((id) => ({ name: name6[id], cost: costBy[id] || 0, ca: caBy[id] || 0 }))
+          .filter((x) => x.name)
+
+        const totalCA6 = rows6.reduce((s, x) => s + x.ca, 0)
+        const globalRatio = totalCA6 > 0 ? Math.round((totalCost / totalCA6) * 100) : null
+        findings.push(
+          `ROI influence ${MONTHS_FR[month - 1]} : ${Math.round(totalCost)}€ de coûts pour ${Math.round(totalCA6)}€ de CA tracké par code${globalRatio !== null ? ` (${globalRatio}%)` : ""}`
+        )
+
+        // Prises de parole non-ROIstes : coût significatif avec CA nul ou ratio > 40%
+        const flops = rows6
+          .filter((x) => x.cost >= 500 && (x.ca === 0 || x.cost / Math.max(x.ca, 1) > 0.4))
+          .sort((a, b) => b.cost - a.cost)
+          .slice(0, 5)
+
+        if (flops.length > 0) {
+          const flopTxt = flops.map((f) => `${f.name} (${Math.round(f.cost)}€ → ${Math.round(f.ca)}€ CA)`).join(", ")
+          const flopCost = Math.round(flops.reduce((s, f) => s + f.cost, 0))
+          newOpportunities.push({
+            title: `${flops.length} prise(s) de parole non-ROIste(s) en ${MONTHS_FR[month - 1]} (${flopCost}€)`,
+            description: `Coût élevé vs CA tracké par code : ${flopTxt}. Objectif : optimiser le MIX (affiliation vs forfait), jamais couper le canal. Nuance : le CA par code sous-estime le halo (notoriété, recherche directe).`,
+            category: "influence",
+            impact: flopCost > 3000 ? "high" : "medium",
+            prompt: `En ${MONTHS_FR[month - 1]} 2026, ces collaborations ont un coût/CA tracké défavorable : ${flopTxt} (bande saine ≈ 12-20% ; la commission seule coûte 12%). Pour CHACUNE : (1) vérifie le halo non tracké (influencer_content : contenu posté ? influencer_product_sales : le code convertit-il les mois suivants ?), (2) post-mortem honnête : audience, format, produit pitché, timing ?, (3) recommandation : renégocier en affiliation/hybride, re-brief, ou ne pas renouveler. IMPORTANT : ne PAS réduire le budget influence global — réallouer vers les profils performants.`,
+          })
+        }
+
+        // Stars sous-exploitées : ratio ≤ 15% avec CA significatif → doubler la mise
+        const stars = rows6
+          .filter((x) => x.ca >= 3000 && x.cost > 0 && x.cost / x.ca <= 0.15)
+          .sort((a, b) => b.ca - a.ca)
+          .slice(0, 3)
+
+        if (stars.length > 0) {
+          const starTxt = stars
+            .map((s) => `${s.name} (${Math.round(s.cost)}€ → ${Math.round(s.ca)}€, ${Math.round((s.cost / s.ca) * 100)}%)`)
+            .join(", ")
+          newOpportunities.push({
+            title: `Doubler la mise sur ${stars.length} profil(s) ultra-rentable(s) (≤15% coût/CA)`,
+            description: `Meilleur ROI influence de ${MONTHS_FR[month - 1]} : ${starTxt}. Le levier le plus sûr du canal #1 : augmenter la fréquence/l'ambition avec celles qui convertissent déjà.`,
+            category: "influence",
+            impact: "high",
+            prompt: `Ces collaborations tournent à ≤15% de coût/CA en ${MONTHS_FR[month - 1]} 2026 : ${starTxt}. Propose un plan "doubler la mise" pour chacune : fréquence de prises de parole, formats à ajouter (stories récurrentes, réels, live), produit à pitcher ensuite (croiser avec influencer_product_sales pour voir ce qu'elle ne vend pas encore), structure de deal incitative (palier de commission, exclusivité). Chiffre l'upside attendu si son CA mensuel progresse de +50%.`,
+          })
+        }
+      }
+    } catch {
+      findings.push("ROI influence : analyse ignorée (erreur)")
+    }
+
     // ── 7. MARKETING GRATUIT ──
     try {
       const e_free = eagerness(weights, "free_marketing")
