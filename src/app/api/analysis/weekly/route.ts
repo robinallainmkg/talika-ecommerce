@@ -79,7 +79,10 @@ const PRODUCT_PATTERNS: [RegExp, string][] = [
   [/led\s?mask|masque\s?led/i, "LED Mask"],
   [/brume|vit\.?\s?c|vitamine\s?c/i, "Brume Vitamine C"],
   [/patch|eye[\s-]?patch|patch[\s-]?yeux/i, "Patch Yeux"],
-  [/TC7\+?/i, "TC7+"],
+  // "Time Control 7+" = titre produit Shopify réel — sans ce pattern, les line
+  // items TC7+ sortaient du rang bestseller et le cross-sell proposait TC7+ à
+  // une influenceuse qui ne vend QUE du TC7+.
+  [/tc7\+?|time\s?control/i, "TC7+"],
   [/hair/i, "Hair Force Cap"],
 ]
 
@@ -226,29 +229,121 @@ export async function GET() {
       })
     }
 
-    // ── 4. GÉNÉROSITÉ ──
+    // ── 4. GÉNÉROSITÉ (calendar-aware) ──
+    // Une générosité haute PENDANT une promo planifiée (soldes…) est un choix,
+    // pas une dérive → on ne crie pas au loup, on demande l'arbitrage CA vs marge.
     const codeMap = await loadCodeCategoryMap()
     const gen = computeGenerosite(current, codeMap)
     const pct = (amount: number) => (gen.ca_brut > 0 ? Math.round((amount / gen.ca_brut) * 1000) / 10 : 0)
     const influencePct = pct(gen.by_category.influencer?.discount || 0)
 
-    findings.push(`Générosité : ${gen.generosite_rate}% (cible 20%, SAV exclu, influence incluse)`)
+    // Périodes promo du calendrier chevauchant le mois analysé
+    const monthStartStr = `${year}-${String(month).padStart(2, "0")}-01`
+    const nextM4 = monthOffset(year, month, -1)
+    const monthEndStr = `${nextM4.year}-${String(nextM4.month).padStart(2, "0")}-01`
+    let promoLabel: string | null = null
+    try {
+      const { data: promoEvents } = await supabase
+        .from("calendar_events")
+        .select("title, scheduled_at, metadata")
+        .eq("event_type", "promo")
+      const overlapping = (promoEvents || []).filter((e: any) => {
+        const start = (e.scheduled_at || "").slice(0, 10)
+        const end = (((e.metadata as any)?.end_date as string) || start).slice(0, 10)
+        return start < monthEndStr && end >= monthStartStr
+      })
+      if (overlapping.length > 0) promoLabel = overlapping.map((e: any) => e.title).join(" + ")
+    } catch {
+      /* calendrier indisponible → lecture standard */
+    }
+
+    findings.push(
+      `Générosité : ${gen.generosite_rate}% (cible 20%, SAV exclu, influence incluse)` +
+        (promoLabel ? ` — promo en cours : ${promoLabel}` : "")
+    )
 
     if (gen.generosite_rate > 20) {
-      const drivers = Object.entries(gen.by_category)
-        .filter(([t]) => t !== "influencer" && t !== "service_client")
-        .map(([t, v]) => ({ label: CODE_TYPE_LABELS[t] || t, pct: pct(v.discount) }))
-        .sort((a, b) => b.pct - a.pct)
-      const top = drivers[0]
-      const driverTxt = top ? `${top.label} (${top.pct}%)` : "remises automatiques"
+      if (promoLabel) {
+        newOpportunities.push({
+          title: `Générosité ${gen.generosite_rate}% pendant "${promoLabel}" — mesurer l'arbitrage CA vs marge`,
+          description: `La générosité monte à ${gen.generosite_rate}% (cible hors promo 20%) pendant une opération planifiée. Ce n'est pas une dérive — la vraie question : le CA incrémental compense-t-il la marge sacrifiée ?`,
+          category: "generosite",
+          impact: "medium",
+          prompt: `Nous sommes en opération "${promoLabel}" et la générosité du mois ${year}-${String(month).padStart(2, "0")} est à ${gen.generosite_rate}% (vs cible hors promo 20% ; influence ${influencePct}% incluse, SAV exclu). Mesure l'arbitrage : (1) CA du mois vs même mois l'an dernier et vs mois précédent, (2) part de la hausse de générosité due aux prix barrés/remises promo vs le reste (via /api/generosite?year=${year}&month=${month}), (3) verdict chiffré : la promo crée-t-elle du CA incrémental net de marge sacrifiée ? Recommande garder/ajuster les remises pour la fin de l'opération.`,
+        })
+      } else {
+        const drivers = Object.entries(gen.by_category)
+          .filter(([t]) => t !== "influencer" && t !== "service_client")
+          .map(([t, v]) => ({ label: CODE_TYPE_LABELS[t] || t, pct: pct(v.discount) }))
+          .sort((a, b) => b.pct - a.pct)
+        const top = drivers[0]
+        const driverTxt = top ? `${top.label} (${top.pct}%)` : "remises automatiques"
 
-      newOpportunities.push({
-        title: `Générosité à ${gen.generosite_rate}% (cible 20%)`,
-        description: `Générosité ${gen.generosite_rate}% (SAV exclu). Principal poste hors influence : ${driverTxt}. L'influence (${influencePct}%) est stratégique — ne PAS y toucher.`,
-        category: "generosite",
-        impact: gen.generosite_rate > 30 ? "high" : "medium",
-        prompt: `Ma générosité est à ${gen.generosite_rate}% vs cible 20% (codes influenceurs INCLUS mais stratégiques et à NE PAS couper ; SAV exclu). Le principal poste hors influence est ${driverTxt}. Aide-moi à réduire la générosité non-influence (remises automatiques/volume, dotations) sans jamais toucher aux codes influenceurs.`,
-      })
+        newOpportunities.push({
+          title: `Générosité à ${gen.generosite_rate}% (cible 20%)`,
+          description: `Générosité ${gen.generosite_rate}% (SAV exclu). Principal poste hors influence : ${driverTxt}. L'influence (${influencePct}%) est stratégique — ne PAS y toucher.`,
+          category: "generosite",
+          impact: gen.generosite_rate > 30 ? "high" : "medium",
+          prompt: `Ma générosité est à ${gen.generosite_rate}% vs cible 20% (codes influenceurs INCLUS mais stratégiques et à NE PAS couper ; SAV exclu). Le principal poste hors influence est ${driverTxt}. Aide-moi à réduire la générosité non-influence (remises automatiques/volume, dotations) sans jamais toucher aux codes influenceurs.`,
+        })
+      }
+    }
+
+    // ── 4bis. OBJECTIFS — écart vs target mensuel + MER ──
+    // Altitude stratégique : "il manque X € vs l'objectif" et "1€ de media
+    // rapporte Y€ de CA" parlent plus que n'importe quel ROAS plateforme.
+    // Source : objectives_2026 (CA HT compta Choose+Shopify+Amazon, saisi à la main).
+    try {
+      if (year === 2026) {
+        const { data: objRow } = await supabase
+          .from("objectives_2026")
+          .select("ca_2025, ca_2026, media_spent")
+          .eq("month", month)
+          .single()
+
+        const ca26 = Number(objRow?.ca_2026) || 0
+        const ca25 = Number(objRow?.ca_2025) || 0
+        const media = Number(objRow?.media_spent) || 0
+
+        if (ca26 > 0 && ca25 > 0) {
+          const target = Math.round(ca25 * 1.2)
+          const gapEur = Math.round(target - ca26)
+          const gapPct = target > 0 ? Math.round(((ca26 - target) / target) * 1000) / 10 : 0
+          findings.push(
+            `Objectif ${MONTHS_FR[month - 1]} : CA ${Math.round(ca26)}€ HT vs target ${target}€ (${gapPct > 0 ? "+" : ""}${gapPct}%)`
+          )
+
+          if (gapPct < -5) {
+            newOpportunities.push({
+              title: `${MONTHS_FR[month - 1].charAt(0).toUpperCase() + MONTHS_FR[month - 1].slice(1)} : ${gapEur}€ sous l'objectif +20%`,
+              description: `CA ${MONTHS_FR[month - 1]} : ${Math.round(ca26)}€ HT (compta, tous canaux) vs target ${target}€ (${ca25}€ en 2025 +20%) → ${gapPct}%. Identifier ce qui a manqué et les leviers activables ce mois-ci pour compenser.`,
+              category: "shopify",
+              impact: gapPct < -15 ? "high" : "medium",
+              prompt: `Le CA de ${MONTHS_FR[month - 1]} 2026 est ${Math.round(ca26)}€ HT (compta : Choose + Shopify + Amazon) vs objectif ${target}€ (CA 2025 ${ca25}€ + 20%) → il manque ${gapEur}€ (${gapPct}%). Décompose l'écart : Shopify (data_cache shopify_orders_${year}_${month}), influence (influencer_product_sales), ads (meta_ads_${year}_${month} + google_ads_${year}_${month}), et compare au même mois 2025 si dispo. Puis propose les 3 leviers les plus rapides pour compenser sur le MOIS EN COURS, chiffrés (impact € estimé chacun), sans réduire l'influence.`,
+            })
+          }
+        } else {
+          findings.push(`Objectifs : CA ${MONTHS_FR[month - 1]} non saisi → écart vs target non calculé`)
+        }
+
+        if (ca26 > 0 && media > 0) {
+          const mer = Math.round((ca26 / media) * 10) / 10
+          findings.push(`MER ${MONTHS_FR[month - 1]} : ${mer} (CA ${Math.round(ca26)}€ HT ÷ media ${Math.round(media)}€)`)
+
+          // media ≤ 25% du CA (règle maison) ⇔ MER ≥ 4
+          if (mer < 4) {
+            newOpportunities.push({
+              title: `MER à ${mer} en ${MONTHS_FR[month - 1]} — efficacité media sous le seuil`,
+              description: `1€ de media n'a rapporté que ${mer}€ de CA en ${MONTHS_FR[month - 1]} (seuil sain ≥ 4, soit media ≤ 25% du CA). Le MER est l'arbitre honnête au-dessus des ROAS plateformes qui sur-comptent.`,
+              category: "meta_ads",
+              impact: mer < 3 ? "high" : "medium",
+              prompt: `Mon MER de ${MONTHS_FR[month - 1]} 2026 est ${mer} (CA ${Math.round(ca26)}€ HT ÷ media ${Math.round(media)}€ ; seuil sain ≥ 4 car objectif media ≤ 25% du CA). Compare aux mois précédents (table objectives_2026), détermine si le problème vient du spend (splits Meta vs Google dans data_cache) ou du CA, et propose une réallocation chiffrée du budget media. Rappel : ne pas sommer les ROAS plateformes (double-compte) — le MER est l'arbitre ; ne pas toucher au budget influence.`,
+            })
+          }
+        }
+      }
+    } catch {
+      findings.push("Objectifs : analyse écart/MER ignorée (erreur)")
     }
 
     // ── 5. META ADS — ROAS + dead ads + corrélation produit bestseller ──
@@ -535,7 +630,10 @@ export async function GET() {
         }
 
         // Top influencer selling only 1 product → cross-sell opportunity
-        const TALIKA_PRODUCTS = ["TC7+", "LED Mask", "Hair Force Cap", "Hair Cap", "Brume"]
+        // Comparaison via produit CANONIQUE (extractProduct) — l'ancien matching
+        // par inclusion de chaîne proposait le TC7+ à une influenceuse qui ne
+        // vendait QUE du "Time Control 7+".
+        const CANON_PRODUCTS = ["TC7+", "LED Mask", "Hair Force Cap", "Brume Vitamine C"]
         const topInfluencers = Object.entries(currentByInfl)
           .filter(([id]) => nameById[id])
           .sort(([, a], [, b]) => b.revenue - a.revenue)
@@ -545,16 +643,15 @@ export async function GET() {
           const products = [...data.products]
           if (products.length === 1) {
             const sold = products[0]
-            const other = TALIKA_PRODUCTS.find(
-              (p) => !sold.toLowerCase().includes(p.toLowerCase().replace("+", "").trim().split(" ")[0])
-            )
-            if (other) {
+            const soldCanon = extractProduct(sold)
+            const other = CANON_PRODUCTS.find((p) => p !== soldCanon)
+            if (other && other !== sold) {
               newOpportunities.push({
                 title: `Cross-sell : proposer le ${other} à ${name}`,
                 description: `${name} génère ${Math.round(data.revenue)}€ uniquement sur ${sold}. Lui proposer le ${other} pour diversifier son contenu et nos ventes.`,
                 category: "influence",
                 impact: "low",
-                prompt: `L'influenceuse ${name} vend uniquement le ${sold} (${Math.round(data.revenue)}€ ce mois). Aide-moi à la pitcher sur le ${other} : quels arguments, quel angle créatif, quelle offre lui proposer ?`,
+                prompt: `${name} vend uniquement le ${sold} (${Math.round(data.revenue)}€ ce mois via son code). Aide-moi à préparer le pitch du ${other} : arguments produit (fiches Shopify réelles uniquement), angle créatif adapté à son audience, offre à lui proposer (dotation + code), et vérifie d'abord dans influencer_product_sales qu'elle n'a jamais vendu ce produit.`,
               })
               break // 1 cross-sell par run
             }
