@@ -15,6 +15,7 @@ const supabase = createClient(
 // ─── Types ──────────────────────────────────────────────────────
 
 type NewOpp = {
+  signal_key: string // clé stable de dédup (indépendante des chiffres du titre)
   title: string
   description: string
   category: string
@@ -190,6 +191,7 @@ export async function GET() {
 
     if (revenueDelta < -10) {
       newOpportunities.push({
+        signal_key: "revenue_drop",
         title: `Baisse revenue ${revenueDelta}%`,
         description: `Le CA est passé de ${Math.round(previousRevenue)}€ à ${Math.round(currentRevenue)}€ (${revenueDelta}%). Diagnostiquer : trafic, conversion ou panier moyen.`,
         category: "shopify",
@@ -221,6 +223,7 @@ export async function GET() {
     const retentionThreshold = 15 * eagerness(weights, "retention")
     if (returningRate < retentionThreshold && currentEmails.size > 50) {
       newOpportunities.push({
+        signal_key: "retention_low",
         title: `Clients revenants à ${returningRate}%`,
         description: `${returning} clients sur ${currentEmails.size} avaient déjà acheté dans les 3 mois précédents. Levier : flows post-achat Klaviyo (TC7+/Hair Cap/LED Mask) + winback.`,
         category: "retention",
@@ -265,6 +268,7 @@ export async function GET() {
     if (gen.generosite_rate > 20) {
       if (promoLabel) {
         newOpportunities.push({
+          signal_key: "generosite_over_target",
           title: `Générosité ${gen.generosite_rate}% pendant "${promoLabel}" — mesurer l'arbitrage CA vs marge`,
           description: `La générosité monte à ${gen.generosite_rate}% (cible hors promo 20%) pendant une opération planifiée. Ce n'est pas une dérive — la vraie question : le CA incrémental compense-t-il la marge sacrifiée ?`,
           category: "generosite",
@@ -280,6 +284,7 @@ export async function GET() {
         const driverTxt = top ? `${top.label} (${top.pct}%)` : "remises automatiques"
 
         newOpportunities.push({
+          signal_key: "generosite_over_target",
           title: `Générosité à ${gen.generosite_rate}% (cible 20%)`,
           description: `Générosité ${gen.generosite_rate}% (SAV exclu). Principal poste hors influence : ${driverTxt}. L'influence (${influencePct}%) est stratégique — ne PAS y toucher.`,
           category: "generosite",
@@ -315,6 +320,7 @@ export async function GET() {
 
           if (gapPct < -5) {
             newOpportunities.push({
+              signal_key: "objective_gap",
               title: `${MONTHS_FR[month - 1].charAt(0).toUpperCase() + MONTHS_FR[month - 1].slice(1)} : ${gapEur}€ sous l'objectif +20%`,
               description: `CA ${MONTHS_FR[month - 1]} : ${Math.round(ca26)}€ HT (compta, tous canaux) vs target ${target}€ (${ca25}€ en 2025 +20%) → ${gapPct}%. Identifier ce qui a manqué et les leviers activables ce mois-ci pour compenser.`,
               category: "shopify",
@@ -333,6 +339,7 @@ export async function GET() {
           // media ≤ 25% du CA (règle maison) ⇔ MER ≥ 4
           if (mer < 4) {
             newOpportunities.push({
+              signal_key: "mer_low",
               title: `MER à ${mer} en ${MONTHS_FR[month - 1]} — efficacité media sous le seuil`,
               description: `1€ de media n'a rapporté que ${mer}€ de CA en ${MONTHS_FR[month - 1]} (seuil sain ≥ 4, soit media ≤ 25% du CA). Le MER est l'arbitre honnête au-dessus des ROAS plateformes qui sur-comptent.`,
               category: "meta_ads",
@@ -371,6 +378,7 @@ export async function GET() {
         const deadSpend = Math.round(deadAds.reduce((s, a) => s + a.spend, 0))
         findings.push(`Dead ads: ${deadAds.length} ads, ${deadSpend}€ gaspillés`)
         newOpportunities.push({
+          signal_key: "meta_dead_ads",
           title: `${deadAds.length} ads Meta à 0 achats (${deadSpend}€)`,
           description: `Ces ads dépensent sans convertir : ${deadNames}. Couper ou réoptimiser la créa.`,
           category: "meta_ads",
@@ -438,6 +446,7 @@ export async function GET() {
           const bestAlt = correlTable.find((c) => c !== poorBet && c.roas > poorBet.roas && (c.rank ?? 99) < (poorBet.rank ?? 99))
           const altTxt = bestAlt ? ` À comparer : ${bestAlt.product} = ROAS ${bestAlt.roas}x, rang #${bestAlt.rank}.` : ""
           newOpportunities.push({
+            signal_key: "meta_misaligned_budget",
             title: `Budget Meta mal aligné : ${poorBet.product} ROAS ${poorBet.roas}x (#${poorBet.rank} bestseller)`,
             description: `${poorBet.spend}€ dépensés sur le ${poorBet.product} ce mois pour un ROAS ${poorBet.roas}x, alors qu'il n'est que #${poorBet.rank} des ventes Shopify.${altTxt} Ce budget serait plus rentable sur un produit qui convertit naturellement.`,
             category: "meta_ads",
@@ -452,6 +461,7 @@ export async function GET() {
         )
         if (goodBet) {
           newOpportunities.push({
+            signal_key: "meta_underinvested_star",
             title: `Sous-investir sur le ${goodBet.product} : ROAS ${goodBet.roas}x et #${goodBet.rank} bestseller`,
             description: `Le ${goodBet.product} cumule ROAS ${goodBet.roas}x ET rang #${goodBet.rank} sur Shopify, mais ne reçoit que ${goodBet.spend}€ (${Math.round((goodBet.spend / totalSpend) * 100)}% du budget Meta). Augmenter le budget ici est le levier le plus sûr.`,
             category: "meta_ads",
@@ -467,6 +477,7 @@ export async function GET() {
         for (const { product, rank } of top3WithoutAds) {
           const rev = shopifyByProduct[product]?.revenue || 0
           newOpportunities.push({
+            signal_key: "meta_bestseller_no_ads",
             title: `${product} : #${rank} bestseller sans aucune pub Meta ce mois`,
             description: `Le ${product} génère ${Math.round(rev)}€ de CA Shopify (rang #${rank}) sans aucune dépense pub Meta. Cette demande organique est un signal fort — des ads pourraient l'amplifier.`,
             category: "meta_ads",
@@ -514,6 +525,7 @@ export async function GET() {
 
         if (best.roas - worst.roas > 2 && missingBestCrea.length > 0) {
           newOpportunities.push({
+            signal_key: "meta_creative_extend",
             title: `Créa "${best.type}" = ROAS ${best.roas}x — l'étendre au ${missingBestCrea[0]}`,
             description: `Tes meilleures créas ce mois sont les "${best.type}" sur ${best.products.join(", ")} (ROAS ${best.roas}x vs ${worst.roas}x pour les "${worst.type}"). Le ${missingBestCrea[0]} n'a pas encore de créa de ce type.`,
             category: "meta_ads",
@@ -547,6 +559,7 @@ export async function GET() {
             : null
 
           newOpportunities.push({
+            signal_key: "meta_roas_floor",
             title: `ROAS Meta à ${overallROAS}x — sous le seuil de rentabilité`,
             description: `ROAS global ${overallROAS}x (était ${prevROAS}x le mois dernier, cible >3.5x).${culpritTxt ? ` Ads qui plombent la moyenne : ${culpritTxt}.` : ""}`,
             category: "meta_ads",
@@ -620,6 +633,7 @@ export async function GET() {
         if (dormantNames.length >= 2) {
           const names = dormantNames.join(", ")
           newOpportunities.push({
+            signal_key: "influence_dormant",
             title: `Réactiver ${dormantNames.length} influenceuses dormantes`,
             description: `${names} avaient des ventes en ${MONTHS_FR[prev.month - 1]} mais aucune ce mois-ci. Relancer avec un nouveau brief ou un produit à tester.`,
             category: "influence",
@@ -647,6 +661,7 @@ export async function GET() {
             const other = CANON_PRODUCTS.find((p) => p !== soldCanon)
             if (other && other !== sold) {
               newOpportunities.push({
+                signal_key: "influence_crosssell",
                 title: `Cross-sell : proposer le ${other} à ${name}`,
                 description: `${name} génère ${Math.round(data.revenue)}€ uniquement sur ${sold}. Lui proposer le ${other} pour diversifier son contenu et nos ventes.`,
                 category: "influence",
@@ -713,6 +728,7 @@ export async function GET() {
           const flopTxt = flops.map((f) => `${f.name} (${Math.round(f.cost)}€ → ${Math.round(f.ca)}€ CA)`).join(", ")
           const flopCost = Math.round(flops.reduce((s, f) => s + f.cost, 0))
           newOpportunities.push({
+            signal_key: "influence_roi_flops",
             title: `${flops.length} prise(s) de parole non-ROIste(s) en ${MONTHS_FR[month - 1]} (${flopCost}€)`,
             description: `Coût élevé vs CA tracké par code : ${flopTxt}. Objectif : optimiser le MIX (affiliation vs forfait), jamais couper le canal. Nuance : le CA par code sous-estime le halo (notoriété, recherche directe).`,
             category: "influence",
@@ -732,6 +748,7 @@ export async function GET() {
             .map((s) => `${s.name} (${Math.round(s.cost)}€ → ${Math.round(s.ca)}€, ${Math.round((s.cost / s.ca) * 100)}%)`)
             .join(", ")
           newOpportunities.push({
+            signal_key: "influence_roi_stars",
             title: `Doubler la mise sur ${stars.length} profil(s) ultra-rentable(s) (≤15% coût/CA)`,
             description: `Meilleur ROI influence de ${MONTHS_FR[month - 1]} : ${starTxt}. Le levier le plus sûr du canal #1 : augmenter la fréquence/l'ambition avec celles qui convertissent déjà.`,
             category: "influence",
@@ -766,6 +783,7 @@ export async function GET() {
       const referralThreshold = Math.round(25 / e_free)
       if (returning >= referralThreshold) {
         newOpportunities.push({
+          signal_key: "free_referral",
           title: `Programme parrainage : activer ${returning} clients fidèles`,
           description: `${returning} clients sont revenus ce mois (taux ${returningRate}%). Un mécanisme "15% pour toi + 15% pour ton amie" peut générer du CA sans aucun budget publicitaire.`,
           category: "free_marketing",
@@ -778,6 +796,7 @@ export async function GET() {
       const ugcThreshold = Math.round(15 / e_free)
       if (topProduct && topProduct.count >= ugcThreshold) {
         newOpportunities.push({
+          signal_key: "free_ugc",
           title: `UGC : activer les avis photo sur le ${topProduct.name}`,
           description: `Le ${topProduct.name} est dans ${topProduct.count} commandes ce mois. Demander aux acheteurs de partager un avis photo/vidéo = contenu gratuit + preuve sociale sans budget.`,
           category: "free_marketing",
@@ -816,6 +835,7 @@ export async function GET() {
       const singleThreshold = Math.round(55 / e_cr)
       if (singleItemRate >= singleThreshold && topTwo.length >= 2) {
         newOpportunities.push({
+          signal_key: "cr_bundle",
           title: `${singleItemRate}% de commandes mono-produit — créer un bundle`,
           description: `${singleItemRate}% des commandes ce mois n'ont qu'un seul produit (panier moyen ${Math.round(currentAOV)}€). Un bundle ${topTwo[0]} + ${topTwo[1]} à prix réduit augmenterait mécaniquement le panier moyen.`,
           category: "conversion",
@@ -828,6 +848,7 @@ export async function GET() {
       const aovThreshold = 75 * e_cr
       if (currentAOV < aovThreshold) {
         newOpportunities.push({
+          signal_key: "cr_shipping_threshold",
           title: `Panier moyen à ${Math.round(currentAOV)}€ — optimiser le seuil livraison gratuite`,
           description: `Un panier moyen de ${Math.round(currentAOV)}€ laisse de la marge. Ajuster le seuil de livraison gratuite juste au-dessus de l'AOV actuel pousse mécaniquement les clients à ajouter un produit.`,
           category: "conversion",
@@ -839,79 +860,9 @@ export async function GET() {
       findings.push("Optimisation CR: analyse ignorée (erreur)")
     }
 
-    // ── 9. NOUVEAU CANAL (1 par mois, rotation sur les non-vus) ──
-    try {
-      const CHANNELS: NewOpp[] = [
-        {
-          title: "TikTok Shop : lancer un premier produit",
-          description: "TikTok Shop permet de vendre directement depuis la vidéo. TC7+ ou LED Mask — visuels forts, démonstration facile — sont les meilleurs candidats pour un premier test.",
-          category: "channels",
-          impact: "medium",
-          prompt: "Aide-moi à lancer un premier produit Talika sur TikTok Shop. Par quoi commencer ? Format vidéo, ciblage, stratégie d'amorçage, objectif J30 ?",
-        },
-        {
-          title: "B2B Pro : ouvrir le canal instituts et salons",
-          description: "Esthéticiennes, instituts et spas = revendeurs potentiels avec de gros paniers. Un compte pro (tarif B2B) peut ouvrir un canal rentable avec peu d'effort initial.",
-          category: "channels",
-          impact: "medium",
-          prompt: "Comment lancer un canal B2B pour Talika ? Quels produits cibler (TC7+, LED Mask), quel pricing, comment contacter les instituts (base de données, approche) ?",
-        },
-        {
-          title: "Relations presse : contacter des journalistes beauté",
-          description: "Un placement presse coûte 0€ si bien ciblé. Focus : journalistes tech-beauté et soins du regard (Elle, Cosmopolitan, Vogue, médias digitaux femmes 30-45).",
-          category: "channels",
-          impact: "low",
-          prompt: "Identifie les 5 journalistes ou médias beauté français les plus pertinents pour Talika et propose un pitch personnalisé. Focus : appareils de soin (TC7+, LED Mask, Hair Cap).",
-        },
-        {
-          title: "Programme d'affiliation : lancer sur un réseau partenaire",
-          description: "Blogs beauté et comparateurs ont une audience qualifiée et ciblée. Un programme d'affiliation (5-10% commission) peut générer du CA récurrent sans budget publicitaire.",
-          category: "channels",
-          impact: "medium",
-          prompt: "Comment lancer un programme d'affiliation pour Talika ? Quelles plateformes (Awin, Tradedoubler, Impact…), quel taux de commission, comment recruter les bons affiliés ?",
-        },
-        {
-          title: "Newsletter externe : co-publication dans un média beauté",
-          description: "Co-publication dans une newsletter beauté existante (Stylist, Cosmopolitan newsletter, Substack beauté). Audience captive, coût nul ou très faible, pas besoin de production.",
-          category: "channels",
-          impact: "low",
-          prompt: "Identifie les newsletters beauté françaises les plus pertinentes pour Talika (abonnées actives, cible féminine 25-45). Comment les approcher pour un placement ou partenariat éditorial ?",
-        },
-        {
-          title: "YouTube organique : série de tutoriels appareils",
-          description: "YouTube est le 2e moteur de recherche. Des tutoriels TC7+/LED Mask/Hair Cap génèrent du trafic SEO gratuit et durable. Pas de budget — juste du contenu régulier.",
-          category: "channels",
-          impact: "medium",
-          prompt: "Crée une stratégie de contenu YouTube organique pour Talika : types de vidéos (tuto, before/after, routine), rythme de publication, comment optimiser pour le SEO YouTube ?",
-        },
-      ]
-
-      // Only add a channel opp if none is currently pending
-      const { data: pendingChannel } = await supabase
-        .from("opportunities")
-        .select("id")
-        .eq("category", "channels")
-        .eq("status", "pending")
-        .limit(1)
-
-      if (!pendingChannel || pendingChannel.length === 0) {
-        // Find next unseen channel (not yet in DB at all)
-        const { data: seenChannels } = await supabase
-          .from("opportunities")
-          .select("title")
-          .eq("category", "channels")
-
-        const seenTitles = new Set((seenChannels || []).map((c) => c.title.split(":")[0].trim()))
-        const nextChannel =
-          CHANNELS.find((c) => !seenTitles.has(c.title.split(":")[0].trim())) ||
-          CHANNELS[month % CHANNELS.length]
-
-        newOpportunities.push(nextChannel)
-        findings.push(`Nouveau canal proposé : ${nextChannel.title.split(":")[0].trim()}`)
-      }
-    } catch {
-      findings.push("Canaux: rotation ignorée (erreur)")
-    }
+    // ── 9. NOUVEAUX CANAUX — délégué à la routine analyste (companion-analyste, Fable 5).
+    // Les 6 idées hardcodées en rotation (TikTok Shop, B2B, presse…) ont été retirées :
+    // pas data-driven, c'est le job de l'analyste hebdo qui raisonne avec le contexte.
 
     // ── 10. KLAVIYO — FLOWS STRATÉGIQUES DORMANTS ──
     // Détecte les flows haute valeur encore en DRAFT qui laissent du CA sur la table.
@@ -935,6 +886,7 @@ export async function GET() {
         const e_klav_ba = eagerness(weights, "klaviyo")
         if (e_klav_ba >= 0.6) {
           newOpportunities.push({
+            signal_key: "klaviyo_browse_abandonment",
             title: "Browse Abandonment FR : activer ce flow dormant",
             description:
               "Ce flow capture les visiteurs qui regardent LED Mask (290€) ou Hair Force Cap (490€) sans ajouter au panier. L'Abandoned Cart live génère 80 000€/an — le Browse Abandonment arrive encore plus tôt dans le funnel, sur des produits premium à très haute intention d'achat.",
@@ -997,6 +949,7 @@ export async function GET() {
         if (tc7WithoutLED >= Math.round(30 / e_klav2) && tc7Total > 0) {
           const pct = Math.round((tc7WithoutLED / tc7Total) * 100)
           newOpportunities.push({
+            signal_key: "klaviyo_upsell_tc7_led",
             title: `${tc7WithoutLED} acheteurs TC7+ sans LED Mask — upsell 290€ à activer`,
             description: `${pct}% des acheteurs TC7+ (${tc7WithoutLED}/${tc7Total} sur 5 mois) n'ont pas encore le LED Mask (290€). C'est l'upsell premium le plus logique : même cible, même budget, même bénéfice régénération peau. Le flow post-achat TC7+ est live — y ajouter un email upsell LED Mask à J+30.`,
             category: "klaviyo",
@@ -1014,6 +967,7 @@ export async function GET() {
 
         if (hairCapWithoutSerum >= 15) {
           newOpportunities.push({
+            signal_key: "klaviyo_crosssell_haircap_serum",
             title: `${hairCapWithoutSerum} acheteurs Hair Cap sans sérum — cross-sell récurrent`,
             description: `${hairCapWithoutSerum} clients du Hair Force Cap n'ont pas encore le Sérum Hair Force (38€, rechargeable). C'est le consommable naturel de l'appareil. Le flow post-achat Hair Cap (SbuN3f) est live — y ajouter un email cross-sell sérum à J+14 = revenu récurrent.`,
             category: "klaviyo",
@@ -1027,9 +981,49 @@ export async function GET() {
       findings.push("Customer journey: analyse ignorée (erreur)")
     }
 
-    // ── 12. INSERT NEW OPPORTUNITIES (dédup par titre, status pending) ──
+    // ── 12. EXPIRY + INSERT (dédup par signal_key, fallback titre) ──
+    // Un signal encore vrai est re-généré à chaque run et rafraîchit updated_at ;
+    // ce qui n'a pas bougé depuis 30j est du musée → expiré (invisible en pending).
+    const cutoff = new Date(now.getTime() - 30 * 24 * 3600 * 1000).toISOString()
+    const { data: expiredRows } = await supabase
+      .from("opportunities")
+      .update({ status: "expired", updated_at: now.toISOString() })
+      .eq("status", "pending")
+      .lt("updated_at", cutoff)
+      .select("id")
+    if (expiredRows && expiredRows.length > 0) {
+      findings.push(`${expiredRows.length} opportunité(s) expirée(s) (>30j sans rafraîchissement)`)
+    }
+
     let createdCount = 0
+    let refreshedCount = 0
     for (const opp of newOpportunities) {
+      // Même signal déjà en attente → rafraîchir in-place (chiffres à jour, note
+      // préservée). Évite les doublons du type "Générosité 31.3%" + "Générosité
+      // 24.9%" quand seul le chiffre du titre change d'un mois à l'autre.
+      const { data: same } = await supabase
+        .from("opportunities")
+        .select("id")
+        .eq("status", "pending")
+        .eq("signal_key", opp.signal_key)
+        .limit(1)
+
+      if (same && same.length > 0) {
+        const { error } = await supabase
+          .from("opportunities")
+          .update({
+            title: opp.title,
+            description: opp.description,
+            impact: opp.impact,
+            prompt: opp.prompt,
+            updated_at: now.toISOString(),
+          })
+          .eq("id", same[0].id)
+        if (!error) refreshedCount++
+        continue
+      }
+
+      // Fallback : dédup par titre (opps historiques sans signal_key, créées à la main)
       const { data: existing } = await supabase
         .from("opportunities")
         .select("id")
@@ -1044,8 +1038,8 @@ export async function GET() {
     }
 
     findings.push(
-      createdCount > 0
-        ? `${createdCount} nouvelle(s) opportunité(s) créée(s)`
+      createdCount > 0 || refreshedCount > 0
+        ? `${createdCount} nouvelle(s) opportunité(s), ${refreshedCount} rafraîchie(s)`
         : "Aucune nouvelle opportunité"
     )
 
@@ -1062,6 +1056,7 @@ export async function GET() {
         returning_rate: returningRate,
         generosite_rate: gen.generosite_rate,
         opportunities_created: createdCount,
+        opportunities_refreshed: refreshedCount,
       },
       findings,
     })

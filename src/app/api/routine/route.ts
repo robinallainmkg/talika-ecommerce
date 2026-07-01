@@ -148,30 +148,76 @@ export async function GET(request: Request) {
     link: "/objectives",
   })
 
-  // ── 5. Check influencer fees ──
-  const { data: influencers } = await supabase
-    .from("influencers")
-    .select("id, name")
-    .eq("is_active", true)
+  // ── 5. Check influencer fees — SEULEMENT les profils au forfait ──
+  // La majorité du roster est en affiliation pure (commission auto) : exiger un
+  // forfait mensuel pour TOUTES rendait ce check pending en permanence (bruit).
+  // On n'attend un fee ce mois-ci que pour les profils qui en avaient un sur les
+  // 2 mois précédents (= contrat forfait actif).
+  const prev1 = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 }
+  const prev2 = prev1.m === 1 ? { y: prev1.y - 1, m: 12 } : { y: prev1.y, m: prev1.m - 1 }
+  const [{ data: feesNow }, { data: feesPrev1 }, { data: feesPrev2 }] = await Promise.all([
+    supabase.from("influencer_fixed_fees").select("influencer_id").eq("month", month).eq("year", year),
+    supabase.from("influencer_fixed_fees").select("influencer_id").eq("month", prev1.m).eq("year", prev1.y),
+    supabase.from("influencer_fixed_fees").select("influencer_id").eq("month", prev2.m).eq("year", prev2.y),
+  ])
 
-  const { data: fees } = await supabase
-    .from("influencer_fixed_fees")
-    .select("influencer_id")
-    .eq("month", month)
-    .eq("year", year)
-
-  const feeInfluencerIds = new Set((fees || []).map(f => f.influencer_id))
-  const influencersWithoutFees = (influencers || []).filter(i => !feeInfluencerIds.has(i.id))
+  const feeNowIds = new Set((feesNow || []).map(f => f.influencer_id))
+  const expectedIds = new Set([...(feesPrev1 || []), ...(feesPrev2 || [])].map(f => f.influencer_id))
+  const missingFees = [...expectedIds].filter(id => !feeNowIds.has(id))
 
   checks.push({
     id: "influencer_fees",
-    label: "Fees influenceurs",
-    description: "Ajouter les fees/factures mensuelles pour chaque influenceur actif",
-    status: influencersWithoutFees.length === 0 ? "done" : "pending",
-    detail: influencersWithoutFees.length === 0
-      ? `Fees ajoutées pour tous les influenceurs`
-      : `${influencersWithoutFees.length} influenceur(s) sans fee ce mois`,
+    label: "Fees influenceurs (forfaits)",
+    description: "Saisir les forfaits du mois pour les profils sous contrat forfait (l'affiliation est automatique)",
+    status: missingFees.length === 0 ? "done" : "pending",
+    detail: missingFees.length === 0
+      ? `Forfaits à jour (${feeNowIds.size} saisis ce mois)`
+      : `${missingFees.length} profil(s) au forfait sans fee ce mois`,
     link: "/influencers",
+  })
+
+  // ── 6. Opportunités companion à traiter ──
+  const { data: pendingOpps } = await supabase
+    .from("opportunities")
+    .select("id, created_at, updated_at")
+    .eq("status", "pending")
+
+  const staleCutoff = now.getTime() - 14 * 24 * 3600 * 1000
+  const staleOpps = (pendingOpps || []).filter(
+    o => new Date(o.updated_at || o.created_at).getTime() < staleCutoff
+  )
+
+  checks.push({
+    id: "opportunities_review",
+    label: "Traiter les opportunités",
+    description: "Passer en revue les opportunités companion : lancer le prompt, marquer fait ou ignorer",
+    status: (pendingOpps || []).length === 0 ? "done" : staleOpps.length > 0 ? "warning" : "pending",
+    detail: (pendingOpps || []).length === 0
+      ? "Aucune opportunité en attente"
+      : staleOpps.length > 0
+        ? `${(pendingOpps || []).length} en attente dont ${staleOpps.length} depuis +14j`
+        : `${(pendingOpps || []).length} opportunité(s) en attente`,
+    link: "/opportunities",
+  })
+
+  // ── 7. Noter les opportunités traitées (learning loop) ──
+  // Les notes (1-10 + feedback) calibrent le générateur (companion_weights) et
+  // la routine analyste du lundi — sans notes, pas d'apprentissage.
+  const { data: unrated } = await supabase
+    .from("opportunities")
+    .select("id")
+    .in("status", ["done", "ignored"])
+    .is("rating", null)
+
+  checks.push({
+    id: "rate_opportunities",
+    label: "Noter les opportunités (learning loop)",
+    description: "Noter la pertinence (1-10 + pourquoi) des opportunités faites/ignorées — ça calibre le companion",
+    status: (unrated || []).length === 0 ? "done" : "pending",
+    detail: (unrated || []).length === 0
+      ? "Toutes les opportunités traitées sont notées"
+      : `${(unrated || []).length} opportunité(s) traitée(s) sans note`,
+    link: "/opportunities",
   })
 
   const doneCount = checks.filter(c => c.status === "done").length

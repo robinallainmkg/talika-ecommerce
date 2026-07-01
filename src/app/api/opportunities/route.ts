@@ -63,27 +63,33 @@ export async function POST(request: Request) {
   return NextResponse.json(data)
 }
 
-// PATCH — update status (done/ignored/pending) and/or rating (1-10)
+// PATCH — update status (done/ignored/pending), rating (1-10) and/or feedback texte
 export async function PATCH(request: Request) {
   const body = await request.json()
-  const { id, status, rating } = body
+  const { id, status, rating, feedback } = body
 
   if (!id) {
     return NextResponse.json({ error: "id required" }, { status: 400 })
   }
-  if (!status && rating === undefined) {
-    return NextResponse.json({ error: "status or rating required" }, { status: 400 })
+  if (!status && rating === undefined && feedback === undefined) {
+    return NextResponse.json({ error: "status, rating or feedback required" }, { status: 400 })
   }
   if (rating !== undefined && (rating < 1 || rating > 10 || !Number.isInteger(rating))) {
     return NextResponse.json({ error: "rating must be integer 1-10" }, { status: 400 })
   }
+  if (feedback !== undefined && (typeof feedback !== "string" || feedback.length > 1000)) {
+    return NextResponse.json({ error: "feedback must be a string (max 1000 chars)" }, { status: 400 })
+  }
 
-  const update: Record<string, unknown> = {}
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (status) update.status = status
   if (rating !== undefined) {
     update.rating = rating
     update.rated_at = new Date().toISOString()
   }
+  // Le "pourquoi" de la note — lu par la routine analyste (companion-analyste)
+  // pour calibrer l'altitude des futures opportunités.
+  if (feedback !== undefined) update.feedback = (feedback as string).trim() || null
 
   const { data, error } = await supabase
     .from("opportunities")

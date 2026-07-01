@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { loadCodeCategoryMap, computeGenerosite } from "@/lib/generosite"
 
 export const dynamic = "force-dynamic"
 
@@ -40,6 +41,47 @@ export async function GET(request: Request) {
 
     const insights: Insight[] = []
 
+    // Seuils pilotés par knowledge_base (payloads) — défauts si entrées absentes.
+    let genTarget = 20
+    let roasAlert = 2
+    let roasTarget = 5
+    try {
+      const { data: kb } = await supabase
+        .from("knowledge_base")
+        .select("key, payload")
+        .in("key", ["strategy:generosite-target", "rule:roas-benchmark"])
+      for (const row of kb || []) {
+        const p = (row.payload || {}) as Record<string, unknown>
+        if (row.key === "strategy:generosite-target") genTarget = Number(p.target_pct) || genTarget
+        if (row.key === "rule:roas-benchmark") {
+          roasAlert = Number(p.meta_roas_alert) || roasAlert
+          roasTarget = Number(p.meta_roas_target) || roasTarget
+        }
+      }
+    } catch {
+      /* défauts */
+    }
+
+    // Opération promo en cours (calendar_events) — change la lecture de la générosité
+    let promoNow: string | null = null
+    try {
+      const todayStr = now.toISOString().slice(0, 10)
+      const { data: promoEvents } = await supabase
+        .from("calendar_events")
+        .select("title, scheduled_at, metadata")
+        .eq("event_type", "promo")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const active = (promoEvents || []).filter((e: any) => {
+        const start = (e.scheduled_at || "").slice(0, 10)
+        const end = ((e.metadata?.end_date as string) || start).slice(0, 10)
+        return start <= todayStr && end >= todayStr
+      })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (active.length > 0) promoNow = active.map((e: any) => e.title).join(" + ")
+    } catch {
+      /* pas de calendrier → lecture standard */
+    }
+
     // Get current and previous month orders
     const currentOrders = await getOrders(year, month)
     const prevMonth = month === 1 ? 12 : month - 1
@@ -48,22 +90,27 @@ export async function GET(request: Request) {
 
     const currentRevenue = currentOrders.reduce((s: number, o: { total_price?: string }) => s + parseFloat(o.total_price || "0"), 0)
     const prevRevenue = prevOrders.reduce((s: number, o: { total_price?: string }) => s + parseFloat(o.total_price || "0"), 0)
-    const currentDiscount = currentOrders.reduce((s: number, o: { total_discounts?: string }) => s + parseFloat(o.total_discounts || "0"), 0)
-
     const dayOfMonth = now.getDate()
     const daysInMonth = new Date(year, month, 0).getDate()
     const projectedRevenue = dayOfMonth > 0 ? (currentRevenue / dayOfMonth) * daysInMonth : 0
 
     // ── Dashboard insights ──
     if (page === "dashboard" || page === "all") {
-      // Revenue trend
-      if (prevRevenue > 0) {
-        const revChange = ((currentRevenue - prevRevenue) / prevRevenue) * 100
+      // Revenue trend — comparaison à PÉRIMÈTRE ÉGAL : J1→J{n} vs J1→J{n} du mois
+      // précédent. Avant : mois partiel vs mois précédent ENTIER → fausse "baisse
+      // de 60%" systématique en début de mois.
+      const prevMTDRevenue = prevOrders
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((o: any) => new Date(o.created_at || 0).getDate() <= dayOfMonth)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .reduce((s: number, o: any) => s + parseFloat(o.total_price || "0"), 0)
+      if (prevMTDRevenue > 0) {
+        const revChange = ((currentRevenue - prevMTDRevenue) / prevMTDRevenue) * 100
         if (revChange > 10) {
           insights.push({
             id: "dashboard-rev-up",
-            title: `CA en hausse de ${Math.round(revChange)}% vs mois dernier`,
-            description: `${Math.round(currentRevenue).toLocaleString("fr-FR")}€ déjà ce mois vs ${Math.round(prevRevenue).toLocaleString("fr-FR")}€ le mois dernier. Projection fin de mois : ~${Math.round(projectedRevenue).toLocaleString("fr-FR")}€`,
+            title: `CA en hausse de ${Math.round(revChange)}% vs même période le mois dernier`,
+            description: `${Math.round(currentRevenue).toLocaleString("fr-FR")}€ à J${dayOfMonth} vs ${Math.round(prevMTDRevenue).toLocaleString("fr-FR")}€ sur J1→J${dayOfMonth} le mois dernier. Projection fin de mois : ~${Math.round(projectedRevenue).toLocaleString("fr-FR")}€ (mois précédent complet : ${Math.round(prevRevenue).toLocaleString("fr-FR")}€).`,
             severity: "success",
             category: "revenue",
             page: "dashboard",
@@ -71,8 +118,8 @@ export async function GET(request: Request) {
         } else if (revChange < -10) {
           insights.push({
             id: "dashboard-rev-down",
-            title: `CA en baisse de ${Math.round(Math.abs(revChange))}% vs mois dernier`,
-            description: `Seulement ${Math.round(currentRevenue).toLocaleString("fr-FR")}€ à J${dayOfMonth}. Projection : ~${Math.round(projectedRevenue).toLocaleString("fr-FR")}€ (vs ${Math.round(prevRevenue).toLocaleString("fr-FR")}€ le mois dernier).`,
+            title: `CA en baisse de ${Math.round(Math.abs(revChange))}% vs même période le mois dernier`,
+            description: `${Math.round(currentRevenue).toLocaleString("fr-FR")}€ à J${dayOfMonth} vs ${Math.round(prevMTDRevenue).toLocaleString("fr-FR")}€ sur J1→J${dayOfMonth} le mois dernier. Projection : ~${Math.round(projectedRevenue).toLocaleString("fr-FR")}€ (mois précédent complet : ${Math.round(prevRevenue).toLocaleString("fr-FR")}€).`,
             severity: "warning",
             category: "revenue",
             page: "dashboard",
@@ -141,25 +188,30 @@ export async function GET(request: Request) {
     }
 
     // ── Generosity insights ──
+    // Calcul CANONIQUE (computeGenerosite) — même formule que la page /generosite
+    // et le générateur. L'ancienne approximation discount/(revenue+discount)
+    // ignorait les prix barrés et le SAV → deux chiffres différents dans l'app.
     if (page === "generosite" || page === "all") {
-      const generosityRate = currentRevenue > 0
-        ? (currentDiscount / (currentRevenue + currentDiscount)) * 100
-        : 0
+      const categoryMap = await loadCodeCategoryMap()
+      const gen = computeGenerosite(currentOrders, categoryMap)
+      const generosityRate = gen.generosite_rate
 
-      if (generosityRate > 20) {
+      if (generosityRate > genTarget) {
         insights.push({
           id: "generosite-high",
-          title: `Taux de générosité élevé : ${generosityRate.toFixed(1)}%`,
-          description: `Le taux dépasse la cible de 20%. Revoyez les codes promo actifs et les prix barrés pour identifier les leviers de réduction.`,
-          severity: "warning",
+          title: `Générosité : ${generosityRate.toFixed(1)}% (cible ${genTarget}%)${promoNow ? ` — "${promoNow}" en cours` : ""}`,
+          description: promoNow
+            ? `Taux au-dessus de la cible pendant une opération planifiée — attendu (prix barrés/remises promo). À suivre : le CA incrémental doit compenser la marge sacrifiée.`
+            : `Le taux dépasse la cible de ${genTarget}% (formule canonique : remises + prix barrés − SAV, sur CA brut). Regarder la décomposition par catégorie pour identifier le poste hors influence à réduire.`,
+          severity: promoNow ? "info" : "warning",
           category: "generosite",
           page: "generosite",
         })
-      } else if (generosityRate > 0 && generosityRate <= 18) {
+      } else if (generosityRate > 0 && generosityRate <= genTarget - 2) {
         insights.push({
           id: "generosite-ok",
           title: `Générosité maîtrisée : ${generosityRate.toFixed(1)}%`,
-          description: `Bon contrôle des remises — en dessous de la cible de 20%. Marge de manoeuvre pour des opérations ciblées.`,
+          description: `Bon contrôle des remises — en dessous de la cible de ${genTarget}%. Marge de manoeuvre pour des opérations ciblées.`,
           severity: "success",
           category: "generosite",
           page: "generosite",
@@ -209,20 +261,23 @@ export async function GET(request: Request) {
       const metaRoas = parseFloat(metaSummary.roas || "0")
 
       if (metaSpend > 0) {
-        if (metaRoas < 2) {
+        // Doctrine attribution (knowledge_base) : le ROAS plateforme est DÉCLARATIF
+        // (last-click, sur-compte vs codes influence) — l'arbitre honnête = MER.
+        const merProxy = currentRevenue > 0 ? currentRevenue / metaSpend : 0
+        if (metaRoas < roasAlert) {
           insights.push({
             id: "acquisition-meta-roas-low",
-            title: `ROAS Meta faible : ${metaRoas.toFixed(1)}x`,
-            description: `Pour ${Math.round(metaSpend).toLocaleString("fr-FR")}€ dépensés, le ROAS est sous 2x. Optimisez les audiences et créas les moins performantes.`,
+            title: `ROAS Meta faible : ${metaRoas.toFixed(1)}x (seuil ${roasAlert}x)`,
+            description: `Pour ${Math.round(metaSpend).toLocaleString("fr-FR")}€ dépensés, le ROAS déclaré est sous ${roasAlert}x. Optimisez les audiences et créas les moins performantes.`,
             severity: "warning",
             category: "meta",
             page: "acquisition",
           })
-        } else if (metaRoas > 4) {
+        } else if (metaRoas >= roasTarget) {
           insights.push({
             id: "acquisition-meta-roas-high",
-            title: `Excellent ROAS Meta : ${metaRoas.toFixed(1)}x`,
-            description: `${Math.round(metaSpend).toLocaleString("fr-FR")}€ de budget avec un ROAS de ${metaRoas.toFixed(1)}x. Opportunité d'augmenter le budget pour scaler.`,
+            title: `ROAS Meta déclaré : ${metaRoas.toFixed(1)}x (cible ${roasTarget}x)`,
+            description: `${Math.round(metaSpend).toLocaleString("fr-FR")}€ de budget, ROAS déclaré ${metaRoas.toFixed(1)}x. MER proxy ce mois (CA Shopify ÷ spend Meta) : ${merProxy.toFixed(1)}. Le ROAS plateforme sur-compte (last-click) — valider au MER avant d'augmenter le budget.`,
             severity: "success",
             category: "meta",
             page: "acquisition",
@@ -299,7 +354,7 @@ export async function GET(request: Request) {
           insights.push({
             id: `ads-scale-${opp.name.replace(/\s/g, "-").toLowerCase()}`,
             title: `Scaling : ${opp.name} — ${opp.roas.toFixed(1)}x ROAS avec ${Math.round(opp.budgetShare)}% du budget`,
-            description: `Ce produit performe à ${opp.roas.toFixed(1)}x mais ne reçoit que ${Math.round(opp.budgetShare)}% du budget (${Math.round(opp.spend).toLocaleString("fr-FR")}€). Augmenter le budget pourrait multiplier les ${opp.purchases} achats actuels.`,
+            description: `Ce produit performe à ${opp.roas.toFixed(1)}x mais ne reçoit que ${Math.round(opp.budgetShare)}% du budget (${Math.round(opp.spend).toLocaleString("fr-FR")}€). Augmenter le budget pourrait multiplier les ${opp.purchases} achats actuels (ROAS déclaré Meta — valider au MER avant de scaler).`,
             severity: "info",
             category: "scaling",
             page: "ads",
