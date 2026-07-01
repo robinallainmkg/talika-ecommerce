@@ -887,13 +887,13 @@ export async function GET() {
         if (e_klav_ba >= 0.6) {
           newOpportunities.push({
             signal_key: "klaviyo_browse_abandonment",
-            title: "Browse Abandonment FR : activer ce flow dormant",
+            title: "Browse Abandonment FR : vérifier le contenu et activer (DRAFT depuis 2024)",
             description:
-              "Ce flow capture les visiteurs qui regardent LED Mask (290€) ou Hair Force Cap (490€) sans ajouter au panier. L'Abandoned Cart live génère 80 000€/an — le Browse Abandonment arrive encore plus tôt dans le funnel, sur des produits premium à très haute intention d'achat.",
+              "Ce flow capture les visiteurs qui regardent les appareils premium (LED Mask, Hair Force Cap) sans ajouter au panier. L'Abandoned Cart live génère ~80 K€/an — le Browse Abandonment arrive encore plus tôt dans le funnel, sur une audience à très haute intention d'achat.",
             category: "klaviyo",
             impact: "high",
             prompt:
-              "Le flow Browse Abandonment FR (Klaviyo, ID SY3tSS) est en DRAFT depuis avril 2024. Mon Abandoned Cart live génère ~80 000€/an. Ce flow cible les visiteurs qui ont vu LED Mask (290€) ou Hair Force Cap (490€) sans aller jusqu'au panier. Aide-moi à l'activer : contenu des 2-3 emails, timing (1h / 24h / 72h), angle pour convertir sans discount agressif sur des produits à 290–490€.",
+              "Le flow Browse Abandonment FR (Klaviyo FR VTKEVE, ID SY3tSS) est en DRAFT depuis avril 2024. L'Abandoned Cart live (RBK8eD) génère ~80 K€/an ; le Browse Abandonment cible les visiteurs qui ont vu une page produit (dont les appareils premium LED Mask / Hair Force Cap — vérifier les prix actuels sur Shopify, soldes possibles) sans ajouter au panier. Aide-moi à l'activer via le MCP Klaviyo : (1) lis les messages actuels du flow (get_flow avec flow-actions, get_flow_message par action), (2) vérifie que le contenu est en français, personnalisé Talika, sans placeholder, (3) propose une séquence 3 emails — J+1h curiosité, J+24h bénéfices + avis clients, J+72h urgence douce — SANS discount agressif sur des produits premium, (4) montre-moi le contenu final AVANT toute mise en live (règle : demander avant d'envoyer).",
           })
           findings.push("Klaviyo: Browse Abandonment FR toujours en DRAFT")
         }
@@ -950,11 +950,11 @@ export async function GET() {
           const pct = Math.round((tc7WithoutLED / tc7Total) * 100)
           newOpportunities.push({
             signal_key: "klaviyo_upsell_tc7_led",
-            title: `${tc7WithoutLED} acheteurs TC7+ sans LED Mask — upsell 290€ à activer`,
-            description: `${pct}% des acheteurs TC7+ (${tc7WithoutLED}/${tc7Total} sur 5 mois) n'ont pas encore le LED Mask (290€). C'est l'upsell premium le plus logique : même cible, même budget, même bénéfice régénération peau. Le flow post-achat TC7+ est live — y ajouter un email upsell LED Mask à J+30.`,
+            title: `${tc7WithoutLED} acheteurs TC7+ sans LED Mask — upsell premium à activer`,
+            description: `${pct}% des acheteurs TC7+ (${tc7WithoutLED}/${tc7Total} sur 5 mois) n'ont pas encore le LED Therapy Mask. C'est l'upsell premium le plus logique : même cible, même budget, même bénéfice régénération peau. Le flow post-achat TC7+ est live — y ajouter un email upsell LED Mask à J+30.`,
             category: "klaviyo",
             impact: "high",
-            prompt: `Sur 5 mois, ${tc7WithoutLED} acheteurs du TC7+ (${pct}%) n'ont pas le LED Mask (290€). Le flow Post-Achat TC7+ (XFAHEM) est live depuis le 24/06. Aide-moi à créer l'email upsell LED Mask : timing (J+30 après TC7+ ?), angle (complémentarité, upgrade routine, résultats boostés), offre (sans remise ou livraison gratuite ?), sujet d'email, structure du contenu.`,
+            prompt: `Sur 5 mois, ${tc7WithoutLED} acheteurs du TC7+ (${pct}%) n'ont pas le LED Therapy Mask (vérifier le prix actuel sur Shopify — soldes possibles). Le flow Post-Achat TC7+ (XFAHEM) est live depuis le 24/06. Aide-moi à créer l'email upsell LED Mask : timing (J+30 après TC7+ ?), angle (complémentarité, upgrade routine, résultats boostés), offre (sans remise ou livraison gratuite ?), sujet d'email, structure du contenu.`,
           })
           findings.push(`Customer journey: ${tc7WithoutLED} acheteurs TC7+ sans LED Mask (${pct}%)`)
         }
@@ -969,10 +969,10 @@ export async function GET() {
           newOpportunities.push({
             signal_key: "klaviyo_crosssell_haircap_serum",
             title: `${hairCapWithoutSerum} acheteurs Hair Cap sans sérum — cross-sell récurrent`,
-            description: `${hairCapWithoutSerum} clients du Hair Force Cap n'ont pas encore le Sérum Hair Force (38€, rechargeable). C'est le consommable naturel de l'appareil. Le flow post-achat Hair Cap (SbuN3f) est live — y ajouter un email cross-sell sérum à J+14 = revenu récurrent.`,
+            description: `${hairCapWithoutSerum} clients du Hair Force Cap n'ont pas encore le Sérum Hair Force (consommable rechargeable). C'est le consommable naturel de l'appareil. Le flow post-achat Hair Cap (SbuN3f) est live — y ajouter un email cross-sell sérum à J+14 = revenu récurrent.`,
             category: "klaviyo",
             impact: "medium",
-            prompt: `${hairCapWithoutSerum} acheteurs du Hair Force LED Cap n'ont pas encore le Sérum Hair Force (38€). Le sérum est le consommable naturel de l'appareil. Le flow post-achat Hair Cap (SbuN3f) est live depuis le 24/06. Aide-moi à rédiger l'email cross-sell sérum : timing (J+14 ?), angle (résultats amplifiés avec le sérum), offre bundle, sujet, structure.`,
+            prompt: `${hairCapWithoutSerum} acheteurs du Hair Force LED Cap n'ont pas encore le Sérum Hair Force (consommable de l'appareil — vérifier le prix actuel sur Shopify). Le flow post-achat Hair Cap (SbuN3f) est live depuis le 24/06. Aide-moi à rédiger l'email cross-sell sérum : timing (J+14 ?), angle (résultats amplifiés avec le sérum), offre bundle, sujet, structure.`,
           })
           findings.push(`Customer journey: ${hairCapWithoutSerum} acheteurs Hair Cap sans sérum`)
         }
@@ -1009,13 +1009,14 @@ export async function GET() {
         .limit(1)
 
       if (same && same.length > 0) {
+        // Rafraîchir SEULEMENT le titre (chiffres à jour) + impact + updated_at.
+        // description/prompt sont PRÉSERVÉS : la routine analyste (Fable 5) les
+        // enrichit — un run quotidien ne doit pas raser son travail.
         const { error } = await supabase
           .from("opportunities")
           .update({
             title: opp.title,
-            description: opp.description,
             impact: opp.impact,
-            prompt: opp.prompt,
             updated_at: now.toISOString(),
           })
           .eq("id", same[0].id)

@@ -21,7 +21,9 @@ export const PROMPT_FOOTER = `
 - Ne jamais inventer de claims produit (fiches Shopify + études cliniques réelles uniquement).
 - Demander avant tout envoi externe (email, campagne, message).`
 
+// MISSION D'ABORD : la demande doit être la première chose lue (par Robin comme
+// par Claude Code) — le contexte vient en appui derrière, pas devant.
 export function buildFullPrompt(prompt: string, contextPack: string | null): string {
   if (!contextPack) return prompt
-  return [contextPack, "", "---", "", "# MISSION", prompt, PROMPT_FOOTER].join("\n")
+  return ["# MISSION", prompt, "", "---", "", contextPack, PROMPT_FOOTER].join("\n")
 }
