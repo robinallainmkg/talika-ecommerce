@@ -66,6 +66,7 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
 
   // État partagé entre étapes
   let orders: any[] = []
+  let prevOrders: any[] = []
   let ordersCount = 0
   let discountCodesCount = 0
   let matchedOrders = 0
@@ -84,19 +85,26 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     }
   }
 
-  // ── 1. Commandes Shopify (mois en cours) ──
-  await step("shopify_orders", "Commandes Shopify", async () => {
-    const rawOrders = await getAllOrders({
-      created_at_min: new Date(year, month - 1, 1).toISOString(),
-      created_at_max: now.toISOString(),
-    })
+  // ── 1. Commandes Shopify (mois en cours + mois précédent) ──
+  // Même principe que Meta/Google : le mois courant est partiel (month-to-date) et
+  // le mois PRÉCÉDENT doit se verrouiller sur son contenu COMPLET une fois clos.
+  // Avant, un mois clôturé restait figé au dernier cron du mois (~7h le dernier
+  // jour) → ~17 h de ventes manquantes à jamais (cache commandes, donc aussi NC,
+  // générosité, et ventes influence jamais matchées). On écrit AUSSI le cache
+  // shopify_analytics_* des deux mois (avant : seuls les syncs manuels l'écrivaient
+  // → snapshot partiel figé qui empoisonnait acquisition/dashboard/sales/P&L).
+  const prevStart = new Date(year, month - 2, 1)
+  const prevYear = prevStart.getFullYear()
+  const prevMonth = prevStart.getMonth() + 1
+  const currentStart = new Date(year, month - 1, 1)
 
+  await step("shopify_orders", "Commandes Shopify", async () => {
     // Les line items de commande Shopify ne portent pas le compare_at_price → on
     // enrichit avec le compare_at ACTUEL de la variante (prix barrés / soldes).
     // Sans ça, la générosité "Prix barrés" reste à 0 sur le mois en cours.
     const variantPriceMap = await getVariantPriceMap()
 
-    orders = rawOrders.map((o: any) => ({
+    const mapOrder = (o: any) => ({
       id: o.id,
       email: o.email || "",
       total_price: o.total_price,
@@ -129,19 +137,60 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
         price: sl.price,
       })),
       refunds: o.refunds,
-    }))
+    })
+
+    // Mêmes formules que getAnalytics (shopify.ts) — calculées sur les commandes
+    // BRUTES déjà fetchées (zéro appel API en plus).
+    const analyticsOf = (raws: any[]) => {
+      const total_revenue = raws.reduce((s: number, o: any) => s + parseFloat(o.total_price || "0"), 0)
+      const total_refunds = raws.reduce((s: number, o: any) =>
+        s + (o.refunds || []).reduce((rs: number, r: any) =>
+          rs + (r.transactions || []).reduce((ts: number, t: any) => ts + parseFloat(t.amount || "0"), 0), 0), 0)
+      const total_discount = raws.reduce((s: number, o: any) => s + parseFloat(o.total_discounts || "0"), 0)
+      const uniqueCustomers = new Set(raws.map((o: any) => o.customer?.id).filter(Boolean))
+      return {
+        total_revenue,
+        total_refunds,
+        total_orders: raws.length,
+        aov: raws.length > 0 ? total_revenue / raws.length : 0,
+        unique_customers: uniqueCustomers.size,
+        total_discount,
+        generosity: total_revenue > 0 ? (total_discount / total_revenue) * 100 : 0,
+      }
+    }
+
+    const rawCurrent = await getAllOrders({
+      created_at_min: currentStart.toISOString(),
+      created_at_max: now.toISOString(),
+    })
+    orders = rawCurrent.map(mapOrder)
     ordersCount = orders.length
 
+    const rawPrev = await getAllOrders({
+      created_at_min: prevStart.toISOString(),
+      created_at_max: currentStart.toISOString(),
+    })
+    prevOrders = rawPrev.map(mapOrder)
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const updatedAt = now.toISOString()
+    // Upserts séparés : garder des payloads de la même taille qu'avant (1 mois ≈ 1-2 Mo)
     await supabase.from("data_cache").upsert(
-      {
-        key: `shopify_orders_${year}_${month}`,
-        data: { orders, count: orders.length },
-        source: "shopify",
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      },
+      { key: `shopify_orders_${year}_${month}`, data: { orders, count: orders.length }, source: "shopify", expires_at: expiresAt, updated_at: updatedAt },
       { onConflict: "key" }
     )
-    return `${orders.length} commandes (${year}-${month})`
+    await supabase.from("data_cache").upsert(
+      { key: `shopify_orders_${prevYear}_${prevMonth}`, data: { orders: prevOrders, count: prevOrders.length }, source: "shopify", expires_at: expiresAt, updated_at: updatedAt },
+      { onConflict: "key" }
+    )
+    await supabase.from("data_cache").upsert(
+      [
+        { key: `shopify_analytics_${year}_${month}`, data: analyticsOf(rawCurrent), source: "shopify", expires_at: expiresAt, updated_at: updatedAt },
+        { key: `shopify_analytics_${prevYear}_${prevMonth}`, data: analyticsOf(rawPrev), source: "shopify", expires_at: expiresAt, updated_at: updatedAt },
+      ],
+      { onConflict: "key" }
+    )
+    return `${orders.length} commandes (${year}-${month}) · ${prevOrders.length} (${prevYear}-${prevMonth}) · analytics ×2`
   })
 
   // ── 2. Codes promo Shopify + auto-classification des codes random ──
@@ -204,7 +253,9 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
       const candidates: Record<string, unknown>[] = []
       const matchedOrderIds = new Set<string>()
       const matchedInfluencerIds = new Set<string>()
-      for (const order of orders) {
+      // Mois courant + mois précédent : les commandes de la fin du mois clos
+      // (après le dernier cron du mois) n'étaient jamais matchées sinon.
+      for (const order of [...orders, ...prevOrders]) {
         for (const dc of order.discount_codes || []) {
           const code = (dc.code || "").toUpperCase().trim()
           const influencerId = codeMap.get(code)

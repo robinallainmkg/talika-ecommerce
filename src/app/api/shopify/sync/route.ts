@@ -29,9 +29,11 @@ export async function POST(request: Request) {
         created_at_max: monthEnd,
       })
 
-      // Cache in data_cache
+      // Cache in data_cache — clé = mois DEMANDÉ (avant : mois courant, même quand
+      // body.year/month visait un autre mois → données d'un mois écrites sous la
+      // clé d'un autre, snapshot faux figé)
       await supabase.from("data_cache").upsert({
-        key: `shopify_analytics_${now.getFullYear()}_${now.getMonth() + 1}`,
+        key: `shopify_analytics_${targetYear}_${targetMonth}`,
         data: analytics,
         source: "shopify",
         expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1h TTL
