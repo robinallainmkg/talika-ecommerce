@@ -23,6 +23,7 @@ import {
   Zap,
   TrendingUp,
   Radio,
+  MessageCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buildFullPrompt } from "@/lib/claude-prompt"
@@ -39,6 +40,7 @@ interface Opportunity {
   status: string
   rating?: number
   rated_at?: string
+  feedback?: string | null
   created_at: string
 }
 
@@ -55,6 +57,7 @@ const CATEGORY_CONFIG: Record<string, { icon: typeof Lightbulb; color: string; l
   free_marketing:{ icon: Zap,         color: "text-lime-600 bg-lime-50 border-lime-200",      label: "Marketing Gratuit" },
   conversion:    { icon: TrendingUp,  color: "text-orange-600 bg-orange-50 border-orange-200",label: "Optimisation CR" },
   channels:      { icon: Radio,       color: "text-violet-600 bg-violet-50 border-violet-200",label: "Nouveaux Canaux" },
+  chat:          { icon: MessageCircle, color: "text-teal-600 bg-teal-50 border-teal-200",    label: "Chat IA" },
   other:         { icon: HelpCircle,  color: "text-zinc-600 bg-zinc-50 border-zinc-200",      label: "Autre" },
 }
 
@@ -77,43 +80,76 @@ const IMPACT_LABELS: Record<string, string> = {
 function RatingBar({
   oppId,
   current,
+  feedback,
   onRate,
+  onFeedback,
 }: {
   oppId: string
   current?: number
+  feedback?: string | null
   onRate: (id: string, r: number) => void
+  onFeedback: (id: string, text: string) => void
 }) {
   const [hover, setHover] = useState<number | null>(null)
+  const [text, setText] = useState(feedback ?? "")
+  const [savedFlash, setSavedFlash] = useState(false)
   const active = hover ?? current ?? 0
 
+  const saveFeedback = () => {
+    if (text.trim() === (feedback ?? "").trim()) return
+    onFeedback(oppId, text.trim())
+    setSavedFlash(true)
+    setTimeout(() => setSavedFlash(false), 1500)
+  }
+
   return (
-    <div className="flex items-center gap-1 mt-3 pt-3 border-t border-zinc-100">
-      <span className="text-[11px] text-zinc-400 mr-1.5 shrink-0">Pertinence :</span>
-      <div className="flex gap-0.5">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-          <button
-            key={n}
-            onMouseEnter={() => setHover(n)}
-            onMouseLeave={() => setHover(null)}
-            onClick={() => onRate(oppId, n)}
-            className={cn(
-              "w-[22px] h-[22px] rounded text-[11px] font-semibold transition-all",
-              current === n
-                ? "bg-zinc-900 text-white"
-                : n <= active
-                ? "bg-zinc-200 text-zinc-700"
-                : "bg-zinc-50 text-zinc-300 hover:bg-zinc-100"
-            )}
-          >
-            {n}
-          </button>
-        ))}
+    <div className="mt-3 pt-3 border-t border-zinc-100">
+      <div className="flex items-center gap-1">
+        <span className="text-[11px] text-zinc-400 mr-1.5 shrink-0">Pertinence :</span>
+        <div className="flex gap-0.5">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+            <button
+              key={n}
+              onMouseEnter={() => setHover(n)}
+              onMouseLeave={() => setHover(null)}
+              onClick={() => onRate(oppId, n)}
+              className={cn(
+                "w-[22px] h-[22px] rounded text-[11px] font-semibold transition-all",
+                current === n
+                  ? "bg-zinc-900 text-white"
+                  : n <= active
+                  ? "bg-zinc-200 text-zinc-700"
+                  : "bg-zinc-50 text-zinc-300 hover:bg-zinc-100"
+              )}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        {current && (
+          <span className="text-[11px] text-zinc-400 ml-2">
+            {current >= 8 ? "Très pertinent" : current >= 5 ? "Pertinent" : "Peu pertinent"}
+          </span>
+        )}
       </div>
-      {current && (
-        <span className="text-[11px] text-zinc-400 ml-2">
-          {current >= 8 ? "Très pertinent" : current >= 5 ? "Pertinent" : "Peu pertinent"}
-        </span>
-      )}
+      {/* Le "pourquoi" de la note — lu par la routine analyste du lundi (learning loop) */}
+      {current ? (
+        <div className="flex items-center gap-2 mt-2">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={saveFeedback}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+            }}
+            placeholder="Pourquoi ? (optionnel — lu par l'analyste du lundi)"
+            maxLength={500}
+            className="flex-1 rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-300 focus:outline-none focus:border-zinc-400"
+          />
+          {savedFlash && <span className="text-[11px] text-emerald-600 shrink-0">Enregistré ✓</span>}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -180,6 +216,21 @@ export default function OpportunitiesPage() {
       const data = await res.json()
       setOpportunities((prev) =>
         prev.map((o) => (o.id === id ? { ...o, rating: data.rating } : o))
+      )
+    } catch {
+      // silent
+    }
+  }
+
+  const saveFeedback = async (id: string, feedback: string) => {
+    try {
+      await fetch("/api/opportunities", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, feedback }),
+      })
+      setOpportunities((prev) =>
+        prev.map((o) => (o.id === id ? { ...o, feedback } : o))
       )
     } catch {
       // silent
@@ -341,7 +392,7 @@ export default function OpportunitiesPage() {
                       <p className="text-zinc-500 text-sm leading-relaxed">{opp.description}</p>
 
                       {/* Rating bar — always visible */}
-                      <RatingBar oppId={opp.id} current={opp.rating} onRate={rateOpp} />
+                      <RatingBar oppId={opp.id} current={opp.rating} feedback={opp.feedback} onRate={rateOpp} onFeedback={saveFeedback} />
                     </div>
 
                     {/* Actions */}
