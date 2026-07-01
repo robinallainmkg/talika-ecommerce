@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { chatDb } from "@/lib/chat/db"
 import { corsHeaders, handleOptions } from "@/lib/chat/cors"
+import { lookupCustomerByEmail } from "@/lib/chat/shopify-orders"
 
 export const dynamic = "force-dynamic"
 
@@ -44,7 +45,16 @@ export async function POST(request: Request) {
       status: "queued",
       last_message_at: new Date().toISOString(),
     }
-    if (email) update.visitor_email = email
+    if (email) {
+      update.visitor_email = email
+      // Fidélité captée au passage (badge inbox) — jamais bloquant.
+      try {
+        const customer = await lookupCustomerByEmail(email)
+        if (customer.found) update.customer_orders_count = customer.ordersCount
+      } catch {
+        /* ignore */
+      }
+    }
     await db.from("chat_conversations").update(update).eq("id", conversation.id)
 
     return NextResponse.json({ ok: true, status: "queued" }, { headers })

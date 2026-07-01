@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { chatDb } from "@/lib/chat/db"
 import { requireAdmin } from "@/lib/chat/admin-auth"
+import { agentEmail } from "@/lib/chat/agent-identity"
 
 export const dynamic = "force-dynamic"
 
@@ -25,11 +26,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
 
     const now = new Date().toISOString()
+    const email = await agentEmail()
 
     // Auto-prise en main : répondre fait basculer la conversation en mode humain.
     if (conversation.status !== "human") {
       const update: Record<string, unknown> = { status: "human", last_message_at: now }
       if (!conversation.taken_over_at) update.taken_over_at = now
+      if (email) update.taken_over_by = email
       await db.from("chat_conversations").update(update).eq("id", params.id)
       if (conversation.status === "bot") {
         await db.from("chat_messages").insert({
@@ -42,7 +45,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const { data: message, error } = await db
       .from("chat_messages")
-      .insert({ conversation_id: params.id, role: "agent", content })
+      .insert({ conversation_id: params.id, role: "agent", content, agent_email: email })
       .select("id, role, content, created_at")
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

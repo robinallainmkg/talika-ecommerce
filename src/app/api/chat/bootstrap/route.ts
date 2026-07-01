@@ -41,6 +41,7 @@ export async function POST(request: Request) {
         suggested_questions: settings.suggested_questions || [],
         online: isWithinBusinessHours(settings.business_hours as BusinessHours),
         bot_enabled: settings.bot_enabled !== false,
+        has_email: !!conversation.visitor_email,
       },
       { headers }
     )

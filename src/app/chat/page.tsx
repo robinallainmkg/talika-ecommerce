@@ -8,6 +8,7 @@ import { MessageBubble, ChatMessageView } from "@/components/chat/message-bubble
 import { relativeTime, StatusBadge } from "@/components/chat/helpers"
 import { ReplyComposer } from "@/components/chat/reply-composer"
 import { VisitorPanel } from "@/components/chat/visitor-panel"
+import { SalesCard } from "@/components/chat/sales-card"
 
 type ConversationRow = {
   id: string
@@ -19,6 +20,8 @@ type ConversationRow = {
   last_message_at: string | null
   created_at: string
   last_message_preview: string
+  customer_orders_count: number | null
+  taken_over_by: string | null
 }
 
 type ConversationDetail = ConversationRow & {
@@ -291,6 +294,8 @@ export default function ChatInboxPage() {
         </div>
       </div>
 
+      <SalesCard />
+
       <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-zinc-200 bg-white">
         <div className="flex w-80 shrink-0 flex-col border-r border-zinc-200">
           <div className="flex items-center gap-1 border-b border-zinc-200 p-2">
@@ -328,6 +333,14 @@ export default function ChatInboxPage() {
                 >
                   <div className="flex items-center gap-2">
                     <StatusBadge status={conv.status} />
+                    {(conv.customer_orders_count || 0) >= 3 && (
+                      <span
+                        className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                        title={`Cliente fidèle — ${conv.customer_orders_count} commandes`}
+                      >
+                        ★ fidèle
+                      </span>
+                    )}
                     {conv.unread_count > 0 && <span className="h-2 w-2 rounded-full bg-blue-500" />}
                     <span className="ml-auto text-[11px] text-zinc-400">{relativeTime(conv.last_message_at)}</span>
                   </div>

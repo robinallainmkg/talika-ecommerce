@@ -16,6 +16,7 @@ const PUBLIC_PREFIXES = [
   "/api/chat/escalate",
   "/api/chat/order-lookup",
   "/api/chat/code-lookup",
+  "/api/chat/email",
   "/api/cron/",
   "/api/google/callback",
 ]

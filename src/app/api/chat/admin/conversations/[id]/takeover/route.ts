@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { chatDb } from "@/lib/chat/db"
 import { requireAdmin } from "@/lib/chat/admin-auth"
+import { agentEmail } from "@/lib/chat/agent-identity"
 
 export const dynamic = "force-dynamic"
 
@@ -35,6 +36,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
     if (action === "take") {
       update.status = "human"
       if (!conversation.taken_over_at) update.taken_over_at = now
+      // Attribution : qui gère la conversation (dernier preneur).
+      const email = await agentEmail()
+      if (email) update.taken_over_by = email
     } else if (action === "release") {
       update.status = "bot"
     } else {

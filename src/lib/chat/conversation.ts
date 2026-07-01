@@ -8,6 +8,7 @@ export type Conversation = {
   status: "bot" | "human" | "queued" | "closed"
   is_internal: boolean
   message_count: number
+  visitor_email: string | null
 }
 
 export async function getOrCreateConversation(
@@ -17,7 +18,7 @@ export async function getOrCreateConversation(
   if (opts.token) {
     const { data } = await db
       .from("chat_conversations")
-      .select("id, token, status, is_internal, message_count")
+      .select("id, token, status, is_internal, message_count, visitor_email")
       .eq("token", opts.token)
       .single()
     if (data) {
@@ -40,7 +41,7 @@ export async function getOrCreateConversation(
       user_agent: opts.userAgent || null,
       is_internal: opts.isInternal || false,
     })
-    .select("id, token, status, is_internal, message_count")
+    .select("id, token, status, is_internal, message_count, visitor_email")
     .single()
   if (error || !data) throw new Error(`conversation insert failed: ${error?.message}`)
   return data as Conversation
