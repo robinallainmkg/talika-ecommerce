@@ -112,6 +112,12 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
       financial_status: o.financial_status,
       cancelled_at: o.cancelled_at,
       created_at: o.created_at,
+      // Attribution : page d'arrivée (avec UTM/fbclid/gclid dans la query) +
+      // référent de la session qui a créé la commande. Base de la partition
+      // par canal (code influenceur > UTM payant > organique) sur /acquisition.
+      landing_site: (o.landing_site || "").slice(0, 500) || null,
+      referring_site: (o.referring_site || "").slice(0, 300) || null,
+      source_name: o.source_name || null,
       discount_codes: (o.discount_codes || []).map((dc: any) => ({
         code: typeof dc === "string" ? dc : dc.code || "",
         amount: typeof dc === "string" ? "0" : dc.amount || "0",

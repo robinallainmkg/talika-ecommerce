@@ -1,13 +1,29 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { loadExcludedKeys, billingKey } from "@/lib/influence/billing-status"
+import { classifyOrder, paidTouch, utmCoverage, type AttributionChannel, type CachedOrder } from "@/lib/attribution"
 
+// fetch no-store explicite : Next patche fetch() et peut servir les lectures
+// Supabase depuis son Data Cache disque (vécu en dev : commandes de juin figées
+// au 23/06 alors que la base était à jour). Un dashboard ne doit JAMAIS être stale.
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { global: { fetch: (url, options) => fetch(url, { ...options, cache: "no-store" }) } }
 )
 
 export const dynamic = "force-dynamic"
+
+const CHANNEL_META: Record<AttributionChannel, { name: string; color: string }> = {
+  influence: { name: "Influence (code)", color: "#8b5cf6" },
+  google_ads: { name: "Google Ads", color: "#f59e0b" },
+  meta_ads: { name: "Meta Ads", color: "#3b82f6" },
+  email: { name: "Email (Klaviyo)", color: "#14b8a6" },
+  seo: { name: "SEO", color: "#10b981" },
+  direct: { name: "Direct / autres", color: "#a1a1aa" },
+}
+
+const monthKey = (prefix: string, y: number, m: number) => `${prefix}_${y}_${m}`
 
 export async function GET(request: Request) {
   try {
@@ -15,133 +31,133 @@ export async function GET(request: Request) {
     const now = new Date()
     const year = parseInt(searchParams.get("year") || String(now.getFullYear()))
     const month = parseInt(searchParams.get("month") || String(now.getMonth() + 1))
-    const monthStart = new Date(year, month - 1, 1).toISOString()
-    const monthEnd = new Date(year, month, 0, 23, 59, 59).toISOString()
 
-    // ── 1. Total Shopify CA this month ──
-    // Try analytics cache first, fallback to computing from orders
-    const { data: analyticsCache } = await supabase
-      .from("data_cache")
-      .select("data")
-      .eq("key", `shopify_analytics_${year}_${month}`)
-      .single()
+    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const dayOfMonth = isCurrentMonth ? now.getDate() : daysInMonth
 
-    let totalRevenue = (analyticsCache?.data as any)?.total_revenue || 0
-    let totalOrders = (analyticsCache?.data as any)?.total_orders || 0
-
-    // If no analytics cache, compute from orders cache
-    if (totalRevenue === 0) {
-      const { data: ordersCache } = await supabase
-        .from("data_cache")
-        .select("data")
-        .eq("key", `shopify_orders_${year}_${month}`)
-        .single()
-
-      const orders = (ordersCache?.data as any)?.orders || []
-      if (orders.length > 0) {
-        totalRevenue = orders.reduce((s: number, o: any) => s + parseFloat(o.total_price || "0"), 0)
-        totalOrders = orders.length
-      }
+    // Clés des 6 mois de tendance (mois sélectionné inclus, année à cheval gérée)
+    const trendMonths: Array<{ y: number; m: number }> = []
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(year, month - 1 - i, 1)
+      trendMonths.push({ y: d.getFullYear(), m: d.getMonth() + 1 })
     }
+    const trendOrderKeys = trendMonths.map(({ y, m }) => monthKey("shopify_orders", y, m))
+    const adsKeys = trendMonths.flatMap(({ y, m }) => [
+      monthKey("meta_monthly", y, m),
+      monthKey("google_ads", y, m),
+    ])
+    const prevYearKey = monthKey("shopify_orders", year - 1, month)
 
-    // ── 2. Influence channel ──
-    const { data: influenceData } = await supabase
-      .from("influencer_product_sales")
-      .select("line_price, shopify_order_id, influencer_id")
-      .gte("order_date", monthStart)
-      .lt("order_date", monthEnd)
+    // ── Fetches parallèles ──
+    const [
+      ordersCacheRes,
+      infCodesRes,
+      commissionsRes,
+      feesRes,
+      metaCacheRes,
+      metaCampaignsRes,
+      googleCacheRes,
+      ncRes,
+      trendRes,
+      paceRes,
+      adsCachesRes,
+      freshnessRes,
+    ] = await Promise.all([
+      supabase.from("data_cache").select("data, updated_at").eq("key", monthKey("shopify_orders", year, month)).single(),
+      supabase.from("influencer_codes").select("code").eq("code_type", "influencer").eq("is_active", true),
+      supabase.from("influencer_commissions").select("influencer_id, amount").eq("year", year).eq("month", month),
+      supabase.from("influencer_fixed_fees").select("influencer_id, amount").eq("year", year).eq("month", month),
+      supabase.from("data_cache").select("data, updated_at").eq("key", monthKey("meta_monthly", year, month)).single(),
+      supabase.from("data_cache").select("data").eq("key", monthKey("meta_campaigns", year, month)).single(),
+      supabase.from("data_cache").select("data, updated_at").eq("key", monthKey("google_ads", year, month)).single(),
+      supabase.rpc("acquisition_new_customers", { p_year: year, p_month: month }),
+      supabase.rpc("acquisition_monthly_totals", { p_keys: trendOrderKeys, p_day_max: null }),
+      // Pacing à périmètre égal : même mois N-1, borné au même jour si mois partiel
+      supabase.rpc("acquisition_monthly_totals", {
+        p_keys: [prevYearKey],
+        p_day_max: isCurrentMonth ? dayOfMonth : null,
+      }),
+      supabase.from("data_cache").select("key, data").in("key", adsKeys),
+      supabase.from("data_cache").select("key, updated_at").in("key", [
+        monthKey("shopify_orders", year, month),
+        monthKey("meta_monthly", year, month),
+        monthKey("google_ads", year, month),
+      ]),
+    ])
 
-    const influenceRevenue = (influenceData || []).reduce(
-      (s, r) => s + parseFloat(r.line_price), 0
-    )
-    const influenceOrders = new Set((influenceData || []).map(r => r.shopify_order_id)).size
-    const influenceInfluencers = new Set((influenceData || []).map(r => r.influencer_id)).size
+    // ── Commandes du mois (source de vérité TTC) ──
+    const orders: CachedOrder[] = (ordersCacheRes.data?.data as any)?.orders || []
+    const totalRevenue = orders.reduce((s, o) => s + parseFloat(o.total_price || "0"), 0)
+    const totalOrders = orders.length
 
-    // Get ACTUAL influence cost from manual data (commissions + fixed fees)
-    // Commissions are MANUAL (from CSV), NOT auto-calculated from commission_rate
-    const { data: monthCommissions } = await supabase
-      .from("influencer_commissions")
-      .select("influencer_id, amount")
-      .eq("year", year)
-      .eq("month", month)
-
-    const { data: monthFees } = await supabase
-      .from("influencer_fixed_fees")
-      .select("influencer_id, amount")
-      .eq("year", year)
-      .eq("month", month)
-
-    // Collabs "sans facturation" → leur coût ne compte pas (MER/CAC). On somme
-    // l'exclu à part pour transparence.
+    // ── Coût influence réel (saisi à la main), hors collabs "sans facturation" ──
     const excludedKeys = await loadExcludedKeys({ year })
     const isExcluded = (id: string) => excludedKeys.has(billingKey(id, year, month))
-    const totalCommissions = (monthCommissions || []).reduce(
+    const totalCommissions = (commissionsRes.data || []).reduce(
       (s, r) => s + (isExcluded(r.influencer_id) ? 0 : parseFloat(r.amount) || 0), 0
     )
-    const totalFixedFees = (monthFees || []).reduce(
+    const totalFixedFees = (feesRes.data || []).reduce(
       (s, r) => s + (isExcluded(r.influencer_id) ? 0 : parseFloat(r.amount) || 0), 0
-    )
-    const influenceExcludedAmount = Math.round(
-      [...(monthCommissions || []), ...(monthFees || [])].reduce(
-        (s, r) => s + (isExcluded(r.influencer_id) ? parseFloat(r.amount) || 0 : 0), 0
-      )
     )
     const influenceCost = totalCommissions + totalFixedFees
+    const hasCommissionData =
+      (commissionsRes.data || []).length > 0 || (feesRes.data || []).length > 0
 
-    // Check if commission data exists for this month (for "??" display)
-    const hasCommissionData = (monthCommissions || []).length > 0 || (monthFees || []).length > 0
-
-    // ── 3. Meta Ads channel ──
-    const { data: metaCache } = await supabase
-      .from("data_cache")
-      .select("data")
-      .eq("key", `meta_monthly_${year}_${month}`)
-      .single()
-
-    const metaSummary = (metaCache?.data as any)?.summary || {}
+    // ── Plateformes : dépense réelle + revendications (attribution pixel) ──
+    const metaSummary = (metaCacheRes.data?.data as any)?.summary || {}
     const metaSpend = parseFloat(metaSummary.spend || "0")
     const metaRoas = parseFloat(metaSummary.roas || "0")
-    const metaRevenue = metaSpend * metaRoas // attributed revenue
-    const metaImpressions = parseInt(metaSummary.impressions || "0")
-    const metaClicks = parseInt(metaSummary.clicks || "0")
-    const metaCpm = parseFloat(metaSummary.cpm || "0")
+    const metaClaimedRevenue = metaSpend * metaRoas
+    const metaCampaigns = (metaCampaignsRes.data?.data as any)?.campaigns || []
 
-    // Meta campaigns detail
-    const { data: metaCampaignsCache } = await supabase
-      .from("data_cache")
-      .select("data")
-      .eq("key", `meta_campaigns_${year}_${month}`)
-      .single()
-    const metaCampaigns = (metaCampaignsCache?.data as any)?.campaigns || []
-
-    // ── 4. Google Ads channel ──
-    const { data: googleCache } = await supabase
-      .from("data_cache")
-      .select("data")
-      .eq("key", `google_ads_${year}_${month}`)
-      .single()
-
-    const googleSummary = (googleCache?.data as any)?.summary || {}
-    const googleCampaigns = (googleCache?.data as any)?.campaigns || []
+    const googleSummary = (googleCacheRes.data?.data as any)?.summary || {}
+    const googleCampaigns = (googleCacheRes.data?.data as any)?.campaigns || []
     const googleSpend = googleSummary.spend || 0
-    const googleRevenue = googleSummary.conversions_value || 0
+    const googleClaimedRevenue = googleSummary.conversions_value || 0
     const googleRoas = googleSummary.roas || 0
-    const googleClicks = googleSummary.clicks || 0
-    const googleImpressions = googleSummary.impressions || 0
-    const googleConversions = googleSummary.conversions || 0
 
-    // ── 4b. VRAIS nouveaux clients par canal ──
-    // Fonction Postgres acquisition_new_customers : un "nouveau client" = email dont la
-    // 1re commande JAMAIS passée (tout l'historique) tombe ce mois. Canal = présence d'un
-    // code influenceur. Remplace l'ancien comptage (clients uniques + splits inventés
-    // *0.15/*0.6) qui faussait le CAC. L'influence est attribuable au code ; Meta/direct/SEO
-    // tombent dans "other" (pas séparables par 1re commande, attribution pixel ≠).
-    const { data: ncRows } = await supabase.rpc("acquisition_new_customers", {
-      p_year: year,
-      p_month: month,
-    })
+    // ── Partition déterministe par commande (somme = 100 % du CA) ──
+    const codeSet = new Set((infCodesRes.data || []).map((c) => c.code.toUpperCase()))
+    const coverage = utmCoverage(orders)
+    const buckets: Record<AttributionChannel, { orders: number; revenue: number }> = {
+      influence: { orders: 0, revenue: 0 },
+      google_ads: { orders: 0, revenue: 0 },
+      meta_ads: { orders: 0, revenue: 0 },
+      email: { orders: 0, revenue: 0 },
+      seo: { orders: 0, revenue: 0 },
+      direct: { orders: 0, revenue: 0 },
+    }
+    // Overlap : commandes à code AUSSI touchées par une pub dans la session d'achat
+    const overlapTouched = {
+      meta: { orders: 0, revenue: 0 },
+      google: { orders: 0, revenue: 0 },
+    }
+    for (const o of orders) {
+      const price = parseFloat(o.total_price || "0")
+      const channel = classifyOrder(o, codeSet)
+      buckets[channel].orders++
+      buckets[channel].revenue += price
+      if (channel === "influence") {
+        const touch = paidTouch(o)
+        if (touch) {
+          overlapTouched[touch].orders++
+          overlapTouched[touch].revenue += price
+        }
+      }
+    }
+    const attributionChannels = (Object.keys(buckets) as AttributionChannel[]).map((id) => ({
+      id,
+      name: CHANNEL_META[id].name,
+      color: CHANNEL_META[id].color,
+      orders: buckets[id].orders,
+      revenue: Math.round(buckets[id].revenue),
+      share: totalRevenue > 0 ? (buckets[id].revenue / totalRevenue) * 100 : 0,
+    }))
+
+    // ── Vrais nouveaux clients (RPC : 1re commande jamais passée) ──
     const ncMap: Record<string, { orders: number; new_customers: number }> = {}
-    for (const r of (ncRows as Array<{ channel: string; orders: number; new_customers: number }>) || []) {
+    for (const r of (ncRes.data as Array<{ channel: string; orders: number; new_customers: number }>) || []) {
       ncMap[r.channel] = { orders: Number(r.orders), new_customers: Number(r.new_customers) }
     }
     const ncInfluence = ncMap.influence?.new_customers || 0
@@ -149,39 +165,81 @@ export async function GET(request: Request) {
     const ordersInfluenceNC = ncMap.influence?.orders || 0
     const ordersOtherNC = ncMap.other?.orders || 0
     const totalNewCustomers = ncInfluence + ncOther
-    const pctNcInfluence = ordersInfluenceNC > 0 ? (ncInfluence / ordersInfluenceNC) * 100 : 0
-    const pctNcOther = ordersOtherNC > 0 ? (ncOther / ordersOtherNC) * 100 : 0
-
-    // CAC sur les VRAIS nouveaux clients (pas les clients uniques)
     const otherSpend = metaSpend + googleSpend
     const cpaInfluence = ncInfluence > 0 && influenceCost > 0 ? influenceCost / ncInfluence : null
     const cacOther = ncOther > 0 && otherSpend > 0 ? otherSpend / ncOther : null
 
-    // ── 5. Organic / Direct (everything not attributed) ──
-    const organicRevenue = Math.max(0, totalRevenue - influenceRevenue - metaRevenue - googleRevenue)
-    const organicOrders = totalOrders - influenceOrders
+    // ── Tendance 6 mois : CA (RPC) + dépenses ads (caches) ──
+    const trendTotals = new Map(
+      ((trendRes.data as Array<{ key: string; revenue: number; orders: number }>) || []).map((r) => [
+        r.key,
+        { revenue: Number(r.revenue), orders: Number(r.orders) },
+      ])
+    )
+    const adsCaches = new Map(
+      ((adsCachesRes.data as Array<{ key: string; data: any }>) || []).map((r) => [r.key, r.data])
+    )
+    const trend = trendMonths.map(({ y, m }) => {
+      const totals = trendTotals.get(monthKey("shopify_orders", y, m))
+      const metaData = adsCaches.get(monthKey("meta_monthly", y, m))
+      const googleData = adsCaches.get(monthKey("google_ads", y, m))
+      const mSpend = parseFloat(metaData?.summary?.spend || "0")
+      const gSpend = googleData?.summary?.spend || 0
+      const revenue = totals?.revenue || 0
+      const ads = mSpend + gSpend
+      return {
+        ym: `${y}-${String(m).padStart(2, "0")}`,
+        revenue: Math.round(revenue),
+        orders: totals?.orders || 0,
+        ads_spend: Math.round(ads),
+        ratio: ads > 0 ? Math.round((revenue / ads) * 10) / 10 : null,
+      }
+    })
 
-    // ── 6. Build channel breakdown ──
+    // ── Pacing : même mois N-1 (Shopify, même périmètre TTC), objectif = N-1 × 1,20 ──
+    const paceRow = ((paceRes.data as Array<{ key: string; revenue: number }>) || [])[0]
+    const prevYearSameDays = paceRow ? Number(paceRow.revenue) : null
+    const pace =
+      prevYearSameDays && prevYearSameDays > 0
+        ? {
+            prev_year_same_days: Math.round(prevYearSameDays),
+            target_same_days: Math.round(prevYearSameDays * 1.2),
+            vs_prev_year_pct: (totalRevenue / prevYearSameDays - 1) * 100,
+            vs_target_pct: (totalRevenue / (prevYearSameDays * 1.2)) * 100,
+          }
+        : null
+
+    // ── Fraîcheur par source ──
+    const freshness = ((freshnessRes.data as Array<{ key: string; updated_at: string }>) || []).map(
+      (r) => ({
+        source: r.key.startsWith("shopify") ? "shopify" : r.key.startsWith("meta") ? "meta" : "google",
+        updated_at: r.updated_at,
+      })
+    )
+
+    // ── KPIs globaux ──
     const totalSpend = influenceCost + metaSpend + googleSpend
     const blendedRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0
+    const influenceBucket = buckets.influence
 
+    // ── Cartes canaux (mesuré vs revendiqué) ──
     const channels = [
       {
         id: "influence",
         name: "Influence",
-        icon: "Users",
+        measured: true,
         color: "#8b5cf6",
-        revenue: influenceRevenue,
-        orders: influenceOrders,
+        revenue: Math.round(influenceBucket.revenue),
+        orders: influenceBucket.orders,
         spend: influenceCost,
-        roas: influenceCost > 0 ? influenceRevenue / influenceCost : 0,
-        share: totalRevenue > 0 ? (influenceRevenue / totalRevenue) * 100 : 0,
+        roas: influenceCost > 0 ? influenceBucket.revenue / influenceCost : null,
+        share: totalRevenue > 0 ? (influenceBucket.revenue / totalRevenue) * 100 : 0,
         new_customers: ncInfluence,
+        nc_rate: ordersInfluenceNC > 0 ? (ncInfluence / ordersInfluenceNC) * 100 : null,
         cpa: cpaInfluence,
         pending: !hasCommissionData,
         kpis: {
-          influencers_actifs: influenceInfluencers,
-          aov: influenceOrders > 0 ? influenceRevenue / influenceOrders : 0,
+          aov: influenceBucket.orders > 0 ? influenceBucket.revenue / influenceBucket.orders : 0,
           commissions: totalCommissions,
           fixed_fees: totalFixedFees,
         },
@@ -189,86 +247,87 @@ export async function GET(request: Request) {
       {
         id: "meta",
         name: "Meta Ads",
-        icon: "Megaphone",
+        measured: false,
         color: "#3b82f6",
-        revenue: metaRevenue,
-        orders: 0, // Meta doesn't give order count easily
+        claimed_revenue: Math.round(metaClaimedRevenue),
+        measured_revenue: Math.round(buckets.meta_ads.revenue),
+        measured_orders: buckets.meta_ads.orders,
         spend: metaSpend,
         roas: metaRoas,
-        share: totalRevenue > 0 ? (metaRevenue / totalRevenue) * 100 : 0,
         kpis: {
-          impressions: metaImpressions,
-          clicks: metaClicks,
-          cpm: metaCpm,
+          impressions: parseInt(metaSummary.impressions || "0"),
+          clicks: parseInt(metaSummary.clicks || "0"),
+          cpm: parseFloat(metaSummary.cpm || "0"),
           campaigns: metaCampaigns.length,
         },
-        new_customers: null, // non attribuable : Meta = pixel, pas de 1re commande fiable → voir Boussole
-        cpa: null,
-        note: "ROAS Meta sur-attribué (l'influence recrute, Meta convertit). Se fier à la Boussole (MER + %NC).",
+        note: "ROAS auto-déclaré (pixel, 7j clic / 1j vue) — la contribution mesurée en session d'achat est bien plus basse. Arbitre : le MER.",
       },
       {
         id: "google",
         name: "Google Ads",
-        icon: "Search",
+        measured: false,
         color: "#f59e0b",
-        revenue: googleRevenue,
-        orders: Math.round(googleConversions),
+        claimed_revenue: Math.round(googleClaimedRevenue),
+        measured_revenue: Math.round(buckets.google_ads.revenue),
+        measured_orders: buckets.google_ads.orders,
         spend: googleSpend,
         roas: googleRoas,
-        share: totalRevenue > 0 ? (googleRevenue / totalRevenue) * 100 : 0,
         kpis: {
-          impressions: googleImpressions,
-          clicks: googleClicks,
-          cpm: googleImpressions > 0 ? (googleSpend / googleImpressions) * 1000 : 0,
+          impressions: googleSummary.impressions || 0,
+          clicks: googleSummary.clicks || 0,
           campaigns: googleCampaigns.filter((c: any) => c.spend > 0).length,
         },
-        new_customers: null,
-        cpa: null,
         blocked: googleSpend === 0 && googleCampaigns.length === 0,
-        note: googleSpend > 0 ? "" : "Aucune donnée — lancez une sync Google Ads",
-      },
-      {
-        id: "organic",
-        name: "Organique / Direct",
-        icon: "Globe",
-        color: "#10b981",
-        revenue: organicRevenue,
-        orders: organicOrders,
-        spend: 0,
-        roas: null,
-        share: totalRevenue > 0 ? (organicRevenue / totalRevenue) * 100 : 0,
-        new_customers: ncOther,
-        cpa: null,
-        kpis: {},
+        note: "Surtout brand search — une partie récolte la demande créée par l'influence (cf. overlap).",
       },
     ]
 
     return NextResponse.json({
       period: { year, month },
+      partial: { is_current: isCurrentMonth, day: dayOfMonth, days_in_month: daysInMonth },
       total_revenue: totalRevenue,
       total_orders: totalOrders,
       total_spend: totalSpend,
       blended_roas: blendedRoas,
       total_new_customers: totalNewCustomers,
       blended_cpa: totalSpend > 0 && totalNewCustomers > 0 ? totalSpend / totalNewCustomers : null,
-      // Boussole anti-attribution : MER + CAC nouveau client + %NC par canal (cf knowledge_base
-      // strategy:attribution-blend). Ignore les guerres d'attribution Meta/influence.
+      pace,
+      // Partition déterministe (une commande = un canal, code > pub > email > SEO > direct)
+      attribution: {
+        available: coverage > 0.5,
+        coverage,
+        channels: attributionChannels,
+      },
+      // L'overlap mesuré : commandes à code aussi touchées par une pub dans la session d'achat
+      overlap: {
+        influence_orders: influenceBucket.orders,
+        influence_revenue: Math.round(influenceBucket.revenue),
+        meta_touched_orders: overlapTouched.meta.orders,
+        meta_touched_revenue: Math.round(overlapTouched.meta.revenue),
+        google_touched_orders: overlapTouched.google.orders,
+        google_touched_revenue: Math.round(overlapTouched.google.revenue),
+        meta_claimed_revenue: Math.round(metaClaimedRevenue),
+        google_claimed_revenue: Math.round(googleClaimedRevenue),
+        claims_sum_pct:
+          totalRevenue > 0
+            ? ((influenceBucket.revenue + metaClaimedRevenue + googleClaimedRevenue) / totalRevenue) * 100
+            : 0,
+      },
       compass: {
         mer: blendedRoas,
         total_spend: totalSpend,
         total_revenue: totalRevenue,
         new_customers: totalNewCustomers,
-        cac_new_customer: totalSpend > 0 && totalNewCustomers > 0 ? totalSpend / totalNewCustomers : null,
-        // Le coût influence (commissions + fees) est saisi à la main, souvent après clôture.
-        // Tant qu'il manque, MER/CAC sous-estiment la dépense → drapeau pour l'UI. Le %NC reste fiable.
+        cac_new_customer:
+          totalSpend > 0 && totalNewCustomers > 0 ? totalSpend / totalNewCustomers : null,
         influence_cost_pending: !hasCommissionData,
-        // Coût influence retiré car collabs "sans facturation" (transparence).
-        influence_sans_facturation_excluded: influenceExcludedAmount,
         channels: [
-          { id: "influence", name: "Influence", new_customers: ncInfluence, orders: ordersInfluenceNC, pct_nc: pctNcInfluence, spend: influenceCost, cac: cpaInfluence },
-          { id: "other", name: "Autre (Meta / direct / SEO…)", new_customers: ncOther, orders: ordersOtherNC, pct_nc: pctNcOther, spend: otherSpend, cac: cacOther },
+          { id: "influence", name: "Influence", new_customers: ncInfluence, orders: ordersInfluenceNC, pct_nc: ordersInfluenceNC > 0 ? (ncInfluence / ordersInfluenceNC) * 100 : 0, spend: influenceCost, cac: cpaInfluence },
+          { id: "other", name: "Autre (pub / SEO / direct)", new_customers: ncOther, orders: ordersOtherNC, pct_nc: ordersOtherNC > 0 ? (ncOther / ordersOtherNC) * 100 : 0, spend: otherSpend, cac: cacOther },
         ],
       },
+      trend,
+      freshness,
       channels,
       meta_campaigns: metaCampaigns.slice(0, 10),
     })

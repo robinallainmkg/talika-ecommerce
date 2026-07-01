@@ -87,6 +87,10 @@ export async function POST(request: Request) {
         total_price: o.total_price,
         total_discounts: o.total_discounts,
         created_at: o.created_at,
+        // Attribution : mêmes champs que le cron (run-all) — partition par canal
+        landing_site: (o.landing_site || "").slice(0, 500) || null,
+        referring_site: (o.referring_site || "").slice(0, 300) || null,
+        source_name: o.source_name || null,
         discount_codes: (o.discount_codes || []).map((dc: any) => ({
           code: typeof dc === "string" ? dc : dc.code || "",
           amount: typeof dc === "string" ? "0" : dc.amount || "0",
