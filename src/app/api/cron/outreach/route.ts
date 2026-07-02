@@ -38,6 +38,16 @@ export async function GET(request: Request) {
   if (request.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+  const url = new URL(request.url)
+  // ?ping=1 → health check (version) sans rien exécuter.
+  if (url.searchParams.get("ping") === "1") {
+    return NextResponse.json({ ok: true, version: "send-param+kanban" })
+  }
+  // ?send=1 → autorise l'envoi réel pour CE run (appelant authentifié par CRON_SECRET =
+  // la routine Claude Code). Sinon : OUTREACH_ENABLED=1 (env) ou DRY.
+  const sendParam = url.searchParams.get("send") === "1"
+  // ?only=<influencer_id> → run ciblé (test sur un seul contact).
+  const only = url.searchParams.get("only") || undefined
   const now = new Date()
   const { data: contacts = [] } = await supabase
     .from("influencers").select("id,name,email,metadata").eq("market", MARKET)
@@ -61,6 +71,10 @@ export async function GET(request: Request) {
         st.status = cls; st.replied_at = now.toISOString(); st.reply_summary = m.subject.slice(0, 160)
         await supabase.from("influencers").update({ metadata: { ...(c.metadata || {}), outreach: st }, updated_at: now.toISOString() }).eq("id", c.id)
         await supabase.from("outreach_log").insert({ influencer_id: c.id, market: MARKET, step: st.step || 0, channel: "reply", status: cls, subject: m.subject.slice(0, 200) })
+        // Pipeline kanban : réponse → En discussion ; refus/désinscription → Décliné.
+        const stageTarget = cls === "Pas intéressée" || cls === "Désinscrit" ? "decline" : "discussion"
+        await supabase.from("influence_campaign_collabs")
+          .update({ stage: stageTarget }).eq("influencer_id", c.id).in("stage", ["prospect", "contacte"])
         newReplies.push({ name: c.name, email: c.email, subject: m.subject, status: cls })
       }
       // Bounces : adresse en échec → statut "Bounce" (terminal, stoppe le drip → protège la réputation)
@@ -84,8 +98,8 @@ export async function GET(request: Request) {
   const openIds = new Set((opensLog || []).map((o: { influencer_id: string }) => o.influencer_id))
   const opens = list.filter((c) => openIds.has(c.id)).map((c) => c.name)
 
-  // 3. BATCH warm-up (jours ouvrés ; DRY sauf OUTREACH_ENABLED=1 ; plafond qui MONTE)
-  const enabled = process.env.OUTREACH_ENABLED === "1"
+  // 3. BATCH warm-up (jours ouvrés ; envoi réel si OUTREACH_ENABLED=1 OU ?send=1 ; plafond qui MONTE)
+  const enabled = process.env.OUTREACH_ENABLED === "1" || sendParam
   const day = now.getUTCDay()
   const isWeekday = day >= 1 && day <= 5
   // Plafond du jour = rampe warm-up selon les jours depuis le 1er envoi réel.
@@ -96,9 +110,19 @@ export async function GET(request: Request) {
   const startIso = (firstSent && firstSent[0]?.created_at) || null
   const warmupDay = startIso ? Math.floor((now.getTime() - new Date(startIso).getTime()) / 86400000) : 0
   const cap = Number(process.env.OUTREACH_DAILY_CAP) || warmupCap(warmupDay)
+  // Plafond RÉELLEMENT journalier : on décompte ce qui est déjà parti aujourd'hui (UTC),
+  // pour que plusieurs runs le même jour ne dépassent jamais la rampe de warm-up.
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
+  const { count: sentToday } = await supabase
+    .from("outreach_log").select("id", { count: "exact", head: true })
+    .eq("channel", "email").eq("status", "sent").gte("created_at", dayStart)
+  const remaining = Math.max(0, cap - (sentToday || 0))
   let batch = { attempted: 0, sent: 0, results: [] as { name: string; result: string; step?: number }[] }
-  if (isWeekday) {
-    batch = await sendDueBatch(supabase, { market: MARKET, dry: !enabled, max: cap, baseUrl: appBaseUrl() })
+  if (isWeekday && remaining > 0) {
+    batch = await sendDueBatch(supabase, {
+      market: MARKET, dry: !enabled, max: remaining,
+      ids: only ? [only] : undefined, baseUrl: appBaseUrl(),
+    })
   }
   const contactedToday = batch.results.filter((r) => r.result === "sent" || r.result === "dry")
 
@@ -136,7 +160,7 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
-    enabled, weekday: isWeekday, warmupDay, cap,
+    enabled, weekday: isWeekday, warmupDay, cap, sentToday: sentToday || 0, remaining,
     replies: newReplies, bounced, opens, contacted: contactedToday, counts,
     batch: { sent: batch.sent, attempted: batch.attempted, dry: !enabled },
     digestSent, replyError,

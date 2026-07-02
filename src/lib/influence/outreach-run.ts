@@ -67,6 +67,9 @@ export async function sendDueBatch(supabase: SupabaseClient, opts: BatchOpts): P
       to_email: email, subject, status, provider_id: provider || null, error: errMsg || null,
     })
     if (status === "sent") {
+      // Pipeline kanban : la carte passe Prospect → Contacté automatiquement.
+      await supabase.from("influence_campaign_collabs")
+        .update({ stage: "contacte" }).eq("influencer_id", inf.id).eq("stage", "prospect")
       const next: OutreachState = {
         ...st, status: (`Étape ${step} envoyée`) as OutreachStatus, step,
         sent: { ...st.sent, [String(step)]: now.toISOString() },
