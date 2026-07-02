@@ -102,6 +102,12 @@ export default function ChatInboxPage() {
 
   // Pour chaque conversation nécessitant un humain : dernier last_message_at déjà alerté.
   const alertedAt = useRef<Map<string, string>>(new Map())
+  // Conversations lues cette session : id → last_message_at au moment de la lecture.
+  // Le serveur remet unread_count à 0 à l'ouverture (GET détail), mais un poll de
+  // liste parti AVANT ce reset peut revenir avec l'ancien compteur et rallumer la
+  // pastille. On force donc localement unread=0 tant qu'aucun message plus récent
+  // que la lecture n'est arrivé.
+  const readAt = useRef<Map<string, string>>(new Map())
   const firstLoad = useRef(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
@@ -128,7 +134,15 @@ export default function ChatInboxPage() {
     try {
       const res = await adminFetch(`/api/chat/admin/conversations?status=${tab}`)
       const data = await res.json()
-      const convs: ConversationRow[] = data.conversations || []
+      // Une conversation lue reste lue : on écrase unread_count pour celles ouvertes
+      // cette session, sauf si un message PLUS RÉCENT que la lecture est arrivé.
+      const convs: ConversationRow[] = (data.conversations || []).map((c: ConversationRow) => {
+        const seenAt = readAt.current.get(c.id)
+        if (seenAt && c.unread_count > 0 && (!c.last_message_at || c.last_message_at <= seenAt)) {
+          return { ...c, unread_count: 0 }
+        }
+        return c
+      })
       setConversations((prev) => (sameList(prev, convs) ? prev : convs))
 
       // Détection GLOBALE (toutes conversations, pas seulement l'ouverte) :
@@ -188,6 +202,10 @@ export default function ChatInboxPage() {
         setMessages(msgs)
       }
       const conv: ConversationDetail | null = data.conversation || null
+      // Le GET détail vient de remettre unread_count=0 côté serveur : on avance le
+      // repère de lecture au dernier message réellement affiché (couvre les
+      // messages arrivés pendant que le fil est ouvert).
+      if (conv) readAt.current.set(id, conv.last_message_at || new Date().toISOString())
       setSelected((prev) =>
         prev && conv && prev.status === conv.status && prev.message_count === conv.message_count && prev.last_page_url === conv.last_page_url
           ? prev
@@ -326,7 +344,17 @@ export default function ChatInboxPage() {
               conversations.map((conv) => (
                 <button
                   key={conv.id}
-                  onClick={() => setSelectedId(conv.id)}
+                  onClick={() => {
+                    setSelectedId(conv.id)
+                    // Marquage lu optimiste : pastille éteinte tout de suite (le
+                    // serveur est remis à 0 par le GET détail juste derrière).
+                    readAt.current.set(conv.id, conv.last_message_at || new Date().toISOString())
+                    if (conv.unread_count > 0) {
+                      setConversations((prev) =>
+                        prev.map((c) => (c.id === conv.id ? { ...c, unread_count: 0 } : c))
+                      )
+                    }
+                  }}
                   className={`block w-full border-b border-zinc-100 px-3 py-2.5 text-left hover:bg-zinc-50 ${
                     selectedId === conv.id ? "bg-zinc-50" : ""
                   }`}
