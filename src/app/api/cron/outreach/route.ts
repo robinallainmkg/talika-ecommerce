@@ -113,10 +113,12 @@ export async function GET(request: Request) {
   // Plafond RÉELLEMENT journalier : on décompte ce qui est déjà parti aujourd'hui (UTC),
   // pour que plusieurs runs le même jour ne dépassent jamais la rampe de warm-up.
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
-  const { count: sentToday } = await supabase
-    .from("outreach_log").select("id", { count: "exact", head: true })
+  // select simple + length : le count(head:true) renvoyait silencieusement null → cap non décompté.
+  const { data: sentRows } = await supabase
+    .from("outreach_log").select("id")
     .eq("channel", "email").eq("status", "sent").gte("created_at", dayStart)
-  const remaining = Math.max(0, cap - (sentToday || 0))
+  const sentToday = (sentRows || []).length
+  const remaining = Math.max(0, cap - sentToday)
   let batch = { attempted: 0, sent: 0, results: [] as { name: string; result: string; step?: number }[] }
   if (isWeekday && remaining > 0) {
     batch = await sendDueBatch(supabase, {
@@ -160,7 +162,7 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
-    enabled, weekday: isWeekday, warmupDay, cap, sentToday: sentToday || 0, remaining,
+    enabled, weekday: isWeekday, warmupDay, cap, sentToday, remaining,
     replies: newReplies, bounced, opens, contacted: contactedToday, counts,
     batch: { sent: batch.sent, attempted: batch.attempted, dry: !enabled },
     digestSent, replyError,
