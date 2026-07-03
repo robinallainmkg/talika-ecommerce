@@ -19,6 +19,10 @@ const PUBLIC_PREFIXES = [
   "/api/chat/email",
   "/api/cron/",
   "/api/google/callback",
+  // TEMPORAIRE — revue des conversations chat partagée avec une relectrice
+  // externe (page noindex, emails masqués). À retirer après la revue.
+  "/revue-chat",
+  "/api/revue-chat",
 ]
 
 function isPublic(pathname: string): boolean {
