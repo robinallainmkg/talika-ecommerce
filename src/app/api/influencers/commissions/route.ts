@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { getSessionUser } from "@/lib/auth/server"
+import { marketFromRequest } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,10 +33,13 @@ export async function GET(request: Request) {
 
     const monthStart = `${year}-${pad(month)}-01`
     const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${pad(month + 1)}-01`
+    // Scope marché (cookie tk_market / ?market=) : en UK on ne montre QUE les
+    // influenceuses UK (sinon les coûts FR fuient dans la vue UK).
+    const market = marketFromRequest(request)
 
     const [{ data: influencers }, { data: sales }, { data: savedComm }, { data: fees }, { data: rates }] =
       await Promise.all([
-        supabase.from("influencers").select("id, name, commission_rate, has_fixed_fee, status"),
+        supabase.from("influencers").select("id, name, commission_rate, has_fixed_fee, status").eq("market", market),
         supabase
           .from("influencer_product_sales")
           .select("influencer_id, line_price")

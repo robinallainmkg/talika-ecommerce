@@ -4,6 +4,9 @@ import { requireAdmin } from "@/lib/chat/admin-auth"
 import { agentEmail } from "@/lib/chat/agent-identity"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 const SYSTEM_MESSAGES: Record<string, string> = {
   take: "Un conseiller Talika a rejoint la conversation.",

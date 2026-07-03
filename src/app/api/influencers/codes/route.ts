@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { normalizeCode } from "@/lib/codes"
+import { marketFromRequest } from "@/lib/market"
+
+export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,8 +14,13 @@ const supabase = createClient(
 )
 
 // GET: List all codes with their influencer names
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Les codes promo vivent sur Shopify FR : hors marché FR → liste vide
+    // (sinon les codes FR apparaissent dans la vue UK).
+    if (marketFromRequest(request) !== "FR") {
+      return NextResponse.json({ codes: [] })
+    }
     const { data: codes, error } = await supabase
       .from("influencer_codes")
       .select(`*, influencers ( id, name )`)

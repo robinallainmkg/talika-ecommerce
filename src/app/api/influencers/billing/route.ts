@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { loadStatusMap, billingKey, type BillingStatus } from "@/lib/influence/billing-status"
+import { marketFromRequest } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,9 +31,14 @@ export async function GET(request: Request) {
 
     // Forfaits/commissions chargés sur TOUTE l'année : sert au mois courant ET aux
     // montants des reports entrants (collabs reportées depuis un autre mois).
+    // Scope marché : les collabs sont construites depuis byId → filtrer les
+    // influenceuses par marché suffit (une collab d'un autre marché tombe en
+    // `!inf` → null → exclue).
+    const market = marketFromRequest(request)
+
     const [{ data: influencers }, { data: feesY }, { data: commsY }, { data: invoices }] =
       await Promise.all([
-        supabase.from("influencers").select("id, name, instagram_handle, billing_name"),
+        supabase.from("influencers").select("id, name, instagram_handle, billing_name").eq("market", market),
         supabase.from("influencer_fixed_fees").select("influencer_id, year, month, amount").eq("year", year),
         supabase.from("influencer_commissions").select("influencer_id, year, month, amount").eq("year", year),
         supabase
@@ -111,6 +120,7 @@ export async function GET(request: Request) {
     const reports_in: { influencer_id: string; name: string; from_year: number; from_month: number; amount: number }[] = []
     for (const st of statusMap.values()) {
       if (st.status === "reporte" && st.deferred_to_year === year && st.deferred_to_month === month) {
+        if (!byId[st.influencer_id]) continue // hors marché courant
         const amt = (feeMap[billingKey(st.influencer_id, st.year, st.month)] || 0) +
           (commMap[billingKey(st.influencer_id, st.year, st.month)] || 0)
         reports_in.push({

@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js"
 // Pixel de tracking d'ouverture. GET ?i=<influencerId>&s=<step> → journalise un "open"
 // dans outreach_log puis renvoie un GIF 1x1 transparent. Public (pas d'auth).
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

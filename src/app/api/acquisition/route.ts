@@ -13,6 +13,9 @@ const supabase = createClient(
 )
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 const CHANNEL_META: Record<AttributionChannel, { name: string; color: string }> = {
   influence: { name: "Influence (code)", color: "#8b5cf6" },

@@ -4,6 +4,9 @@ import { getAmazonFinancials, isAmazonConfigured } from "@/lib/integrations/amaz
 import { getAmazonAdsSpend, isAmazonAdsConfigured } from "@/lib/integrations/amazon-ads"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 export const maxDuration = 300 // 5 min (Vercel Pro) — financialEvents pagine lentement (0.5 req/s)
 
 const supabase = createClient(

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import { assembleContextPack, getKnowledge } from "@/lib/context-pack"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 // GET /api/context
 //   ?page=influencers   → scope par page du dashboard

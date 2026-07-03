@@ -13,6 +13,9 @@ import { NextResponse } from "next/server"
 import { runFullSync } from "@/lib/sync/run-all"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 export const maxDuration = 300 // 5 min max (Vercel Pro)
 
 export async function GET(request: Request) {

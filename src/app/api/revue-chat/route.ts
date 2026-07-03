@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import { chatDb } from "@/lib/chat/db"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 // Page de revue TEMPORAIRE (publique, non indexée) : les 8 conversations du
 // 2-3 juillet 2026, partagées avec une collaboratrice pour recueillir ses notes.

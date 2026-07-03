@@ -4,6 +4,9 @@ import { requireAdmin } from "@/lib/chat/admin-auth"
 import { lookupCustomerByEmail } from "@/lib/chat/shopify-orders"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 // Fenêtre d'attribution : une commande passée dans les 7 jours suivant une
 // conversation (email identique) est créditée au chat. Si la conversation a été

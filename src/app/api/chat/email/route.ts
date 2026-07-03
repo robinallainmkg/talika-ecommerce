@@ -4,6 +4,9 @@ import { corsHeaders, handleOptions } from "@/lib/chat/cors"
 import { lookupCustomerByEmail } from "@/lib/chat/shopify-orders"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 // Capture d'email SEULE (ex. « recevoir cette sélection par email » après une
 // recommandation produit). Contrairement à /escalate, la conversation RESTE en
