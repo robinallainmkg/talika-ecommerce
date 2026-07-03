@@ -9,7 +9,7 @@ import { Heart, MessageCircle, RefreshCw, Loader2, Film, Image as ImageIcon, Upl
 
 interface ContentRow {
   id: string
-  influencer_id: string
+  influencer_id: string | null
   type: string | null
   media_product_type: string | null
   url: string | null
@@ -18,10 +18,12 @@ interface ContentRow {
   like_count: number | null
   comments_count: number | null
   is_brand: boolean
+  is_mention?: boolean
+  author_username?: string | null
   posted_at: string | null
   external_id: string | null
   partnership_ad_code: string | null
-  influencers: { id: string; name: string; instagram_handle: string | null; market: string; metadata: Record<string, unknown> | null }
+  influencers: { id: string; name: string; instagram_handle: string | null; market: string; metadata: Record<string, unknown> | null } | null
 }
 
 interface AssetRow {
@@ -94,7 +96,7 @@ function BoostCode({ value, onSave }: { value: string | null; onSave: (v: string
 }
 
 export default function ContenusPage() {
-  const [view, setView] = useState<"brand" | "all" | "videos">("brand")
+  const [view, setView] = useState<"brand" | "all" | "mentions" | "videos">("brand")
   const [rows, setRows] = useState<ContentRow[]>([])
   const [assets, setAssets] = useState<AssetRow[]>([])
   const [allInf, setAllInf] = useState<{ id: string; name: string }[]>([])
@@ -112,8 +114,9 @@ export default function ContenusPage() {
     setLoading(true)
     try {
       const market = getMarketCookie()
+      const contentParams = view === "mentions" ? "mentions=1&" : `${view === "brand" ? "brand=1&" : ""}market=${market}&`
       const [cRes, aRes] = await Promise.all([
-        fetch(`/api/influencers/content?${view === "brand" ? "brand=1&" : ""}market=${market}&limit=150`, { cache: "no-store" }),
+        fetch(`/api/influencers/content?${contentParams}limit=150`, { cache: "no-store" }),
         fetch(`/api/influencers/assets?market=${market}`, { cache: "no-store" }),
       ])
       setRows((await cRes.json()).content || [])
@@ -196,7 +199,7 @@ export default function ContenusPage() {
     setTimeout(() => setCopiedId(null), 1200)
   }
 
-  const names = Array.from(new Map(rows.map((r) => [r.influencer_id, r.influencers?.name || "?"])).entries())
+  const names = Array.from(new Map(rows.filter((r) => r.influencer_id).map((r) => [r.influencer_id as string, r.influencers?.name || `@${r.author_username || "?"}`])).entries())
     .sort((a, b) => a[1].localeCompare(b[1], "fr"))
   const shown = who ? rows.filter((r) => r.influencer_id === who) : rows
   const shownAssets = who ? assets.filter((a) => a.influencer_id === who) : assets
@@ -228,6 +231,7 @@ export default function ContenusPage() {
           <div className="flex gap-1 rounded-xl border border-zinc-200 bg-zinc-50 p-1 text-sm">
             {tab("brand", "Posts Talika")}
             {tab("all", "Tous les posts")}
+            {tab("mentions", "Mentions")}
             {tab("videos", `Vidéos HD (${assets.length})`)}
           </div>
           <select value={who} onChange={(e) => setWho(e.target.value)}
@@ -319,16 +323,26 @@ export default function ContenusPage() {
                     {r.media_product_type === "REELS" && (
                       <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">Reel</span>
                     )}
-                    {r.is_brand && (
+                    {r.is_mention ? (
+                      <span className="rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white">Mention</span>
+                    ) : r.is_brand ? (
                       <span className="rounded bg-emerald-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white">Talika</span>
-                    )}
+                    ) : null}
                   </div>
                 </a>
                 <div className="p-2.5">
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setDrawerId(r.influencer_id)} className="min-w-0 flex-1 truncate text-left text-sm font-medium text-zinc-900 hover:underline">
-                      {r.influencers?.name || "?"}
-                    </button>
+                    {r.influencer_id ? (
+                      <button onClick={() => setDrawerId(r.influencer_id)} className="min-w-0 flex-1 truncate text-left text-sm font-medium text-zinc-900 hover:underline">
+                        {r.influencers?.name || `@${r.author_username || "?"}`}
+                      </button>
+                    ) : (
+                      // Auteur hors base (earned media) → lien vers son profil IG
+                      <a href={`https://instagram.com/${r.author_username || ""}`} target="_blank" rel="noreferrer"
+                        className="min-w-0 flex-1 truncate text-left text-sm font-medium text-amber-700 hover:underline">
+                        @{r.author_username || "?"}
+                      </a>
+                    )}
                     {r.external_id && (
                       <button onClick={() => copyText(r.id, r.external_id!)}
                         className="shrink-0 rounded p-0.5 text-zinc-300 hover:text-zinc-600"

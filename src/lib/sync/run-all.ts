@@ -375,7 +375,7 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     const { syncInstagramContent, instagramConfigured } = await import("@/lib/influence/instagram")
     if (!instagramConfigured()) return "ignoré (META_ACCESS_TOKEN absent)"
     const r = await syncInstagramContent()
-    return `${r.profiles_ok} profils, ${r.posts_upserted} posts (${r.brand_posts} marque), ${r.profiles_failed.length} introuvables`
+    return `${r.profiles_ok} profils, ${r.posts_upserted} posts (${r.brand_posts} marque), ${r.mentions_upserted} mentions, ${r.profiles_failed.length} introuvables`
   })
 
   // ── 5. Klaviyo (campagnes, flows, listes) ──

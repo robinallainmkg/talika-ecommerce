@@ -68,13 +68,73 @@ export interface InstagramSyncResult {
   profiles_failed: string[]
   posts_upserted: number
   brand_posts: number
+  mentions_upserted: number
+  mentions_unknown: string[]
+}
+
+// Mentions par TAG : tous les médias où @talika_paris est tagué — y compris
+// par des comptes HORS base (earned media). Auteur connu → rattaché à
+// l'influenceuse ; inconnu → stocké avec author_username seul (influencer_id
+// null). Dédup naturelle par external_id (un post d'une influenceuse suivie
+// déjà importé par Business Discovery est simplement enrichi is_mention=true).
+export async function syncTaggedMentions(): Promise<{ upserted: number; unknown: string[] }> {
+  const result = { upserted: 0, unknown: [] as string[] }
+  if (!instagramConfigured()) return result
+
+  const { data: influencers } = await supabase
+    .from("influencers")
+    .select("id, instagram_handle")
+    .not("instagram_handle", "is", null)
+  const byHandle = new Map(
+    (influencers || []).map((i) => [(i.instagram_handle || "").replace(/^@/, "").trim().toLowerCase(), i.id])
+  )
+
+  let url = `${GRAPH}/${IG_USER_ID}/tags?fields=id,username,caption,media_type,media_product_type,like_count,comments_count,permalink,timestamp,media_url&limit=50&access_token=${process.env.META_ACCESS_TOKEN}`
+  for (let page = 0; page < 3 && url; page++) {
+    const res = await fetch(url, { cache: "no-store" })
+    const json = await res.json()
+    if (!res.ok || !json.data) break
+    for (const m of json.data as (IgMedia & { username?: string })[]) {
+      const author = (m.username || "").toLowerCase()
+      const influencerId = byHandle.get(author) || null
+      if (!influencerId && author && !result.unknown.includes(author)) result.unknown.push(author)
+      const { error } = await supabase.from("influencer_content").upsert(
+        {
+          influencer_id: influencerId,
+          external_id: m.id,
+          platform: "instagram",
+          type: (m.media_product_type || m.media_type || "post").toLowerCase(),
+          media_product_type: m.media_product_type || null,
+          url: m.permalink || null,
+          caption: m.caption?.slice(0, 2000) || null,
+          thumbnail_url: m.thumbnail_url || m.media_url || null,
+          media_url: m.media_url || null,
+          like_count: m.like_count ?? null,
+          comments_count: m.comments_count ?? null,
+          is_brand: true,
+          is_mention: true,
+          author_username: m.username || null,
+          posted_at: m.timestamp || null,
+          stats_updated_at: new Date().toISOString(),
+        },
+        { onConflict: "external_id" }
+      )
+      if (!error) result.upserted++
+    }
+    url = json.paging?.next || null
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  return result
 }
 
 // Sync complet : pour chaque influenceuse avec un @instagram (tous marchés) —
 // snapshot stats compte (1/jour max) + refresh metadata.followers + upsert des
 // posts (dédup par external_id, stats likes/commentaires rafraîchies).
 export async function syncInstagramContent(): Promise<InstagramSyncResult> {
-  const result: InstagramSyncResult = { profiles_ok: 0, profiles_failed: [], posts_upserted: 0, brand_posts: 0 }
+  const result: InstagramSyncResult = {
+    profiles_ok: 0, profiles_failed: [], posts_upserted: 0, brand_posts: 0,
+    mentions_upserted: 0, mentions_unknown: [],
+  }
   if (!instagramConfigured()) return result
 
   const [{ data: influencers }, { data: allCodes }, { data: recentStats }] = await Promise.all([
@@ -158,5 +218,13 @@ export async function syncInstagramContent(): Promise<InstagramSyncResult> {
     }
     await new Promise((r) => setTimeout(r, 250)) // rate limit Meta (200 calls/h)
   }
+
+  // Mentions par tag (@talika_paris) — y compris comptes hors base
+  try {
+    const mentions = await syncTaggedMentions()
+    result.mentions_upserted = mentions.upserted
+    result.mentions_unknown = mentions.unknown
+  } catch { /* non bloquant */ }
+
   return result
 }

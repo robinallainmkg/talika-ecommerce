@@ -30,16 +30,23 @@ export async function GET(request: Request) {
 
   // Liste globale (page Contenus) — jointure nom/handle/marché
   const brandOnly = searchParams.get("brand") === "1"
+  const mentionsOnly = searchParams.get("mentions") === "1"
   const market = (searchParams.get("market") || "").toUpperCase()
   const limit = Math.min(parseInt(searchParams.get("limit") || "120"), 300)
+  // Mentions : jointure LEFT (l'auteur peut être hors base → influencer_id null),
+  // pas de filtre marché (les mentions = earned media global de la marque).
+  const join = mentionsOnly ? "influencers" : "influencers!inner"
   let query = supabase
     .from("influencer_content")
-    .select("id, influencer_id, platform, type, media_product_type, url, caption, thumbnail_url, like_count, comments_count, is_brand, posted_at, external_id, partnership_ad_code, influencers!inner(id, name, instagram_handle, market, metadata)")
+    .select(`id, influencer_id, platform, type, media_product_type, url, caption, thumbnail_url, like_count, comments_count, is_brand, is_mention, author_username, posted_at, external_id, partnership_ad_code, ${join}(id, name, instagram_handle, market, metadata)`)
     .eq("platform", "instagram")
     .order("posted_at", { ascending: false })
     .limit(limit)
-  if (brandOnly) query = query.eq("is_brand", true)
-  if (market === "FR" || market === "UK") query = query.eq("influencers.market", market)
+  if (mentionsOnly) query = query.eq("is_mention", true)
+  else {
+    if (brandOnly) query = query.eq("is_brand", true)
+    if (market === "FR" || market === "UK") query = query.eq("influencers.market", market)
+  }
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ content: data || [] })
