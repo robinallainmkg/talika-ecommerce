@@ -3,8 +3,8 @@ import { createClient } from "@supabase/supabase-js"
 import { isStage } from "@/lib/influence/pipeline"
 
 export const dynamic = "force-dynamic"
-// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache → lectures
-// périmées (incident 03/07 : triple envoi, compteur à 0). Jamais de cache ici.
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
 export const fetchCache = "force-no-store"
 
 const supabase = createClient(
@@ -23,15 +23,15 @@ interface InfRow {
   metadata: Record<string, unknown> | null
 }
 
-// GET ?campaign= â collabs de la campagne, enrichies de l'influenceuse ET du coÃ»t
-// du mois (forfait + commission), lu EN DIRECT depuis les tables coÃ»ts rÃ©conciliÃ©es.
+// GET ?campaign= → collabs de la campagne, enrichies de l'influenceuse ET du coût
+// du mois (forfait + commission), lu EN DIRECT depuis les tables coûts réconciliées.
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const campaign = searchParams.get("campaign")
     if (!campaign) return NextResponse.json({ collabs: [] })
 
-    // PÃ©riode de la campagne (pour rapprocher les coÃ»ts du bon mois).
+    // Période de la campagne (pour rapprocher les coûts du bon mois).
     const { data: camp } = await supabase
       .from("influence_campaigns").select("year, month").eq("id", campaign).maybeSingle()
 
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     const byId: Record<string, InfRow> = {}
     for (const i of (infs || []) as InfRow[]) byId[i.id] = i
 
-    // CoÃ»ts du mois (forfait + commission) par influenceuse.
+    // Coûts du mois (forfait + commission) par influenceuse.
     const fee: Record<string, number> = {}
     const comm: Record<string, number> = {}
     if (camp?.year && camp?.month && ids.length) {
@@ -92,8 +92,8 @@ export async function GET(request: Request) {
   }
 }
 
-// POST â ajouter une influenceuse Ã  une campagne. Soit influencer_id (existante),
-// soit { new_name, new_handle } (crÃ©e le prospect puis l'ajoute). Idempotent.
+// POST — ajouter une influenceuse à une campagne. Soit influencer_id (existante),
+// soit { new_name, new_handle } (crée le prospect puis l'ajoute). Idempotent.
 export async function POST(request: Request) {
   try {
     const b = await request.json().catch(() => ({}))
@@ -104,8 +104,8 @@ export async function POST(request: Request) {
       const name = STR(b.new_name)
       if (!name) return NextResponse.json({ error: "influencer_id ou new_name requis" }, { status: 400 })
       const handle = STR(b.new_handle)?.replace(/^@/, "") || null
-      // MarchÃ© hÃ©ritÃ© de la campagne : un prospect crÃ©Ã© depuis une campagne UK doit Ãªtre UK
-      // (sinon dÃ©faut FR â invisible dans les vues UK et jamais dans le drip outreach).
+      // Marché hérité de la campagne : un prospect créé depuis une campagne UK doit être UK
+      // (sinon défaut FR → invisible dans les vues UK et jamais dans le drip outreach).
       const { data: camp } = await supabase
         .from("influence_campaigns").select("market").eq("id", b.campaign_id).single()
       const { data: created, error: cErr } = await supabase
@@ -122,11 +122,11 @@ export async function POST(request: Request) {
         })
         .select("id")
         .single()
-      if (cErr || !created) return NextResponse.json({ error: cErr?.message || "crÃ©ation prospect impossible" }, { status: 500 })
+      if (cErr || !created) return NextResponse.json({ error: cErr?.message || "création prospect impossible" }, { status: 500 })
       influencerId = created.id
     }
 
-    // Idempotent : si dÃ©jÃ  dans la campagne, on renvoie l'existant.
+    // Idempotent : si déjà dans la campagne, on renvoie l'existant.
     const { data: existing } = await supabase
       .from("influence_campaign_collabs")
       .select("id")
@@ -152,7 +152,7 @@ export async function POST(request: Request) {
   }
 }
 
-// PATCH â dÃ©placer d'Ã©tape / Ã©diter une collab. { id, stage?, owner?, next_action?, ... }
+// PATCH — déplacer d'étape / éditer une collab. { id, stage?, owner?, next_action?, ... }
 export async function PATCH(request: Request) {
   try {
     const b = await request.json().catch(() => ({}))
@@ -176,7 +176,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-// DELETE ?id= â retirer une collab de la campagne (ne supprime pas l'influenceuse).
+// DELETE ?id= → retirer une collab de la campagne (ne supprime pas l'influenceuse).
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url)

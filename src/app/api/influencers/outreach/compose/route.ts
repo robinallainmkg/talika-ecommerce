@@ -5,8 +5,8 @@ import {
 } from "@/lib/influence/outreach"
 
 export const dynamic = "force-dynamic"
-// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache → lectures
-// périmées (incident 03/07 : triple envoi, compteur à 0). Jamais de cache ici.
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
+// -> lectures perimees (incident 03/07 : triple envoi, compteur a 0). Jamais de cache ici.
 export const fetchCache = "force-no-store"
 export const maxDuration = 300
 
@@ -19,21 +19,21 @@ const supabase = createClient(
 interface Inf { id: string; name: string; instagram_handle: string | null; email: string | null; metadata: Record<string, unknown> | null }
 const firstName = (n: string) => (n || "there").trim().split(/\s+/)[0].replace(/[(),]/g, "")
 
-// POST { influencer_ids:[], subject, body, dry? } â envoie un message composÃ© (template
-// Ã©ditable + variables fusionnÃ©es par destinataire). DRY par dÃ©faut.
+// POST { influencer_ids:[], subject, body, dry? } — envoie un message composé (template
+// éditable + variables fusionnées par destinataire). DRY par défaut.
 export async function POST(request: Request) {
   const b = await request.json().catch(() => ({}))
   const ids: string[] = Array.isArray(b.influencer_ids) ? b.influencer_ids : []
   const subjectTpl: string = (b.subject || "").toString()
   const bodyTpl: string = (b.body || "").toString()
   const dry = b.dry !== false
-  const sender = process.env.OUTREACH_SENDER || "Robin Â· Talika UK"
+  const sender = process.env.OUTREACH_SENDER || "Robin · Talika UK"
 
   if (!ids.length || !bodyTpl.trim()) {
     return NextResponse.json({ error: "influencer_ids et body requis" }, { status: 400 })
   }
   if (!dry && !outreachConfigured()) {
-    return NextResponse.json({ error: "Canal mail non configurÃ© (SMTP/Resend + OUTREACH_FROM)." }, { status: 400 })
+    return NextResponse.json({ error: "Canal mail non configuré (SMTP/Resend + OUTREACH_FROM)." }, { status: 400 })
   }
 
   const { data, error } = await supabase
@@ -70,11 +70,11 @@ export async function POST(request: Request) {
       influencer_id: inf.id, market: "UK", step: 1, channel: "email",
       to_email: email, subject, status, provider_id: provider || null, error: errMsg || null,
     })
-    // Envoi rÃ©el : on marque "contactÃ©e" pour stopper le step1 auto du drip.
+    // Envoi réel : on marque "contactée" pour stopper le step1 auto du drip.
     if (status === "sent") {
       const next: OutreachState = {
         ...st,
-        status: st.status === "Ã contacter" || st.status === "Ã qualifier" ? "Ãtape 1 envoyÃ©e" : st.status,
+        status: st.status === "À contacter" || st.status === "À qualifier" ? "Étape 1 envoyée" : st.status,
         step: Math.max(st.step || 0, 1),
         sent: { ...st.sent, ...(st.sent?.["1"] ? {} : { "1": now.toISOString() }) },
       }
