@@ -45,7 +45,7 @@ export async function GET() {
         .select("conversation_id, role, content, product_refs, created_at")
         .in("conversation_id", CONV_IDS)
         .order("created_at", { ascending: true }),
-      db.from("data_cache").select("value").eq("key", NOTES_KEY).maybeSingle(),
+      db.from("data_cache").select("data").eq("key", NOTES_KEY).maybeSingle(),
     ])
 
     const conversations = CONV_IDS.map((id) => {
@@ -68,7 +68,7 @@ export async function GET() {
       }
     }).filter(Boolean)
 
-    const notes: Note[] = (notesRow?.value as { notes?: Note[] } | null)?.notes || []
+    const notes: Note[] = (notesRow?.data as { notes?: Note[] } | null)?.notes || []
     return NextResponse.json({ conversations, notes })
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 })
@@ -87,8 +87,8 @@ export async function POST(request: Request) {
     }
 
     const db = chatDb()
-    const { data: row } = await db.from("data_cache").select("value").eq("key", NOTES_KEY).maybeSingle()
-    const notes: Note[] = (row?.value as { notes?: Note[] } | null)?.notes || []
+    const { data: row } = await db.from("data_cache").select("data").eq("key", NOTES_KEY).maybeSingle()
+    const notes: Note[] = (row?.data as { notes?: Note[] } | null)?.notes || []
     if (notes.length >= MAX_NOTES) {
       return NextResponse.json({ error: "limite de notes atteinte" }, { status: 429 })
     }
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     const { error } = await db
       .from("data_cache")
       .upsert(
-        { key: NOTES_KEY, value: { notes }, updated_at: new Date().toISOString() },
+        { key: NOTES_KEY, data: { notes }, source: "revue_chat", updated_at: new Date().toISOString() },
         { onConflict: "key" }
       )
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
