@@ -183,3 +183,54 @@ export async function GET(
     )
   }
 }
+
+// PATCH — édition inline depuis le drawer (réseaux, contact, raison sociale,
+// niche, followers, notes…). Whitelist stricte ; champ envoyé vide = effacé.
+// followers vit dans metadata (jsonb) → merge non-destructif.
+const EDITABLE_FIELDS = [
+  "name", "instagram_handle", "tiktok_handle", "email", "phone",
+  "billing_name", "category", "tier", "status", "notes",
+] as const
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const body = await request.json().catch(() => ({}))
+
+    const update: Record<string, unknown> = {}
+    for (const key of EDITABLE_FIELDS) {
+      if (!(key in body)) continue
+      const v = body[key]
+      update[key] = typeof v === "string" && v.trim() === "" ? null : v
+    }
+    if ("followers" in body) {
+      const { data: cur } = await supabase.from("influencers").select("metadata").eq("id", id).single()
+      const meta = { ...((cur?.metadata as Record<string, unknown>) || {}) }
+      const f = Number(body.followers)
+      if (body.followers === "" || body.followers == null) delete meta.followers
+      else if (Number.isFinite(f) && f >= 0) meta.followers = f
+      update.metadata = meta
+    }
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json({ error: "aucun champ éditable fourni" }, { status: 400 })
+    }
+    update.updated_at = new Date().toISOString()
+
+    const { data, error } = await supabase
+      .from("influencers")
+      .update(update)
+      .eq("id", id)
+      .select("id, name, instagram_handle, tiktok_handle, email, phone, billing_name, category, tier, status, notes, metadata")
+      .single()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true, influencer: data })
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to update influencer" },
+      { status: 500 }
+    )
+  }
+}

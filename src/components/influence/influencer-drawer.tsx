@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { formatCurrency } from "@/lib/utils"
 import { MONTHS_FULL } from "@/components/influence/month-tabs"
 import { authClient } from "@/lib/auth/client"
-import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check } from "lucide-react"
+import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check, Plus } from "lucide-react"
 
 interface Drawer { influencerId: string | null; onClose: () => void }
 
@@ -49,9 +49,21 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
   const [uploadingDoc, setUploadingDoc] = useState(false)
   const [emailEdit, setEmailEdit] = useState<string | null>(null) // null = pas en édition
   const [savingEmail, setSavingEmail] = useState(false)
+  // Mode édition profil : réseaux, followers, téléphone, raison sociale, niche,
+  // notes — autosave PAR CHAMP au blur (même patron que la page Coûts).
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<Record<string, string>>({})
+  const [savingField, setSavingField] = useState<string | null>(null)
+  const [savedField, setSavedField] = useState<string | null>(null)
+  // Ajout de code promo inline
+  const [newCode, setNewCode] = useState("")
+  const [newPct, setNewPct] = useState("15")
+  const [addingCode, setAddingCode] = useState(false)
 
   useEffect(() => {
-    if (!influencerId) { setData(null); setDocs([]); setEmailEdit(null); return }
+    if (!influencerId) { setData(null); setDocs([]); setEmailEdit(null); setEditing(false); setDraft({}); return }
+    setEditing(false)
+    setDraft({})
     setLoading(true)
     setImgError(false)
     fetch(`/api/influencers/${influencerId}`, { cache: "no-store" })
@@ -139,6 +151,103 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
     }
   }
 
+  // ── Édition profil (autosave par champ) ──
+  function openEditor() {
+    if (!data?.influencer) return
+    const i = data.influencer
+    const m = (i.metadata || {}) as Record<string, unknown>
+    setDraft({
+      instagram_handle: i.instagram_handle || "",
+      tiktok_handle: i.tiktok_handle || "",
+      followers: m.followers != null ? String(m.followers) : "",
+      phone: i.phone || "",
+      billing_name: i.billing_name || "",
+      category: i.category || "",
+      notes: (i as { notes?: string | null }).notes || "",
+    })
+    setEditing(true)
+  }
+
+  async function saveField(field: string) {
+    if (!data?.influencer) return
+    const i = data.influencer
+    const m = (i.metadata || {}) as Record<string, unknown>
+    const value = (draft[field] ?? "").trim()
+    const current = field === "followers"
+      ? (m.followers != null ? String(m.followers) : "")
+      : String((i as unknown as Record<string, unknown>)[field] ?? "")
+    if (value === current || savingField === field) return
+    setSavingField(field)
+    try {
+      const res = await fetch(`/api/influencers/${i.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      })
+      const j = await res.json()
+      if (!res.ok) { alert(j.error || "Échec de l'enregistrement"); return }
+      setData((prev) => {
+        if (!prev) return prev
+        const upd = { ...prev.influencer } as Record<string, unknown>
+        if (field === "followers") {
+          const meta2 = { ...((prev.influencer.metadata || {}) as Record<string, unknown>) }
+          if (value === "") delete meta2.followers
+          else meta2.followers = Number(value)
+          upd.metadata = meta2
+        } else {
+          upd[field] = value || null
+        }
+        return { ...prev, influencer: upd as typeof prev.influencer }
+      })
+      setSavedField(field)
+      setTimeout(() => setSavedField((f) => (f === field ? null : f)), 1500)
+    } finally {
+      setSavingField(null)
+    }
+  }
+
+  // ── Codes promo : ajout + activation/désactivation ──
+  async function addCode() {
+    if (!data?.influencer) return
+    const code = newCode.trim().toUpperCase()
+    if (!code) return
+    setAddingCode(true)
+    try {
+      const res = await fetch("/api/influencers/codes", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code, influencer_id: data.influencer.id,
+          discount_percent: Number(newPct) || 15, code_type: "influencer",
+        }),
+      })
+      const j = await res.json()
+      if (!res.ok) { alert(j.error || "Ajout impossible"); return }
+      setData((prev) => prev ? {
+        ...prev,
+        influencer: {
+          ...prev.influencer,
+          influencer_codes: [...(prev.influencer.influencer_codes || []), { id: j.code.id, code: j.code.code, is_active: true }],
+        },
+      } : prev)
+      setNewCode("")
+    } finally {
+      setAddingCode(false)
+    }
+  }
+
+  async function toggleCode(c: Code) {
+    // Optimiste : bascule tout de suite, l'API confirme (DELETE = toggle is_active)
+    setData((prev) => prev ? {
+      ...prev,
+      influencer: {
+        ...prev.influencer,
+        influencer_codes: (prev.influencer.influencer_codes || []).map((x) => x.id === c.id ? { ...x, is_active: !x.is_active } : x),
+      },
+    } : prev)
+    await fetch("/api/influencers/codes", {
+      method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: c.id }),
+    })
+  }
+
   if (!influencerId) return null
   const inf = data?.influencer
   const meta = (inf?.metadata || {}) as Record<string, unknown>
@@ -196,9 +305,17 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
                   {inf.status && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">{inf.status}</span>}
                 </div>
               </div>
-              <button onClick={onClose} className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  onClick={() => (editing ? setEditing(false) : openEditor())}
+                  className={`rounded-lg p-1.5 ${editing ? "bg-zinc-900 text-white" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"}`}
+                  title={editing ? "Fermer l'édition" : "Modifier le profil"}>
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button onClick={onClose} className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             {/* Contact — l'email est éditable (nécessaire pour l'outreach) */}
@@ -234,6 +351,55 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
               {inf.phone && <span className="inline-flex items-center gap-1.5 text-zinc-600"><Phone className="h-4 w-4 text-zinc-400" />{inf.phone}</span>}
               {inf.billing_name && <span className="inline-flex items-center gap-1.5 text-zinc-500"><FileText className="h-4 w-4 text-zinc-400" />{inf.billing_name}</span>}
             </div>
+
+            {/* Édition profil — chaque champ s'enregistre en quittant le champ (✓) */}
+            {editing && (
+              <div className="border-y border-zinc-100 bg-zinc-50/60 px-5 py-3">
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    ["instagram_handle", "@ Instagram", "@handle"],
+                    ["tiktok_handle", "@ TikTok", "@handle"],
+                    ["followers", "Followers", "125000"],
+                    ["phone", "Téléphone", "+33…"],
+                    ["billing_name", "Raison sociale", "Nom sur la facture"],
+                    ["category", "Niche", "beauté, skincare…"],
+                  ] as const).map(([field, label, ph]) => (
+                    <div key={field}>
+                      <label className="mb-0.5 flex items-center gap-1 text-[10px] font-medium uppercase text-zinc-400">
+                        {label}
+                        {savingField === field && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                        {savedField === field && <Check className="h-3 w-3 text-emerald-500" />}
+                      </label>
+                      <input
+                        value={draft[field] ?? ""}
+                        placeholder={ph}
+                        inputMode={field === "followers" ? "numeric" : undefined}
+                        onChange={(e) => setDraft((p) => ({ ...p, [field]: e.target.value }))}
+                        onBlur={() => saveField(field)}
+                        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }}
+                        className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2">
+                  <label className="mb-0.5 flex items-center gap-1 text-[10px] font-medium uppercase text-zinc-400">
+                    Notes
+                    {savingField === "notes" && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                    {savedField === "notes" && <Check className="h-3 w-3 text-emerald-500" />}
+                  </label>
+                  <textarea
+                    value={draft.notes ?? ""}
+                    rows={2}
+                    placeholder="Notes internes (deal, contact, historique…)"
+                    onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))}
+                    onBlur={() => saveField("notes")}
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm focus:border-zinc-900 focus:outline-none"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-zinc-400">Enregistrement automatique en quittant chaque champ. Le @Instagram alimente aussi la photo de profil.</p>
+              </div>
+            )}
 
             {/* KPIs */}
             <div className="grid grid-cols-4 gap-px border-y border-zinc-100 bg-zinc-100 text-center">
@@ -359,14 +525,44 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
               </Section>
             )}
 
-            {/* Codes promo */}
+            {/* Codes promo — clic sur un code = activer/désactiver ; ajout inline */}
             <Section title="Codes promo" count={inf.influencer_codes?.length || 0}>
               <div className="flex flex-wrap gap-1">
                 {(inf.influencer_codes || []).map((c) => (
-                  <span key={c.id} className={`rounded px-1.5 py-0.5 text-[11px] font-mono ${c.is_active ? "bg-zinc-100 text-zinc-600" : "bg-zinc-50 text-zinc-300 line-through"}`}>{c.code}</span>
+                  <button
+                    key={c.id}
+                    onClick={() => toggleCode(c)}
+                    title={c.is_active ? "Actif — cliquer pour désactiver" : "Inactif — cliquer pour réactiver"}
+                    className={`rounded px-1.5 py-0.5 text-[11px] font-mono transition-colors ${c.is_active ? "bg-zinc-100 text-zinc-600 hover:bg-emerald-50 hover:text-emerald-700" : "bg-zinc-50 text-zinc-300 line-through hover:bg-zinc-100 hover:text-zinc-500"}`}>
+                    {c.code}
+                  </button>
                 ))}
                 {(inf.influencer_codes || []).length === 0 && <span className="text-sm text-zinc-400">Aucun code.</span>}
               </div>
+              <div className="mt-2 flex items-center gap-1.5">
+                <input
+                  value={newCode}
+                  onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => { if (e.key === "Enter") addCode() }}
+                  placeholder="NOUVEAUCODE15"
+                  className="w-36 rounded-lg border border-zinc-200 px-2 py-1 font-mono text-xs uppercase focus:border-zinc-900 focus:outline-none"
+                />
+                <input
+                  value={newPct}
+                  onChange={(e) => setNewPct(e.target.value)}
+                  inputMode="numeric"
+                  className="w-12 rounded-lg border border-zinc-200 px-2 py-1 text-right text-xs focus:border-zinc-900 focus:outline-none"
+                  title="Remise %"
+                />
+                <span className="text-xs text-zinc-400">%</span>
+                <button
+                  onClick={addCode}
+                  disabled={addingCode || !newCode.trim()}
+                  className="inline-flex items-center gap-1 rounded-lg bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-40">
+                  {addingCode ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />} Ajouter
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] text-zinc-400">Attribue le code ici (base companion). Le code doit aussi exister dans Shopify pour fonctionner en boutique.</p>
             </Section>
           </>
         )}
