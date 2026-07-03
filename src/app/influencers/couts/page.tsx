@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { formatCurrency } from "@/lib/utils"
-import { Loader2, Save, Plus, Lock, Unlock, Paperclip } from "lucide-react"
+import { Loader2, Plus, Lock, Unlock, Paperclip, Check } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { MonthTabs } from "@/components/influence/month-tabs"
@@ -34,8 +34,12 @@ export default function CoutsInfluencePage() {
   const [commDraft, setCommDraft] = useState<Record<string, string>>({})
   const [rateDraft, setRateDraft] = useState<Record<string, string>>({})
   const [rateInitial, setRateInitial] = useState<Record<string, string>>({})
+  // Valeurs au chargement : l'autosave ne poste que si un champ a réellement changé.
+  const [feeInitial, setFeeInitial] = useState<Record<string, string>>({})
+  const [commInitial, setCommInitial] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set())
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const [feedback, setFeedback] = useState<{ type: "ok" | "error"; text: string } | null>(null)
   const [role, setRole] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
@@ -95,6 +99,8 @@ export default function CoutsInfluencePage() {
       setCommDraft(cd)
       setRateDraft(rd)
       setRateInitial({ ...rd })
+      setFeeInitial({ ...fd })
+      setCommInitial({ ...cd })
     } finally {
       setLoading(false)
     }
@@ -148,7 +154,8 @@ export default function CoutsInfluencePage() {
       const ocr = await ocrRes.json()
       if (ocr.amount != null) {
         setFeeDraft((p) => ({ ...p, [influencerId]: String(ocr.amount) }))
-        setFeedback({ type: "ok", text: `Facture lue : ${ocr.amount} € détecté — vérifie puis enregistre.` })
+        await saveRow(influencerId, { fixed_fee: String(ocr.amount) })
+        setFeedback({ type: "ok", text: `Facture lue : ${ocr.amount} € appliqué en forfait et enregistré — corrige si besoin.` })
       } else {
         setFeedback({ type: "ok", text: "Facture jointe (montant non détecté — saisis-le à la main)." })
       }
@@ -166,37 +173,57 @@ export default function CoutsInfluencePage() {
     }
   }
 
-  async function save() {
-    setSaving(true)
+  // Autosave PAR LIGNE : déclenché au blur d'un champ (ou via overrides pour les
+  // actions "appliquer la suggestion" / OCR facture). Ne poste que si un champ a
+  // changé ; succès = ✓ flash + nouvelles valeurs de référence ; échec = revert.
+  async function saveRow(id: string, overrides?: { fixed_fee?: string; commission?: string }) {
+    const fee = overrides?.fixed_fee ?? feeDraft[id] ?? ""
+    const comm = overrides?.commission ?? commDraft[id] ?? ""
+    const rate = rateDraft[id] ?? ""
+    const rateChanged = rate !== (rateInitial[id] ?? "")
+    const changed = fee !== (feeInitial[id] ?? "") || comm !== (commInitial[id] ?? "") || rateChanged
+    if (!changed || savingIds.has(id)) return
+
     setFeedback(null)
-    const entries = rows.map((r) => {
-      const id = r.influencer_id
-      const e: { influencer_id: string; fixed_fee: string; commission: string; rate?: string } = {
-        influencer_id: id,
-        fixed_fee: feeDraft[id] ?? "",
-        commission: commDraft[id] ?? "",
-      }
-      // Le taux n'est envoyé QUE s'il a changé → sinon on laisse le report/défaut agir.
-      if ((rateDraft[id] ?? "") !== (rateInitial[id] ?? "")) e.rate = rateDraft[id] ?? ""
-      return e
-    })
+    setSavingIds((p) => new Set(p).add(id))
+    const entry: { influencer_id: string; fixed_fee: string; commission: string; rate?: string } = {
+      influencer_id: id, fixed_fee: fee, commission: comm,
+    }
+    // Le taux n'est envoyé QUE s'il a changé → sinon on laisse le report/défaut agir.
+    if (rateChanged) entry.rate = rate
     try {
       const res = await fetch("/api/influencers/commissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month, year, entries }),
+        body: JSON.stringify({ month, year, entries: [entry] }),
       })
       const data = await res.json()
-      if (!res.ok) setFeedback({ type: "error", text: data.error || "Échec." })
-      else {
-        setFeedback({ type: "ok", text: "Coûts enregistrés." })
-        load()
+      if (!res.ok) {
+        setFeedback({ type: "error", text: data.error || "Échec de l'enregistrement." })
+        // revert aux dernières valeurs enregistrées
+        setFeeDraft((p) => ({ ...p, [id]: feeInitial[id] ?? "" }))
+        setCommDraft((p) => ({ ...p, [id]: commInitial[id] ?? "" }))
+        setRateDraft((p) => ({ ...p, [id]: rateInitial[id] ?? "" }))
+      } else {
+        setFeeInitial((p) => ({ ...p, [id]: fee }))
+        setCommInitial((p) => ({ ...p, [id]: comm }))
+        if (rateChanged) setRateInitial((p) => ({ ...p, [id]: rate }))
+        setSavedIds((p) => new Set(p).add(id))
+        setTimeout(() => setSavedIds((p) => { const n = new Set(p); n.delete(id); return n }), 2000)
       }
     } catch {
-      setFeedback({ type: "error", text: "Erreur réseau." })
+      setFeedback({ type: "error", text: "Erreur réseau — modification non enregistrée." })
+      setFeeDraft((p) => ({ ...p, [id]: feeInitial[id] ?? "" }))
+      setCommDraft((p) => ({ ...p, [id]: commInitial[id] ?? "" }))
+      setRateDraft((p) => ({ ...p, [id]: rateInitial[id] ?? "" }))
     } finally {
-      setSaving(false)
+      setSavingIds((p) => { const n = new Set(p); n.delete(id); return n })
     }
+  }
+
+  // Enter = valider le champ (déclenche le blur → autosave)
+  const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") (e.target as HTMLInputElement).blur()
   }
 
   async function lockMonth() {
@@ -325,6 +352,8 @@ export default function CoutsInfluencePage() {
                         <input type="number" step="0.01" inputMode="decimal" disabled={!canEdit}
                           value={feeDraft[r.influencer_id] ?? ""}
                           onChange={(e) => setFeeDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
+                          onBlur={() => saveRow(r.influencer_id)}
+                          onKeyDown={blurOnEnter}
                           className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
                           placeholder="—" />
                       </div>
@@ -340,6 +369,8 @@ export default function CoutsInfluencePage() {
                         <input type="number" step="0.1" min="0" inputMode="decimal" disabled={!canEdit}
                           value={rateDraft[r.influencer_id] ?? ""}
                           onChange={(e) => setRateDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
+                          onBlur={() => saveRow(r.influencer_id)}
+                          onKeyDown={blurOnEnter}
                           className="w-16 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
                           placeholder="—"
                           title={r.rate_explicit ? "Taux fixé pour ce mois" : "Taux hérité (report du mois précédent ou taux de l'influ) — modifie pour fixer ce mois"} />
@@ -349,21 +380,31 @@ export default function CoutsInfluencePage() {
                       <div className="flex items-center justify-end gap-1.5">
                         {liveSuggested(r) != null && (parseFloat(commDraft[r.influencer_id]) || 0) === 0 && (
                           <button type="button" disabled={!canEdit}
-                            onClick={() => setCommDraft((p) => ({ ...p, [r.influencer_id]: String(liveSuggested(r)) }))}
+                            onClick={() => {
+                              const v = String(liveSuggested(r))
+                              setCommDraft((p) => ({ ...p, [r.influencer_id]: v }))
+                              saveRow(r.influencer_id, { commission: v })
+                            }}
                             className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-40"
-                            title="Appliquer la commission suggérée (ventes × taux)">
+                            title="Appliquer la commission suggérée (ventes × taux) — enregistrée directement">
                             ≈ {formatCurrency(liveSuggested(r)!)}
                           </button>
                         )}
                         <input type="number" step="0.01" inputMode="decimal" disabled={!canEdit}
                           value={commDraft[r.influencer_id] ?? ""}
                           onChange={(e) => setCommDraft((p) => ({ ...p, [r.influencer_id]: e.target.value }))}
+                          onBlur={() => saveRow(r.influencer_id)}
+                          onKeyDown={blurOnEnter}
                           className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right focus:border-zinc-900 focus:outline-none disabled:bg-zinc-100 disabled:text-zinc-400"
                           placeholder="—" />
                       </div>
                     </td>
                     <td className="px-3 py-2.5 text-right font-medium text-zinc-900">
-                      {rowTotal(r.influencer_id) > 0 ? formatCurrency(rowTotal(r.influencer_id)) : "—"}
+                      <span className="inline-flex items-center gap-1.5">
+                        {savingIds.has(r.influencer_id) && <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />}
+                        {savedIds.has(r.influencer_id) && <Check className="h-3.5 w-3.5 text-emerald-500" />}
+                        {rowTotal(r.influencer_id) > 0 ? formatCurrency(rowTotal(r.influencer_id)) : "—"}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -391,13 +432,10 @@ export default function CoutsInfluencePage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3">
-          {!canEdit && <span className="text-xs text-amber-700">Mois verrouillé — édition réservée à l’admin.</span>}
-          <button onClick={save} disabled={saving || !canEdit}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? "Enregistrement…" : "Enregistrer les coûts"}
-          </button>
+        <div className="flex items-center justify-end gap-3 text-xs text-zinc-400">
+          {!canEdit
+            ? <span className="text-amber-700">Mois verrouillé — édition réservée à l’admin.</span>
+            : <span>Enregistrement automatique : chaque valeur est sauvegardée dès que tu quittes le champ (✓).</span>}
         </div>
       </div>
 
