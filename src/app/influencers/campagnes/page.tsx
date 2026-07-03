@@ -410,7 +410,7 @@ function CampaignModal({ campaign, market, onClose, onSaved }: { campaign?: Camp
 function AddModal({ campaignId, allInf, inCampaign, onClose, onAdded }: { campaignId: string; allInf: InfLite[]; inCampaign: Set<string>; onClose: () => void; onAdded: () => void }) {
   const [tab, setTab] = useState<"existante" | "nouvelle">("existante")
   const [q, setQ] = useState("")
-  const [np, setNp] = useState({ new_name: "", new_handle: "", new_niche: "", new_followers: "" })
+  const [np, setNp] = useState({ new_name: "", new_handle: "", new_email: "", new_niche: "", new_followers: "" })
   const [saving, setSaving] = useState(false)
   async function add(body: Record<string, unknown>) {
     setSaving(true)
@@ -440,6 +440,7 @@ function AddModal({ campaignId, allInf, inCampaign, onClose, onAdded }: { campai
         <>
           <Field label="Nom *"><input value={np.new_name} onChange={(e) => setNp({ ...np, new_name: e.target.value })} className={inp} autoFocus /></Field>
           <Field label="@instagram"><input value={np.new_handle} onChange={(e) => setNp({ ...np, new_handle: e.target.value })} placeholder="@handle (→ photo auto)" className={inp} /></Field>
+          <Field label="Email"><input type="email" value={np.new_email} onChange={(e) => setNp({ ...np, new_email: e.target.value })} placeholder="pour l'outreach (optionnel)" className={inp} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Niche"><input value={np.new_niche} onChange={(e) => setNp({ ...np, new_niche: e.target.value })} className={inp} /></Field>
             <Field label="Followers"><input type="number" value={np.new_followers} onChange={(e) => setNp({ ...np, new_followers: e.target.value })} className={inp} /></Field>

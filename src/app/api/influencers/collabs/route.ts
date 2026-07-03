@@ -101,11 +101,17 @@ export async function POST(request: Request) {
       const name = STR(b.new_name)
       if (!name) return NextResponse.json({ error: "influencer_id ou new_name requis" }, { status: 400 })
       const handle = STR(b.new_handle)?.replace(/^@/, "") || null
+      // Marché hérité de la campagne : un prospect créé depuis une campagne UK doit être UK
+      // (sinon défaut FR → invisible dans les vues UK et jamais dans le drip outreach).
+      const { data: camp } = await supabase
+        .from("influence_campaigns").select("market").eq("id", b.campaign_id).single()
       const { data: created, error: cErr } = await supabase
         .from("influencers")
         .insert({
           name,
           instagram_handle: handle,
+          email: STR(b.new_email),
+          market: camp?.market || "FR",
           category: STR(b.new_niche),
           source: STR(b.source) || "pipeline",
           status: "prospect",

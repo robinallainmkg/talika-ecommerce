@@ -270,6 +270,17 @@ export async function PATCH(request: Request) {
       }
     }
 
+    // Un email vient d'être renseigné → lever le flag outreach "à sourcer", sinon
+    // le drip continue de sauter ce contact même avec un email valide.
+    if (typeof updates.email === "string" && updates.email.includes("@") && updates.metadata === undefined) {
+      const { data: cur } = await supabase.from("influencers").select("metadata").eq("id", id).single()
+      const meta = (cur?.metadata || {}) as Record<string, unknown>
+      const outreach = (meta.outreach || {}) as Record<string, unknown>
+      if (String(outreach.email_status || "").toLowerCase().includes("sourcer")) {
+        updateData.metadata = { ...meta, outreach: { ...outreach, email_status: "manual" } }
+      }
+    }
+
     const { data, error } = await supabase
       .from("influencers")
       .update(updateData)

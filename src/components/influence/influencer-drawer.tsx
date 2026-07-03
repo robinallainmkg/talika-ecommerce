@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { formatCurrency } from "@/lib/utils"
 import { MONTHS_FULL } from "@/components/influence/month-tabs"
 import { authClient } from "@/lib/auth/client"
-import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2 } from "lucide-react"
+import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check } from "lucide-react"
 
 interface Drawer { influencerId: string | null; onClose: () => void }
 
@@ -47,9 +47,11 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
   const [imgError, setImgError] = useState(false)
   const [docs, setDocs] = useState<Doc[]>([])
   const [uploadingDoc, setUploadingDoc] = useState(false)
+  const [emailEdit, setEmailEdit] = useState<string | null>(null) // null = pas en édition
+  const [savingEmail, setSavingEmail] = useState(false)
 
   useEffect(() => {
-    if (!influencerId) { setData(null); setDocs([]); return }
+    if (!influencerId) { setData(null); setDocs([]); setEmailEdit(null); return }
     setLoading(true)
     setImgError(false)
     fetch(`/api/influencers/${influencerId}`, { cache: "no-store" })
@@ -118,6 +120,25 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
     })
   }
 
+  async function saveEmail() {
+    if (emailEdit === null || !data?.influencer) return
+    const value = emailEdit.trim()
+    if (value && !value.includes("@")) { alert("Email invalide"); return }
+    setSavingEmail(true)
+    try {
+      const res = await fetch("/api/influencers", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: data.influencer.id, email: value || null }),
+      })
+      const j = await res.json()
+      if (!res.ok) { alert(j.error || "Échec de l'enregistrement"); return }
+      setData((prev) => (prev ? { ...prev, influencer: { ...prev.influencer, email: value || null } } : prev))
+      setEmailEdit(null)
+    } finally {
+      setSavingEmail(false)
+    }
+  }
+
   if (!influencerId) return null
   const inf = data?.influencer
   const meta = (inf?.metadata || {}) as Record<string, unknown>
@@ -180,14 +201,39 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
               </button>
             </div>
 
-            {/* Contact */}
-            {(inf.email || inf.phone || inf.billing_name) && (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 px-5 py-3 text-sm">
-                {inf.email && <a href={`mailto:${inf.email}`} className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-900"><Mail className="h-4 w-4 text-zinc-400" />{inf.email}</a>}
-                {inf.phone && <span className="inline-flex items-center gap-1.5 text-zinc-600"><Phone className="h-4 w-4 text-zinc-400" />{inf.phone}</span>}
-                {inf.billing_name && <span className="inline-flex items-center gap-1.5 text-zinc-500"><FileText className="h-4 w-4 text-zinc-400" />{inf.billing_name}</span>}
-              </div>
-            )}
+            {/* Contact — l'email est éditable (nécessaire pour l'outreach) */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 text-sm">
+              {emailEdit !== null ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Mail className="h-4 w-4 shrink-0 text-zinc-400" />
+                  <input
+                    type="email" value={emailEdit} autoFocus placeholder="email@exemple.com"
+                    onChange={(e) => setEmailEdit(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveEmail(); if (e.key === "Escape") setEmailEdit(null) }}
+                    className="w-56 rounded-lg border border-zinc-300 px-2 py-1 text-sm focus:border-zinc-900 focus:outline-none"
+                  />
+                  <button onClick={saveEmail} disabled={savingEmail} className="rounded-lg p-1 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50" title="Enregistrer">
+                    {savingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  </button>
+                  <button onClick={() => setEmailEdit(null)} className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100" title="Annuler">
+                    <X className="h-4 w-4" />
+                  </button>
+                </span>
+              ) : inf.email ? (
+                <span className="group inline-flex items-center gap-1">
+                  <a href={`mailto:${inf.email}`} className="inline-flex items-center gap-1.5 text-zinc-600 hover:text-zinc-900"><Mail className="h-4 w-4 text-zinc-400" />{inf.email}</a>
+                  <button onClick={() => setEmailEdit(inf.email || "")} className="rounded p-1 text-zinc-300 opacity-0 transition-opacity hover:text-zinc-600 group-hover:opacity-100" title="Modifier l'email">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ) : (
+                <button onClick={() => setEmailEdit("")} className="inline-flex items-center gap-1.5 text-amber-600 hover:text-amber-800" title="Nécessaire pour l'outreach email">
+                  <Mail className="h-4 w-4" /> Ajouter un email
+                </button>
+              )}
+              {inf.phone && <span className="inline-flex items-center gap-1.5 text-zinc-600"><Phone className="h-4 w-4 text-zinc-400" />{inf.phone}</span>}
+              {inf.billing_name && <span className="inline-flex items-center gap-1.5 text-zinc-500"><FileText className="h-4 w-4 text-zinc-400" />{inf.billing_name}</span>}
+            </div>
 
             {/* KPIs */}
             <div className="grid grid-cols-4 gap-px border-y border-zinc-100 bg-zinc-100 text-center">
