@@ -322,7 +322,7 @@ export default function ChatInboxPage() {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 className={`rounded-md px-2 py-1 text-xs font-medium ${
-                  tab === t.key ? "bg-zinc-900 text-white" : "text-zinc-500 hover:bg-zinc-100"
+                  tab === t.key ? "bg-[#0A1638] text-white" : "text-zinc-500 hover:bg-zinc-100"
                 }`}
               >
                 {t.label}
@@ -355,8 +355,8 @@ export default function ChatInboxPage() {
                       )
                     }
                   }}
-                  className={`block w-full border-b border-zinc-100 px-3 py-2.5 text-left hover:bg-zinc-50 ${
-                    selectedId === conv.id ? "bg-zinc-50" : ""
+                  className={`block w-full border-b border-zinc-100 px-3 py-2.5 text-left hover:bg-[#FBF9F3] ${
+                    selectedId === conv.id ? "bg-[#F7F4ED] shadow-[inset_2px_0_0_#0A1638]" : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -369,7 +369,7 @@ export default function ChatInboxPage() {
                         ★ fidèle
                       </span>
                     )}
-                    {conv.unread_count > 0 && <span className="h-2 w-2 rounded-full bg-blue-500" />}
+                    {conv.unread_count > 0 && <span className="h-2 w-2 rounded-full bg-[#1B30C7]" />}
                     <span className="ml-auto text-[11px] text-zinc-400">{relativeTime(conv.last_message_at)}</span>
                   </div>
                   <p className="mt-1 truncate text-xs text-zinc-600">{conv.last_message_preview || "—"}</p>
@@ -382,7 +382,10 @@ export default function ChatInboxPage() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           {!selected ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-[#F7F4ED]/60 text-sm text-zinc-400">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#D9B779] bg-[#0A1638] font-serif text-2xl italic text-[#D9B779]">
+                T
+              </span>
               Sélectionnez une conversation
             </div>
           ) : (
@@ -396,7 +399,7 @@ export default function ChatInboxPage() {
                   {(selected.status === "bot" || selected.status === "queued") && (
                     <button
                       onClick={() => takeover("take")}
-                      className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-zinc-800"
+                      className="flex items-center gap-1.5 rounded-lg bg-[#0A1638] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#16224D]"
                     >
                       <Hand className="h-3.5 w-3.5" /> Prendre la main
                     </button>
@@ -432,7 +435,7 @@ export default function ChatInboxPage() {
                   const el = e.currentTarget
                   nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
                 }}
-                className="flex-1 space-y-3 overflow-y-auto bg-zinc-50/50 p-4"
+                className="flex-1 space-y-3 overflow-y-auto bg-[#F7F4ED] p-4"
               >
                 {messages.map((m) => (
                   <MessageBubble key={m.id} message={m} />
