@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { formatCurrency } from "@/lib/utils"
-import { Loader2, Save, Plus, Lock, Unlock, Paperclip } from "lucide-react"
+import { Loader2, Save, Plus, Lock, Unlock, Paperclip, FileUp } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { MonthTabs } from "@/components/influence/month-tabs"
@@ -14,9 +14,44 @@ interface Row {
   commission_rate: number
   rate_explicit?: boolean
   month_sales: number
+  sales_source?: "report" | "computed"
   suggested_commission: number | null
   saved_commission: number | null
   fixed_fee: number | null
+}
+
+// ── Parse CSV (rapport Shopify "Sales by discount") ──
+// Gère les champs quotés et les séparateurs décimaux FR/EN.
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = [], cell = "", inQuotes = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inQuotes) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++ } else inQuotes = false }
+      else cell += ch
+    } else if (ch === '"') inQuotes = true
+    else if (ch === ",") { row.push(cell); cell = "" }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++
+      row.push(cell); cell = ""
+      if (row.some((c) => c.trim() !== "")) rows.push(row)
+      row = []
+    } else cell += ch
+  }
+  row.push(cell)
+  if (row.some((c) => c.trim() !== "")) rows.push(row)
+  return rows
+}
+
+function parseNum(raw: string): number {
+  let s = (raw || "").replace(/[€\s ]/g, "")
+  if (s.includes(",") && s.includes(".")) {
+    // le DERNIER séparateur est la décimale
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) s = s.replace(/\./g, "").replace(",", ".")
+    else s = s.replace(/,/g, "")
+  } else if (s.includes(",")) s = s.replace(",", ".")
+  return parseFloat(s)
 }
 
 const MONTHS = [
@@ -44,6 +79,43 @@ export default function CoutsInfluencePage() {
   const [invoicesByInf, setInvoicesByInf] = useState<Record<string, { id: string; file_name: string; amount: number | null }[]>>({})
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [drawerId, setDrawerId] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+
+  // Import du rapport Shopify "Sales by discount" (CSV) → ventes OFFICIELLES du
+  // mois affiché. Base de commission validée : le rapport ventile les remises
+  // empilées (volume, cadeau, soldes) — non recalculable depuis l'API commandes.
+  async function importReport(file: File) {
+    setImporting(true)
+    setFeedback(null)
+    try {
+      const rows = parseCsv(await file.text())
+      if (rows.length < 2) throw new Error("CSV vide")
+      const header = rows[0].map((h) => h.toLowerCase().trim())
+      const iName = header.findIndex((h) => /discount name|nom.*(réduction|reduction|remise)/.test(h))
+      const iNet = header.findIndex((h) => /net sales|ventes nettes/.test(h))
+      if (iName < 0 || iNet < 0) throw new Error("Colonnes « Discount name » / « Net sales » introuvables")
+      const payload = rows.slice(1)
+        .filter((r) => !/^(summary|résumé)$/i.test((r[iName] || "").trim()))
+        .map((r) => ({ code: (r[iName] || "").trim(), net_sales: parseNum(r[iNet] || "") }))
+        .filter((r) => r.code && Number.isFinite(r.net_sales))
+      const res = await fetch("/api/influencers/report-sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month, rows: payload }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "import impossible")
+      setFeedback({
+        type: "ok",
+        text: `Rapport importé : ${data.imported} code(s) ambassadrice sur ${payload.length} lignes${data.ignored?.length ? ` (ignorés : codes non-influence ${data.ignored.length})` : ""}.`,
+      })
+      await load()
+    } catch (err) {
+      setFeedback({ type: "error", text: err instanceof Error ? err.message : "Import impossible." })
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -252,7 +324,18 @@ export default function CoutsInfluencePage() {
         subtitle="Forfait et/ou commission par influenceuse, par mois — alimente le dashboard Acquisition."
       />
       <div className="mx-auto max-w-4xl p-4 sm:p-6 space-y-4">
-        <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} year={year} onYearChange={setYear} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} year={year} onYearChange={setYear} className="flex-1" />
+          <label
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium ${importing || !canEdit ? "cursor-not-allowed text-zinc-300" : "cursor-pointer text-zinc-600 hover:bg-zinc-50"}`}
+            title="Exporter le rapport Shopify « Ventes par réduction » du mois en CSV, puis l'importer ici : ces montants deviennent la base officielle des commissions."
+          >
+            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileUp className="h-3.5 w-3.5" />}
+            Importer rapport Shopify
+            <input type="file" accept=".csv,text/csv" className="hidden" disabled={importing || !canEdit}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) importReport(f); e.target.value = "" }} />
+          </label>
+        </div>
 
         {/* Statut de verrouillage du mois */}
         <div className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm ${isLocked ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white"}`}>
@@ -311,7 +394,14 @@ export default function CoutsInfluencePage() {
                     <td className="px-3 py-2.5">
                       <button onClick={() => setDrawerId(r.influencer_id)} className="text-left font-medium text-zinc-900 hover:underline">{r.name}</button>
                       {r.month_sales > 0 && (
-                        <div className="text-[11px] text-zinc-400">{formatCurrency(r.month_sales)} de ventes</div>
+                        <div className="flex items-center gap-1 text-[11px] text-zinc-400">
+                          {formatCurrency(r.month_sales)} de ventes
+                          {r.sales_source === "report" ? (
+                            <span className="rounded bg-emerald-50 px-1 py-px text-[9px] font-medium uppercase text-emerald-600" title="Ventes nettes du rapport Shopify importé (base officielle des commissions)">rapport</span>
+                          ) : (
+                            <span className="rounded bg-zinc-100 px-1 py-px text-[9px] font-medium uppercase text-zinc-400" title="Somme calculée des commandes portant ses codes (TTC après remise) — importe le rapport Shopify pour la base officielle">calculé</span>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right">
