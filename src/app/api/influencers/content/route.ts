@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   const limit = Math.min(parseInt(searchParams.get("limit") || "120"), 300)
   let query = supabase
     .from("influencer_content")
-    .select("id, influencer_id, platform, type, media_product_type, url, caption, thumbnail_url, like_count, comments_count, is_brand, posted_at, influencers!inner(id, name, instagram_handle, market, metadata)")
+    .select("id, influencer_id, platform, type, media_product_type, url, caption, thumbnail_url, like_count, comments_count, is_brand, posted_at, external_id, partnership_ad_code, influencers!inner(id, name, instagram_handle, market, metadata)")
     .eq("platform", "instagram")
     .order("posted_at", { ascending: false })
     .limit(limit)
@@ -43,6 +43,20 @@ export async function GET(request: Request) {
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ content: data || [] })
+}
+
+// PATCH { id, partnership_ad_code } — code de publicité de partenariat Meta
+// (fourni par l'influenceuse) pour pouvoir booster ce post depuis Ads Manager.
+export async function PATCH(request: Request) {
+  const body = await request.json().catch(() => ({}))
+  if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 })
+  if (!("partnership_ad_code" in body)) return NextResponse.json({ error: "partnership_ad_code requis" }, { status: 400 })
+  const code = typeof body.partnership_ad_code === "string" && body.partnership_ad_code.trim() !== ""
+    ? body.partnership_ad_code.trim().slice(0, 60)
+    : null
+  const { error } = await supabase.from("influencer_content").update({ partnership_ad_code: code }).eq("id", body.id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true, partnership_ad_code: code })
 }
 
 // POST: create a content item
