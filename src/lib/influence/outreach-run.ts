@@ -41,6 +41,17 @@ export async function sendDueBatch(supabase: SupabaseClient, opts: BatchOpts): P
   const { data, error } = await q
   if (error) throw new Error(error.message)
 
+  // Anti-doublon INDÉPENDANT du metadata : outreach_log = source de vérité.
+  // (Incident 03/07 : sous saturation DB, les updates metadata échouaient en silence
+  // → la même étape 1 renvoyée 3× aux mêmes personnes. Le log, lui, avait tout.)
+  // FAIL-CLOSED : si on ne peut pas lire le log, on n'envoie RIEN.
+  const since = new Date(now.getTime() - 30 * 86400000).toISOString()
+  const { data: sentLog, error: logReadErr } = await supabase
+    .from("outreach_log").select("influencer_id,step")
+    .eq("channel", "email").eq("status", "sent").gte("created_at", since)
+  if (logReadErr) throw new Error(`anti-doublon illisible (${logReadErr.message}) — batch annulé (fail-closed)`)
+  const alreadySent = new Set((sentLog || []).map((r: { influencer_id: string; step: number }) => `${r.influencer_id}:${r.step}`))
+
   const results: BatchResult["results"] = []
   let sent = 0
   for (const inf of (data || []) as Inf[]) {
@@ -49,6 +60,20 @@ export async function sendDueBatch(supabase: SupabaseClient, opts: BatchOpts): P
     if (TERMINAL.includes(st.status)) continue
     const step = dueStep(st, now)
     if (!step) continue
+    if (alreadySent.has(`${inf.id}:${step}`)) {
+      // Déjà envoyé selon le log mais metadata en retard → on répare l'état, sans renvoyer.
+      const repaired: OutreachState = {
+        ...st, status: (`Étape ${step} envoyée`) as OutreachStatus,
+        step: Math.max(st.step || 0, step),
+        sent: { ...st.sent, [String(step)]: st.sent?.[String(step)] || now.toISOString() },
+      }
+      await supabase.from("influencers")
+        .update({ metadata: { ...(inf.metadata || {}), outreach: repaired }, updated_at: now.toISOString() }).eq("id", inf.id)
+      await supabase.from("influence_campaign_collabs")
+        .update({ stage: "contacte" }).eq("influencer_id", inf.id).eq("stage", "prospect")
+      results.push({ name: inf.name, email: inf.email, step, result: "skip", detail: "déjà envoyé (log) — état réparé" })
+      continue
+    }
     const email = (inf.email || "").trim()
     const estat = (st.email_status || "").toLowerCase()
     if (!email || !email.includes("@") || estat.includes("sourcer")) {
@@ -62,22 +87,32 @@ export async function sendDueBatch(supabase: SupabaseClient, opts: BatchOpts): P
       const r = await sendOutreach(email, subject, text)
       status = r.ok ? "sent" : "error"; provider = r.id; errMsg = r.error
     }
-    await supabase.from("outreach_log").insert({
+    const { error: logErr } = await supabase.from("outreach_log").insert({
       influencer_id: inf.id, market: opts.market, step, channel: "email",
       to_email: email, subject, status, provider_id: provider || null, error: errMsg || null,
     })
+    let persistErr: { message: string } | null = null
     if (status === "sent") {
-      // Pipeline kanban : la carte passe Prospect → Contacté automatiquement.
+      alreadySent.add(`${inf.id}:${step}`)
+      // Pipeline kanban : la carte passe Prospect → Contacté automatiquement (best-effort).
       await supabase.from("influence_campaign_collabs")
         .update({ stage: "contacte" }).eq("influencer_id", inf.id).eq("stage", "prospect")
       const next: OutreachState = {
         ...st, status: (`Étape ${step} envoyée`) as OutreachStatus, step,
         sent: { ...st.sent, [String(step)]: now.toISOString() },
       }
-      await supabase.from("influencers").update({ metadata: { ...(inf.metadata || {}), outreach: next }, updated_at: now.toISOString() }).eq("id", inf.id)
+      const res = await supabase.from("influencers")
+        .update({ metadata: { ...(inf.metadata || {}), outreach: next }, updated_at: now.toISOString() }).eq("id", inf.id)
+      persistErr = res.error
     }
     if (status === "sent" || status === "dry") sent++
     results.push({ name: inf.name, email, step, result: status, detail: errMsg })
+    // FAIL-CLOSED : si l'état ne se persiste plus (log OU metadata), on ARRÊTE le batch —
+    // continuer = envoyer à l'aveugle. Le dédoublonnage par log protège le run suivant.
+    if (status === "sent" && (persistErr || logErr)) {
+      results.push({ name: inf.name, email, step, result: "abort", detail: `écriture état échouée (${(persistErr || logErr)!.message}) — batch stoppé` })
+      break
+    }
   }
   return { attempted: results.length, sent, results }
 }

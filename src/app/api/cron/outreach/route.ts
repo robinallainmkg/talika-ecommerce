@@ -113,10 +113,17 @@ export async function GET(request: Request) {
   // Plafond RÉELLEMENT journalier : on décompte ce qui est déjà parti aujourd'hui (UTC),
   // pour que plusieurs runs le même jour ne dépassent jamais la rampe de warm-up.
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
-  // select simple + length : le count(head:true) renvoyait silencieusement null → cap non décompté.
-  const { data: sentRows } = await supabase
+  // FAIL-CLOSED : si le compteur est illisible (ex. DB saturée), on n'envoie RIEN —
+  // c'est un cap réel, pas indicatif (incident 03/07 : erreurs silencieuses → 3 batchs le même jour).
+  const { data: sentRows, error: capErr } = await supabase
     .from("outreach_log").select("id")
     .eq("channel", "email").eq("status", "sent").gte("created_at", dayStart)
+  if (capErr) {
+    return NextResponse.json(
+      { error: `compteur journalier illisible (${capErr.message}) — envoi annulé (fail-closed)`, enabled, warmupDay, cap },
+      { status: 503 }
+    )
+  }
   const sentToday = (sentRows || []).length
   const remaining = Math.max(0, cap - sentToday)
   let batch = { attempted: 0, sent: 0, results: [] as { name: string; result: string; step?: number }[] }
