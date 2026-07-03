@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     const monthStart = `${year}-${pad(month)}-01`
     const nextMonth = month === 12 ? `${year + 1}-01-01` : `${year}-${pad(month + 1)}-01`
 
-    const [{ data: influencers }, { data: sales }, { data: savedComm }, { data: fees }, { data: rates }, { data: reportSales }] =
+    const [{ data: influencers }, { data: sales }, { data: savedComm }, { data: fees }, { data: rates }] =
       await Promise.all([
         supabase.from("influencers").select("id, name, commission_rate, has_fixed_fee, status"),
         supabase
@@ -51,23 +51,11 @@ export async function GET(request: Request) {
         supabase
           .from("influencer_commission_rates")
           .select("influencer_id, year, month, rate"),
-        supabase
-          .from("influencer_report_sales")
-          .select("influencer_id, net_sales")
-          .eq("year", year)
-          .eq("month", month),
       ])
 
     const salesByInf: Record<string, number> = {}
     for (const s of sales || []) {
       salesByInf[s.influencer_id] = (salesByInf[s.influencer_id] || 0) + Number(s.line_price || 0)
-    }
-    // Ventes OFFICIELLES = rapport Shopify importé (base de commission validée).
-    // Quand une influenceuse a des lignes de rapport ce mois, elles PRIMENT sur
-    // le calcul interne (le rapport ventile les remises empilées à sa façon).
-    const reportByInf: Record<string, number> = {}
-    for (const r of reportSales || []) {
-      reportByInf[r.influencer_id] = (reportByInf[r.influencer_id] || 0) + Number(r.net_sales || 0)
     }
     const savedByInf: Record<string, number> = {}
     for (const c of savedComm || []) savedByInf[c.influencer_id] = Number(c.amount || 0)
@@ -86,8 +74,7 @@ export async function GET(request: Request) {
     }
 
     const all = (influencers || []).map((inf) => {
-      const fromReport = inf.id in reportByInf
-      const monthSales = fromReport ? reportByInf[inf.id] : (salesByInf[inf.id] || 0)
+      const monthSales = salesByInf[inf.id] || 0
       const resolved = rateByInf[inf.id]
       const rate = resolved ? resolved.rate : (Number(inf.commission_rate) || 0)
       return {
@@ -97,7 +84,6 @@ export async function GET(request: Request) {
         rate_explicit: !!resolved && resolved.period === targetP,
         has_fixed_fee: !!inf.has_fixed_fee,
         month_sales: Math.round(monthSales * 100) / 100,
-        sales_source: fromReport ? ("report" as const) : ("computed" as const),
         suggested_commission: rate > 0 && monthSales > 0 ? Math.round((monthSales * rate) / 100 * 100) / 100 : null,
         saved_commission: inf.id in savedByInf ? savedByInf[inf.id] : null,
         fixed_fee: inf.id in feeByInf ? feeByInf[inf.id] : null,
