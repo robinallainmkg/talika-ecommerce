@@ -18,3 +18,13 @@ export function normalizeMarket(v: string | null | undefined): Market {
   const up = (v || "").toUpperCase()
   return (MARKETS as readonly string[]).includes(up) ? (up as Market) : DEFAULT_MARKET
 }
+
+// Côté serveur (routes API) : marché de la requête = ?market= sinon cookie
+// tk_market, sinon FR. À utiliser dans TOUTE route influence qui renvoie des
+// listes (sinon les données FR fuient en mode UK).
+export function marketFromRequest(request: Request): Market {
+  const param = new URL(request.url).searchParams.get("market")
+  if (param) return normalizeMarket(param)
+  const cookie = (request.headers.get("cookie") || "").match(/(?:^|;\s*)tk_market=([A-Za-z]{2})/)?.[1]
+  return normalizeMarket(cookie)
+}
