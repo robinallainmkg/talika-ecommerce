@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { cn, formatCurrency } from "@/lib/utils"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { usePeriod } from "@/components/influence/use-period"
 import { Header } from "@/components/layout/header"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { Loader2, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell, Trash2 } from "lucide-react"
@@ -50,8 +51,8 @@ const MONTHS_SHORT = [
 
 export default function FacturationPage() {
   const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
+  // Période mémorisée : URL (?year=&month=) + partagée entre vues influence.
+  const { year, setYear, month, setMonth } = usePeriod()
   const [collabs, setCollabs] = useState<Collab[]>([])
   const [totals, setTotals] = useState({ count: 0, total_due: 0, with_invoice: 0 })
   const [reportsIn, setReportsIn] = useState<ReportIn[]>([])

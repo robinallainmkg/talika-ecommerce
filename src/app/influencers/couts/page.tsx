@@ -6,6 +6,7 @@ import { Loader2, Plus, Lock, Unlock, Paperclip, Check } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { usePeriod } from "@/components/influence/use-period"
 import { Header } from "@/components/layout/header"
 
 interface Row {
@@ -25,9 +26,8 @@ const MONTHS = [
 ]
 
 export default function CoutsInfluencePage() {
-  const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
+  // Période mémorisée : URL (?year=&month=) + partagée entre vues influence.
+  const { year, setYear, month, setMonth } = usePeriod()
   const [rows, setRows] = useState<Row[]>([])
   const [allInfluencers, setAllInfluencers] = useState<{ id: string; name: string; commission_rate: number }[]>([])
   const [feeDraft, setFeeDraft] = useState<Record<string, string>>({})

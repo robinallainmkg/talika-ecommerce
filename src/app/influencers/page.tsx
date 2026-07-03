@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MonthTabs } from "@/components/influence/month-tabs"
+import { usePeriodWithAll } from "@/components/influence/use-period"
 import { getMarketCookie } from "@/components/layout/market-switch"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
 import { formatCurrency } from "@/lib/utils"
@@ -142,8 +143,9 @@ export default function InfluencersPage() {
   const [savingCodes, setSavingCodes] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedYear, setSelectedYear] = useState(2026)
-  const [selectedMonth, setSelectedMonth] = useState<number | null>(null) // null = année complète
+  // Période mémorisée : URL (?year=&month=, month=all = année complète) +
+  // partagée entre vues influence (localStorage).
+  const { year: selectedYear, setYear: setSelectedYear, month: selectedMonth, setMonth: setSelectedMonth } = usePeriodWithAll()
 
   // Add influencer modal
   const [showAddModal, setShowAddModal] = useState(false)
