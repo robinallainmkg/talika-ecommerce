@@ -4,6 +4,9 @@ import { loadExcludedKeys, billingKey } from "@/lib/influence/billing-status"
 import { normalizeMarket } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache → lectures
+// périmées (incident 03/07 : triple envoi, compteur à 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,7 +14,7 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
-// ─── Types for Shopify data_cache ─────────────────────────────────
+// âââ Types for Shopify data_cache âââââââââââââââââââââââââââââââââ
 interface ShopifyDiscountCode {
   code: string
   amount: string
@@ -32,7 +35,7 @@ export async function GET(request: Request) {
     const month = searchParams.get("month") ? parseInt(searchParams.get("month")!) : null // null = all year
     const market = normalizeMarket(searchParams.get("market"))
 
-    // 1. Fetch influencers with their codes (scopés par marché)
+    // 1. Fetch influencers with their codes (scopÃ©s par marchÃ©)
     const { data: influencers, error } = await supabase
       .from("influencers")
       .select(`*, influencer_codes (*)`)
@@ -81,9 +84,9 @@ export async function GET(request: Request) {
       }
     }
 
-    // 4. Build code → influencer mapping
-    const codeToInfluencer = new Map<string, string>() // code → influencer_id
-    const influencerCodes = new Map<string, string[]>() // influencer_id → codes[]
+    // 4. Build code â influencer mapping
+    const codeToInfluencer = new Map<string, string>() // code â influencer_id
+    const influencerCodes = new Map<string, string[]>() // influencer_id â codes[]
     if (influencers) {
       for (const inf of influencers) {
         const codes: string[] = []
@@ -120,7 +123,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // Collabs "sans facturation" → exclues des coûts du scoreboard.
+    // Collabs "sans facturation" â exclues des coÃ»ts du scoreboard.
     const excludedKeys = await loadExcludedKeys({ year })
 
     // 5b. Compute manual commissions per influencer from influencer_commissions table
@@ -195,8 +198,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "name is required" }, { status: 400 })
     }
 
-    // Anti-doublon : si un influenceur du même nom existe déjà, on le réutilise
-    // (sinon assigner un code à un "nouvel" influenceur déjà créé recrée un clone).
+    // Anti-doublon : si un influenceur du mÃªme nom existe dÃ©jÃ , on le rÃ©utilise
+    // (sinon assigner un code Ã  un "nouvel" influenceur dÃ©jÃ  crÃ©Ã© recrÃ©e un clone).
     const { data: existing } = await supabase
       .from("influencers")
       .select("*")
@@ -270,8 +273,8 @@ export async function PATCH(request: Request) {
       }
     }
 
-    // Un email vient d'être renseigné → lever le flag outreach "à sourcer", sinon
-    // le drip continue de sauter ce contact même avec un email valide.
+    // Un email vient d'Ãªtre renseignÃ© â lever le flag outreach "Ã  sourcer", sinon
+    // le drip continue de sauter ce contact mÃªme avec un email valide.
     if (typeof updates.email === "string" && updates.email.includes("@") && updates.metadata === undefined) {
       const { data: cur } = await supabase.from("influencers").select("metadata").eq("id", id).single()
       const meta = (cur?.metadata || {}) as Record<string, unknown>

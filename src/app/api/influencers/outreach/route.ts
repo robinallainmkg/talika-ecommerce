@@ -8,6 +8,9 @@ import {
 import { sendDueBatch } from "@/lib/influence/outreach-run"
 
 export const dynamic = "force-dynamic"
+// Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache → lectures
+// périmées (incident 03/07 : triple envoi, compteur à 0). Jamais de cache ici.
+export const fetchCache = "force-no-store"
 export const maxDuration = 300
 
 const supabase = createClient(
@@ -30,7 +33,7 @@ async function saveState(inf: Influencer, st: OutreachState) {
   await supabase.from("influencers").update({ metadata, updated_at: new Date().toISOString() }).eq("id", inf.id)
 }
 
-// GET — liste outreach d'un marché + étape due par contact + compteurs
+// GET â liste outreach d'un marchÃ© + Ã©tape due par contact + compteurs
 export async function GET(request: Request) {
   const market = normalizeMarket(new URL(request.url).searchParams.get("market"))
   const { data, error } = await supabase
@@ -60,14 +63,14 @@ export async function GET(request: Request) {
   })
 }
 
-// POST { ids?, dry?, max?, market? } — envoie l'étape DUE (DRY par défaut). Délègue à sendDueBatch.
+// POST { ids?, dry?, max?, market? } â envoie l'Ã©tape DUE (DRY par dÃ©faut). DÃ©lÃ¨gue Ã  sendDueBatch.
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   const market = normalizeMarket(body.market)
-  const dry = body.dry !== false                       // sécurité : DRY sauf dry:false explicite
+  const dry = body.dry !== false                       // sÃ©curitÃ© : DRY sauf dry:false explicite
   if (!dry && !outreachConfigured()) {
     return NextResponse.json(
-      { error: "Canal mail non configuré : RESEND_API_KEY ou SMTP_* (+ OUTREACH_FROM sur companion-ecommerce.com)." },
+      { error: "Canal mail non configurÃ© : RESEND_API_KEY ou SMTP_* (+ OUTREACH_FROM sur companion-ecommerce.com)." },
       { status: 400 }
     )
   }
@@ -84,7 +87,7 @@ export async function POST(request: Request) {
 }
 
 // PATCH { id, status?, replied?, reply_summary?, personalisation?, email_status? }
-// Utilisé par l'UI et par la routine Gmail (détection des réponses).
+// UtilisÃ© par l'UI et par la routine Gmail (dÃ©tection des rÃ©ponses).
 export async function PATCH(request: Request) {
   const body = await request.json().catch(() => ({}))
   if (!body.id) return NextResponse.json({ error: "id requis" }, { status: 400 })
@@ -94,7 +97,7 @@ export async function PATCH(request: Request) {
 
   const st = stateOf(inf as Influencer)
   if (body.replied) {
-    st.status = "Répondu"
+    st.status = "RÃ©pondu"
     st.replied_at = new Date().toISOString()
     if (body.reply_summary) st.reply_summary = body.reply_summary
   }
