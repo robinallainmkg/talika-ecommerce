@@ -44,13 +44,23 @@ export async function GET(request: Request) {
   if (url.searchParams.get("ping") === "1") {
     const n = new Date()
     const dayStart = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate())).toISOString()
-    const probe = await supabase.from("outreach_log").select("id")
+    // Rôle réel de la clé utilisée (claims du JWT — on n'expose jamais la clé).
+    let keyRole = "?"
+    try {
+      const k = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+      keyRole = k.split(".").length === 3
+        ? JSON.parse(Buffer.from(k.split(".")[1], "base64").toString()).role || "jwt-sans-role"
+        : `format:${k.slice(0, 10)}…`
+    } catch { keyRole = "jwt-illisible" }
+    const all = await supabase.from("outreach_log").select("id,channel,status,created_at").limit(5)
+    const filtered = await supabase.from("outreach_log").select("id")
       .eq("channel", "email").eq("status", "sent").gte("created_at", dayStart)
+    const inf = await supabase.from("influencers").select("id").eq("market", "UK").limit(3)
     return NextResponse.json({
-      ok: true, version: "debug-counter", dayStart,
-      probeCount: probe.data?.length ?? null,
-      probeError: probe.error ? `${probe.error.code || ""} ${probe.error.message}` : null,
-      probeHttpStatus: probe.status,
+      ok: true, version: "debug-counter-v2", dayStart, keyRole,
+      logAll: { count: all.data?.length ?? null, sample: all.data?.[0] || null, error: all.error?.message || null },
+      logFiltered: { count: filtered.data?.length ?? null, error: filtered.error?.message || null },
+      influencers: { count: inf.data?.length ?? null, error: inf.error?.message || null },
       supabaseHost: (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0],
     })
   }
