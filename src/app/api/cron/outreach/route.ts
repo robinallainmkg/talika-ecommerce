@@ -39,9 +39,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   const url = new URL(request.url)
-  // ?ping=1 → health check (version) sans rien exécuter.
+  // ?ping=1 → health check + sonde du compteur journalier (exécute la requête exacte
+  // et renvoie données/erreur brutes — diagnostic du sentToday=0 du 03/07).
   if (url.searchParams.get("ping") === "1") {
-    return NextResponse.json({ ok: true, version: "send-param+kanban" })
+    const n = new Date()
+    const dayStart = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate())).toISOString()
+    const probe = await supabase.from("outreach_log").select("id")
+      .eq("channel", "email").eq("status", "sent").gte("created_at", dayStart)
+    return NextResponse.json({
+      ok: true, version: "debug-counter", dayStart,
+      probeCount: probe.data?.length ?? null,
+      probeError: probe.error ? `${probe.error.code || ""} ${probe.error.message}` : null,
+      probeHttpStatus: probe.status,
+      supabaseHost: (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0],
+    })
   }
   // ?send=1 → autorise l'envoi réel pour CE run (appelant authentifié par CRON_SECRET =
   // la routine Claude Code). Sinon : OUTREACH_ENABLED=1 (env) ou DRY.
