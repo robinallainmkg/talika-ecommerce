@@ -12,28 +12,36 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
-// GET: list content for an influencer
+// GET: contenu d'une influenceuse (?influencer_id=) OU liste globale pour la
+// page Contenus (?brand=1 pour ne garder que les posts Talika, &market=, &limit=).
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const influencerId = searchParams.get("influencer_id")
 
-  if (!influencerId) {
-    return NextResponse.json(
-      { error: "influencer_id required" },
-      { status: 400 }
-    )
+  if (influencerId) {
+    const { data, error } = await supabase
+      .from("influencer_content")
+      .select("*")
+      .eq("influencer_id", influencerId)
+      .order("posted_at", { ascending: false })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ content: data || [] })
   }
 
-  const { data, error } = await supabase
+  // Liste globale (page Contenus) — jointure nom/handle/marché
+  const brandOnly = searchParams.get("brand") === "1"
+  const market = (searchParams.get("market") || "").toUpperCase()
+  const limit = Math.min(parseInt(searchParams.get("limit") || "120"), 300)
+  let query = supabase
     .from("influencer_content")
-    .select("*")
-    .eq("influencer_id", influencerId)
+    .select("id, influencer_id, platform, type, media_product_type, url, caption, thumbnail_url, like_count, comments_count, is_brand, posted_at, influencers!inner(id, name, instagram_handle, market, metadata)")
+    .eq("platform", "instagram")
     .order("posted_at", { ascending: false })
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
+    .limit(limit)
+  if (brandOnly) query = query.eq("is_brand", true)
+  if (market === "FR" || market === "UK") query = query.eq("influencers.market", market)
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ content: data || [] })
 }
 

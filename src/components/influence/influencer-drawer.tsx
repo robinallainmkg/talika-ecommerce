@@ -11,7 +11,12 @@ interface Drawer { influencerId: string | null; onClose: () => void }
 type Code = { id: string; code: string; is_active: boolean }
 type MonthAmt = { year: number; month: number; amount: number }
 type Invoice = { id: string; year: number; month: number; kind: string; amount: number | null; file_name: string }
-type Content = { id: string; type: string | null; platform: string | null; url: string | null; title: string | null; posted_at: string | null }
+type Content = {
+  id: string; type: string | null; platform: string | null; url: string | null
+  title: string | null; posted_at: string | null
+  caption?: string | null; media_product_type?: string | null
+  like_count?: number | null; comments_count?: number | null; is_brand?: boolean
+}
 type Order = { date: string; amount: number; products: string[]; discount_code: string }
 type Product = { title: string; quantity: number; revenue: number; orders: number }
 type Doc = { id: string; label: string | null; file_name: string; mime_type: string | null; size_bytes: number | null; created_at: string }
@@ -483,16 +488,30 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
               )}
             </Section>
 
-            {/* Posts / contenus */}
-            <Section title="Posts" count={data!.content.length}>
-              {data!.content.length === 0 ? <p className="text-sm text-zinc-400">Aucun post enregistré (à ajouter au fil de l&apos;eau).</p> : (
+            {/* Posts Instagram (sync quotidienne API Meta) — Talika d'abord */}
+            <Section title="Posts Instagram" count={data!.content.length}>
+              {data!.content.length === 0 ? (
+                <p className="text-sm text-zinc-400">Aucun post récupéré (compte perso/renommé ou sync pas encore passée).</p>
+              ) : (
                 <div className="space-y-1">
-                  {data!.content.map((p) => (
-                    <a key={p.id} href={p.url || "#"} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-50">
-                      <span className="truncate text-zinc-600">{p.posted_at || "—"} · {p.platform || ""} {p.title || p.type || ""}</span>
-                      {p.url && <ExternalLink className="h-3.5 w-3.5 shrink-0 text-zinc-400" />}
-                    </a>
-                  ))}
+                  {[...data!.content]
+                    .sort((a, b) => Number(b.is_brand || false) - Number(a.is_brand || false))
+                    .slice(0, 8)
+                    .map((p) => (
+                      <a key={p.id} href={p.url || "#"} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-50">
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5">
+                            {p.is_brand && <span className="rounded bg-emerald-50 px-1 py-px text-[9px] font-medium uppercase text-emerald-600">Talika</span>}
+                            {p.media_product_type === "REELS" && <span className="rounded bg-zinc-100 px-1 py-px text-[9px] font-medium uppercase text-zinc-500">Reel</span>}
+                            <span className="text-[11px] text-zinc-400">{p.posted_at ? new Date(p.posted_at).toLocaleDateString("fr-FR") : "—"}</span>
+                          </span>
+                          <span className="block truncate text-[12px] text-zinc-600">{p.caption || p.title || p.type || ""}</span>
+                        </span>
+                        <span className="shrink-0 text-[11px] text-zinc-500">
+                          {(p.like_count ?? 0).toLocaleString("fr-FR")} ♥ · {p.comments_count ?? 0} 💬
+                        </span>
+                      </a>
+                    ))}
                 </div>
               )}
             </Section>

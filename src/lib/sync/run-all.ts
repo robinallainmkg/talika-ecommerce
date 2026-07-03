@@ -369,6 +369,15 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     return `${r.name} : ${r.total_active} actives${r.added ? `, ${r.added} ajoutée(s)` : ""}${r.created ? " (créée)" : ""}`
   })
 
+  // ── 4ter. Contenu + stats Instagram (Business Discovery Meta) ──
+  // Posts réels + followers/engagement de chaque @handle (tous marchés).
+  await step("instagram_content", "Contenu Instagram", async () => {
+    const { syncInstagramContent, instagramConfigured } = await import("@/lib/influence/instagram")
+    if (!instagramConfigured()) return "ignoré (META_ACCESS_TOKEN absent)"
+    const r = await syncInstagramContent()
+    return `${r.profiles_ok} profils, ${r.posts_upserted} posts (${r.brand_posts} marque), ${r.profiles_failed.length} introuvables`
+  })
+
   // ── 5. Klaviyo (campagnes, flows, listes) ──
   await step("klaviyo", "Klaviyo", async () => {
     const klavData = await (await syncKlaviyoRoute()).json()
