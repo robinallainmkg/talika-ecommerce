@@ -154,6 +154,11 @@ export async function POST() {
 
           const lineItems = order.line_items || []
           for (const item of lineItems) {
+            // TTC APRÈS remise quand le cache porte les discount_allocations
+            // (caches écrits depuis juil. 2026) ; sinon fallback prix catalogue.
+            const gross = parseFloat(item.price || "0") * (item.quantity || 1)
+            const lineDiscount = (item.discount_allocations || []).reduce(
+              (s: number, a: { amount?: string }) => s + (parseFloat(a.amount || "0") || 0), 0)
             const { error } = await supabase
               .from("influencer_product_sales")
               .insert({
@@ -167,7 +172,7 @@ export async function POST() {
                 variant_title: item.variant_title || null,
                 sku: item.sku || null,
                 quantity: item.quantity || 1,
-                line_price: parseFloat(item.price || "0") * (item.quantity || 1),
+                line_price: Math.max(0, gross - lineDiscount),
               })
 
             if (error) {

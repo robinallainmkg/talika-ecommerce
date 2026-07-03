@@ -137,6 +137,12 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
         quantity: li.quantity,
         price: li.price,
         compare_at_price: li.compare_at_price || variantPriceMap.get(li.variant_id) || null,
+        // Remises exactes par ligne (comme le sync manuel) : nécessaires pour
+        // valoriser les ventes influence APRÈS remise (et pour la générosité).
+        discount_allocations: (li.discount_allocations || []).map((da: any) => ({
+          amount: da.amount,
+          discount_application_index: da.discount_application_index,
+        })),
       })),
       shipping_lines: (o.shipping_lines || []).map((sl: any) => ({
         title: sl.title,
@@ -271,6 +277,12 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
           matchedInfluencerIds.add(influencerId)
 
           for (const item of order.line_items || []) {
+            // Vente = ce que la cliente paie TTC APRÈS remise (prix catalogue −
+            // discount_allocations de la ligne). Convention unique de l'influence :
+            // les commissions se calculent sur le net des remises, pas le prix plein.
+            const gross = parseFloat(item.price || "0") * (item.quantity || 1)
+            const lineDiscount = (item.discount_allocations || []).reduce(
+              (s: number, a: { amount?: string }) => s + (parseFloat(a.amount || "0") || 0), 0)
             candidates.push({
               influencer_id: influencerId,
               discount_code: code,
@@ -282,7 +294,7 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
               variant_title: item.variant_title || null,
               sku: item.sku || null,
               quantity: item.quantity || 1,
-              line_price: parseFloat(item.price || "0") * (item.quantity || 1),
+              line_price: Math.max(0, gross - lineDiscount),
             })
           }
         }

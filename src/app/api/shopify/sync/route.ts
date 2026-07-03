@@ -191,8 +191,12 @@ export async function POST(request: Request) {
             influencerTotals[influencerId].sales += parseFloat(order.total_price || "0")
             influencerTotals[influencerId].orders += 1
 
-            // Sync product-level sales
+            // Sync product-level sales — line_price = TTC APRÈS remise (net des
+            // discount_allocations), convention unique des ventes influence.
             for (const item of order.line_items || []) {
+              const gross = parseFloat(item.price || "0") * (item.quantity || 1)
+              const lineDiscount = (item.discount_allocations || []).reduce(
+                (s: number, a: { amount?: string }) => s + (parseFloat(a.amount || "0") || 0), 0)
               const { error } = await supabase
                 .from("influencer_product_sales")
                 .insert({
@@ -206,7 +210,7 @@ export async function POST(request: Request) {
                   variant_title: item.variant_title || null,
                   sku: item.sku || null,
                   quantity: item.quantity || 1,
-                  line_price: parseFloat(item.price || "0") * (item.quantity || 1),
+                  line_price: Math.max(0, gross - lineDiscount),
                 })
               if (error?.code === "23505") continue // duplicate, already synced
               if (!error) syncedProducts++
