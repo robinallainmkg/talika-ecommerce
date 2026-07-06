@@ -66,6 +66,7 @@ export async function GET(request: Request) {
       paceRes,
       adsCachesRes,
       freshnessRes,
+      emailCostRes,
     ] = await Promise.all([
       supabase.from("data_cache").select("data, updated_at").eq("key", monthKey("shopify_orders", year, month)).single(),
       supabase.from("influencer_codes").select("code").eq("code_type", "influencer").eq("is_active", true),
@@ -87,6 +88,10 @@ export async function GET(request: Request) {
         monthKey("meta_monthly", year, month),
         monthKey("google_ads", year, month),
       ]),
+      // Coût email fixe (abonnement Klaviyo) — constante métier éditable dans
+      // knowledge_base (key cost:email:monthly, payload.amount). Compté dans le
+      // MER et sert au ROAS email.
+      supabase.from("knowledge_base").select("payload").eq("key", "cost:email:monthly").eq("status", "active").single(),
     ])
 
     // ── Commandes du mois (source de vérité TTC) ──
@@ -221,7 +226,8 @@ export async function GET(request: Request) {
     )
 
     // ── KPIs globaux ──
-    const totalSpend = influenceCost + metaSpend + googleSpend
+    const emailCost = Number((emailCostRes.data?.payload as any)?.amount) || 0
+    const totalSpend = influenceCost + metaSpend + googleSpend + emailCost
     const blendedRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0
     const influenceBucket = buckets.influence
 
@@ -295,6 +301,12 @@ export async function GET(request: Request) {
       total_new_customers: totalNewCustomers,
       blended_cpa: totalSpend > 0 && totalNewCustomers > 0 ? totalSpend / totalNewCustomers : null,
       pace,
+      // Email : coût fixe (knowledge_base cost:email:monthly) + ROAS mesuré
+      email: {
+        cost: emailCost,
+        revenue: Math.round(buckets.email.revenue),
+        roas: emailCost > 0 ? buckets.email.revenue / emailCost : null,
+      },
       // Partition déterministe (une commande = un canal, code > pub > email > SEO > direct)
       attribution: {
         available: coverage > 0.5,
