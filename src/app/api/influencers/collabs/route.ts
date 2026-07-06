@@ -48,6 +48,16 @@ export async function GET(request: Request) {
     const byId: Record<string, InfRow> = {}
     for (const i of (infs || []) as InfRow[]) byId[i.id] = i
 
+    // Stats conversation par influenceuse (une seule requête agrégée, pas de N+1).
+    // Best-effort : si la RPC échoue (table/fonction absente), le kanban vit sans badge.
+    const msgStats: Record<string, { message_count: number; last_message_at: string | null; last_inbound_at: string | null }> = {}
+    if (ids.length) {
+      const { data: stats } = await supabase.rpc("influence_message_stats", { inf_ids: ids })
+      for (const s of (stats || []) as { influencer_id: string; message_count: number; last_message_at: string | null; last_inbound_at: string | null }[]) {
+        msgStats[s.influencer_id] = s
+      }
+    }
+
     // Coûts du mois (forfait + commission) par influenceuse.
     const fee: Record<string, number> = {}
     const comm: Record<string, number> = {}
@@ -63,7 +73,12 @@ export async function GET(request: Request) {
     const rows = (collabs || []).map((c) => {
       const inf = byId[c.influencer_id]
       const meta = (inf?.metadata || {}) as Record<string, unknown>
+      const ms = msgStats[c.influencer_id]
       return {
+        message_count: ms?.message_count || 0,
+        last_message_at: ms?.last_message_at || null,
+        // Dernier message = entrant → une réponse attend d'être traitée.
+        awaiting_reply: !!(ms?.last_inbound_at && ms.last_inbound_at === ms.last_message_at),
         id: c.id,
         influencer_id: c.influencer_id,
         name: inf?.name || "?",

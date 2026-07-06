@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, Mail, RefreshCw, Send, Eye, CheckCircle2, AlertTriangle } from "lucide-react"
+import { Loader2, Mail, RefreshCw, Send, Eye, CheckCircle2, AlertTriangle, MessageCircle } from "lucide-react"
+import { ConversationDrawer } from "@/components/influence/conversation-drawer"
 
 interface OutreachState {
   status: string; step: number; sent: Record<string, string>
@@ -29,6 +30,7 @@ export default function OutreachPage() {
   const [busy, setBusy] = useState(false)
   const [results, setResults] = useState<SendResult[] | null>(null)
   const [note, setNote] = useState<string>("")
+  const [convId, setConvId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -186,11 +188,17 @@ export default function OutreachPage() {
                   <td className="px-3 py-2.5">{r.due ? <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[11px] font-bold text-white">ét.{r.due}</span> : <span className="text-zinc-300">—</span>}</td>
                   <td className="px-3 py-2.5 text-xs text-zinc-400">{lastSent ? new Date(lastSent).toLocaleDateString("fr-FR") : "—"}</td>
                   <td className="px-3 py-2.5">
-                    <button onClick={() => sendOne(r.id, r.name)} disabled={busy || !r.due || !r.email || !data?.configured}
-                      title={!r.email ? "email à sourcer" : !r.due ? "rien de dû" : !data?.configured ? "mail non configuré" : "Envoyer (réel · 1 email)"}
-                      className="flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-30">
-                      <Send className="h-3 w-3" /> Envoyer
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => sendOne(r.id, r.name)} disabled={busy || !r.due || !r.email || !data?.configured}
+                        title={!r.email ? "email à sourcer" : !r.due ? "rien de dû" : !data?.configured ? "mail non configuré" : "Envoyer (réel · 1 email)"}
+                        className="flex items-center gap-1 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-30">
+                        <Send className="h-3 w-3" /> Envoyer
+                      </button>
+                      <button onClick={() => setConvId(r.id)} title="Voir la conversation"
+                        className="rounded-md border border-zinc-200 p-1 text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800">
+                        <MessageCircle className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )
@@ -198,6 +206,7 @@ export default function OutreachPage() {
           </tbody>
         </table>
       </div>
+      <ConversationDrawer influencerId={convId} onClose={() => setConvId(null)} />
     </div>
   )
 }

@@ -101,7 +101,9 @@ export async function sendInviteEmail(to: string, link: string): Promise<boolean
 // ── Envoi générique (sujet/corps libres) — réutilisé par l'outreach influence.
 // Même logique de canaux : Resend HTTP si RESEND_API_KEY, sinon SMTP (ex. Resend
 // branché en SMTP : SMTP_HOST=smtp.resend.com, SMTP_USER=resend, SMTP_PASS=<clé re_…>).
-export interface MailMsg { to: string; subject: string; text: string; html?: string; from?: string; replyTo?: string }
+// headers : en-têtes SMTP additionnels (ex. In-Reply-To/References pour qu'une réponse
+// s'affiche dans le bon fil chez le destinataire). Supporté par Resend HTTP ET nodemailer.
+export interface MailMsg { to: string; subject: string; text: string; html?: string; from?: string; replyTo?: string; headers?: Record<string, string> }
 
 export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; error?: string }> {
   // 1. Resend HTTP (si clé API directe)
@@ -113,6 +115,7 @@ export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; 
         body: JSON.stringify({
           from: m.from || process.env.RESEND_FROM, to: m.to, subject: m.subject,
           text: m.text, ...(m.html ? { html: m.html } : {}), ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+          ...(m.headers ? { headers: m.headers } : {}),
         }),
       })
       if (!res.ok) return { ok: false, error: `Resend HTTP ${res.status} ${await res.text().catch(() => "")}`.slice(0, 300) }
@@ -127,6 +130,7 @@ export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; 
         from: m.from || process.env.SMTP_FROM || process.env.SMTP_USER!,
         to: m.to, subject: m.subject, text: m.text, ...(m.html ? { html: m.html } : {}),
         ...(m.replyTo ? { replyTo: m.replyTo } : {}),
+        ...(m.headers ? { headers: m.headers } : {}),
       })
       return { ok: true, id: (info as { messageId?: string })?.messageId }
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }

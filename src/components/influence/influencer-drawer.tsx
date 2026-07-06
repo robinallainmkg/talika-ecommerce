@@ -4,9 +4,11 @@ import { useEffect, useState } from "react"
 import { formatCurrency } from "@/lib/utils"
 import { MONTHS_FULL } from "@/components/influence/month-tabs"
 import { authClient } from "@/lib/auth/client"
-import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check, Plus } from "lucide-react"
+import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check, Plus, MessageCircle } from "lucide-react"
 
-interface Drawer { influencerId: string | null; onClose: () => void }
+// onOpenConversation (optionnel) : affiché seulement si fourni — la page campagnes
+// le passe pour basculer vers le drawer conversation (fil email influence_messages).
+interface Drawer { influencerId: string | null; onClose: () => void; onOpenConversation?: (id: string) => void }
 
 type Code = { id: string; code: string; is_active: boolean }
 type MonthAmt = { year: number; month: number; amount: number }
@@ -46,7 +48,7 @@ function Section({ title, count, children }: { title: string; count?: number; ch
   )
 }
 
-export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
+export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: Drawer) {
   const [data, setData] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(false)
   const [imgError, setImgError] = useState(false)
@@ -311,6 +313,14 @@ export function InfluencerDrawer({ influencerId, onClose }: Drawer) {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-0.5">
+                {onOpenConversation && (
+                  <button
+                    onClick={() => onOpenConversation(inf.id)}
+                    className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                    title="Voir la conversation">
+                    <MessageCircle className="h-4 w-4" />
+                  </button>
+                )}
                 <button
                   onClick={() => (editing ? setEditing(false) : openEditor())}
                   className={`rounded-lg p-1.5 ${editing ? "bg-zinc-900 text-white" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"}`}

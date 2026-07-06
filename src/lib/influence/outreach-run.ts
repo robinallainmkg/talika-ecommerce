@@ -5,6 +5,7 @@ import {
   dueStep, renderStep, sendOutreach, defaultState,
   DAILY_CAP, TERMINAL, type OutreachState, type OutreachStatus,
 } from "@/lib/influence/outreach"
+import { logOutbound } from "@/lib/influence/messages"
 
 interface Inf {
   id: string; name: string; email: string | null
@@ -93,6 +94,12 @@ export async function sendDueBatch(supabase: SupabaseClient, opts: BatchOpts): P
     })
     let persistErr: { message: string } | null = null
     if (status === "sent") {
+      // Fil de conversation : corps complet archivé (best-effort, HORS fail-closed —
+      // l'anti-doublon reste outreach_log, une écriture ratée ici ne stoppe rien).
+      await logOutbound(supabase, {
+        influencer_id: inf.id, market: opts.market, source: "drip",
+        to_email: email, subject, body_text: text, provider_id: provider || null,
+      })
       alreadySent.add(`${inf.id}:${step}`)
       // Pipeline kanban : la carte passe Prospect → Contacté automatiquement (best-effort).
       await supabase.from("influence_campaign_collabs")

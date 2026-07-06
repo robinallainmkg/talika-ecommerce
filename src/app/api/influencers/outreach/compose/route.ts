@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import {
   mergeTemplate, sendOutreach, outreachConfigured, defaultState, type OutreachState,
 } from "@/lib/influence/outreach"
+import { logOutbound } from "@/lib/influence/messages"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -16,7 +17,7 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
-interface Inf { id: string; name: string; instagram_handle: string | null; email: string | null; metadata: Record<string, unknown> | null }
+interface Inf { id: string; name: string; instagram_handle: string | null; email: string | null; market: string | null; metadata: Record<string, unknown> | null }
 const firstName = (n: string) => (n || "there").trim().split(/\s+/)[0].replace(/[(),]/g, "")
 
 // POST { influencer_ids:[], subject, body, dry? } — envoie un message composé (template
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
   }
 
   const { data, error } = await supabase
-    .from("influencers").select("id,name,instagram_handle,email,metadata").in("id", ids)
+    .from("influencers").select("id,name,instagram_handle,email,market,metadata").in("id", ids)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const now = new Date()
@@ -72,6 +73,12 @@ export async function POST(request: Request) {
     })
     // Envoi réel : on marque "contactée" pour stopper le step1 auto du drip.
     if (status === "sent") {
+      // Fil de conversation (best-effort). Market réel de l'influenceuse (l'outreach_log
+      // ci-dessus garde "UK" en dur — journal du drip, sémantique distincte).
+      await logOutbound(supabase, {
+        influencer_id: inf.id, market: inf.market || "UK", source: "compose",
+        to_email: email, subject, body_text: text, provider_id: provider || null,
+      })
       const next: OutreachState = {
         ...st,
         status: st.status === "À contacter" || st.status === "À qualifier" ? "Étape 1 envoyée" : st.status,

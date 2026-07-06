@@ -15,6 +15,7 @@ import { createClient } from "@supabase/supabase-js"
 import { sendMail } from "@/lib/mailer"
 import { fetchRecentMessages, imapConfigured } from "@/lib/influence/imap"
 import { sendDueBatch } from "@/lib/influence/outreach-run"
+import { logInboundBatch, UK_MAILBOX, type InboundMsg } from "@/lib/influence/messages"
 import {
   classifyReply, appBaseUrl, defaultState, warmupCap, type OutreachState,
 } from "@/lib/influence/outreach"
@@ -72,6 +73,10 @@ export async function GET(request: Request) {
   const sendParam = url.searchParams.get("send") === "1"
   // ?only=<influencer_id> → run ciblé (test sur un seul contact).
   const only = url.searchParams.get("only") || undefined
+  // ?scan=1 → SEULE la section IMAP (réponses + archivage conversation), pas de batch
+  // ni de digest — sert aux tests et au backfill. ?limit= élargit la fenêtre (max 500).
+  const scanOnly = url.searchParams.get("scan") === "1"
+  const scanLimit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 60))
   const now = new Date()
   const { data: contacts = [] } = await supabase
     .from("influencers").select("id,name,email,metadata").eq("market", MARKET)
@@ -79,13 +84,38 @@ export async function GET(request: Request) {
   const byEmail = new Map<string, Contact>()
   for (const c of list) if (c.email) byEmail.set(c.email.trim().toLowerCase(), c)
 
-  // 1. RÉPONSES + BOUNCES (IMAP) → pipeline
+  // 1. RÉPONSES + BOUNCES (IMAP) → pipeline + fil de conversation
   const newReplies: { name: string; email: string | null; subject: string; status: string }[] = []
   const bounced: string[] = []
+  let archived = 0
   let replyError: string | undefined
+  let archiveError: string | undefined
   if (imapConfigured()) {
     try {
-      const scan = await fetchRecentMessages(60)
+      // Corps téléchargés SEULEMENT pour les expéditeurs connus (fil de conversation).
+      const scan = await fetchRecentMessages(scanLimit, { wantBodiesFor: (h) => byEmail.has(h.from_email) })
+      // 1a. ARCHIVAGE (influence_messages) : TOUS les messages entrants de contacts connus,
+      // AVANT le skip REPLY_DONE — les réponses ultérieures d'une même personne sont
+      // conservées. Idempotent par (mailbox, message_id) ; best-effort (jamais bloquant).
+      const inbound: InboundMsg[] = scan.messages
+        .filter((m) => byEmail.has(m.from_email))
+        .map((m) => ({
+          influencer_id: byEmail.get(m.from_email)!.id,
+          market: MARKET,
+          mailbox: UK_MAILBOX,
+          source: "imap" as const,
+          from_email: m.from_email,
+          to_email: m.to_email || UK_MAILBOX,
+          subject: m.subject || null,
+          body_text: m.body_text ?? null,
+          message_id: m.message_id,
+          in_reply_to: m.in_reply_to,
+          sent_at: m.date || now.toISOString(),
+        }))
+      const arch = await logInboundBatch(supabase, inbound)
+      archived = arch.inserted
+      if (!arch.ok) archiveError = arch.error
+      // 1b. CLASSIFICATION + pipeline : inchangé (premier reply seulement).
       for (const m of scan.messages) {
         const c = byEmail.get(m.from_email)
         if (!c) continue
@@ -113,6 +143,14 @@ export async function GET(request: Request) {
         bounced.push(c.name)
       }
     } catch (e) { replyError = e instanceof Error ? e.message : String(e) }
+  }
+
+  // ?scan=1 → on s'arrête là (pas de batch, pas de digest) : test / backfill du fil.
+  if (scanOnly) {
+    return NextResponse.json({
+      scan: true, limit: scanLimit, archived, archiveError,
+      replies: newReplies, bounced, replyError,
+    })
   }
 
   // 2. OPENS (dernières 24 h)
@@ -196,6 +234,6 @@ export async function GET(request: Request) {
     enabled, weekday: isWeekday, warmupDay, cap, sentToday, remaining,
     replies: newReplies, bounced, opens, contacted: contactedToday, counts,
     batch: { sent: batch.sent, attempted: batch.attempted, dry: !enabled },
-    digestSent, replyError,
+    digestSent, replyError, archived, archiveError,
   })
 }

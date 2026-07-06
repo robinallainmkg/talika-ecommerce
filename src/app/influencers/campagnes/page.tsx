@@ -5,6 +5,7 @@ import { cn, formatCurrency } from "@/lib/utils"
 import { STAGES, type Stage } from "@/lib/influence/pipeline"
 import { MONTH_NAMES } from "@/lib/influence/monthly-campaign"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
+import { ConversationDrawer } from "@/components/influence/conversation-drawer"
 import { Header } from "@/components/layout/header"
 import { Plus, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw, Send } from "lucide-react"
 import { OutreachCompose } from "@/components/influence/outreach-compose"
@@ -22,6 +23,7 @@ interface Collab {
   niche: string | null; followers: number | null; stage: Stage; owner: string | null
   next_action: string | null; next_action_date: string | null
   themes: string[]; fee: number; commission: number; commission_rate: number | null
+  message_count: number; last_message_at: string | null; awaiting_reply: boolean
 }
 interface InfLite { id: string; name: string }
 
@@ -43,7 +45,8 @@ export default function CampagnesPage() {
   const [selected, setSelected] = useState<string>("")
   const [collabs, setCollabs] = useState<Collab[]>([])
   const [syncing, setSyncing] = useState(false)
-  const [drawerId, setDrawerId] = useState<string | null>(null)
+  const [drawerId, setDrawerId] = useState<string | null>(null)     // drawer profil (clic sur le NOM)
+  const [convId, setConvId] = useState<string | null>(null)         // drawer conversation (clic sur la CARTE)
   const [dragId, setDragId] = useState<string | null>(null)
   const [showCampaign, setShowCampaign] = useState(false)
   const [editCampaign, setEditCampaign] = useState<Campaign | null>(null)
@@ -245,20 +248,38 @@ export default function CampagnesPage() {
                         key={c.id}
                         draggable
                         onDragStart={() => setDragId(c.id)}
-                        onClick={() => setDrawerId(c.influencer_id)}
+                        onClick={() => setConvId(c.influencer_id)}
                         className="group cursor-pointer rounded-lg border border-zinc-200 bg-white p-2.5 shadow-sm hover:border-zinc-300"
+                        title="Voir la conversation"
                       >
                         <div className="flex items-start gap-2">
                           <input type="checkbox" checked={sel.has(c.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(c.id)}
                             className="mt-1 h-3.5 w-3.5 shrink-0 cursor-pointer accent-zinc-900" title="Sélectionner pour l'outreach" />
                           <CardPhoto handle={c.instagram_handle} name={c.name} />
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-zinc-900">{c.name}</div>
+                            {/* Nom → profil ; carte → conversation */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDrawerId(c.influencer_id) }}
+                              className="block max-w-full truncate text-left text-sm font-medium text-zinc-900 hover:underline"
+                              title="Voir le profil">
+                              {c.name}
+                            </button>
                             <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
                               {c.instagram_handle && <span className="inline-flex items-center gap-0.5"><Instagram className="h-3 w-3" />{c.instagram_handle.replace(/^@/, "")}</span>}
                               {c.followers != null && <span>· {Number(c.followers).toLocaleString("fr-FR")}</span>}
                             </div>
-                            {!c.email && <span className="mt-0.5 inline-block rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700" title="Pas d'email — ne peut pas être contactée par outreach">✉️ email manquant</span>}
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                              {c.message_count > 0 && (
+                                <span
+                                  className={cn("inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium",
+                                    c.awaiting_reply ? "bg-amber-100 text-amber-800" : "bg-zinc-100 text-zinc-500")}
+                                  title={c.awaiting_reply ? "Dernier message reçu — réponse attendue" : "Conversation"}>
+                                  💬 {c.message_count}
+                                  {c.last_message_at && <span>· {new Date(c.last_message_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}</span>}
+                                </span>
+                              )}
+                              {!c.email && <span className="inline-block rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700" title="Pas d'email — ne peut pas être contactée par outreach">✉️ email manquant</span>}
+                            </div>
                           </div>
                           <button onClick={(e) => { e.stopPropagation(); removeCollab(c.id) }} className="opacity-0 group-hover:opacity-100 text-zinc-300 hover:text-red-500" title="Retirer">
                             <Trash2 className="h-3.5 w-3.5" />
@@ -316,7 +337,16 @@ export default function CampagnesPage() {
         />
       )}
       {showAdd && selected && <AddModal campaignId={selected} allInf={allInf} inCampaign={new Set(collabs.map((c) => c.influencer_id))} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); loadCollabs(selected); loadCampaigns() }} />}
-      <InfluencerDrawer influencerId={drawerId} onClose={() => setDrawerId(null)} />
+      <InfluencerDrawer
+        influencerId={drawerId}
+        onClose={() => setDrawerId(null)}
+        onOpenConversation={(id) => { setDrawerId(null); setConvId(id) }}
+      />
+      <ConversationDrawer
+        influencerId={convId}
+        onClose={() => setConvId(null)}
+        onOpenProfile={(id) => { setConvId(null); setDrawerId(id) }}
+      />
       {showCompose && sel.size > 0 && (
         <OutreachCompose
           ids={selectedCollabs.map((c) => c.influencer_id)}
