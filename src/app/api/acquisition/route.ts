@@ -22,7 +22,11 @@ const CHANNEL_META: Record<AttributionChannel, { name: string; color: string }> 
   google_ads: { name: "Google Ads", color: "#f59e0b" },
   meta_ads: { name: "Meta Ads", color: "#3b82f6" },
   email: { name: "Email (Klaviyo)", color: "#14b8a6" },
-  seo: { name: "SEO", color: "#10b981" },
+  // Pas "SEO" : quasi 100 % des entrées organiques sont des requêtes de marque
+  // (vérifié search terms juin 2026 : 98 % contiennent "talika") → c'est de la
+  // récolte de notoriété, pas un canal d'acquisition. Le vrai SEO de conquête
+  // (requêtes génériques) reste à construire — cf plan SEO.
+  seo: { name: "Recherche de marque (organique)", color: "#10b981" },
   direct: { name: "Direct / autres", color: "#a1a1aa" },
 }
 
