@@ -25,6 +25,12 @@ type ShopifyProduct = {
   ingredients: Metafield
   statement: Metafield
   productSize: Metafield
+  // Métafields custom.* : nouveau format de fiche (ex. LED Therapy Mask) — les fiches
+  // récentes rangent leur contenu ici et n'ont PAS de champs accentuate.
+  subTitle: Metafield
+  howToUse: Metafield
+  functions: Metafield
+  testCliniques: Metafield // rich_text_field (JSON Shopify)
 }
 
 export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
@@ -49,6 +55,10 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
             ingredients: metafield(namespace: "accentuate", key: "ingredients") { value }
             statement: metafield(namespace: "accentuate", key: "statement") { value }
             productSize: metafield(namespace: "accentuate", key: "product_size") { value }
+            subTitle: metafield(namespace: "custom", key: "product_sub_title") { value }
+            howToUse: metafield(namespace: "custom", key: "howtouse") { value }
+            functions: metafield(namespace: "custom", key: "functions") { value }
+            testCliniques: metafield(namespace: "custom", key: "test_cliniques") { value }
           }
         }
       }`
@@ -96,12 +106,29 @@ function mf(field: Metafield): string {
   return field?.value ? cleanContent(field.value) : ""
 }
 
+// rich_text_field Shopify = JSON {type:"root", children:[...]} -> texte brut
+function richText(field: Metafield): string {
+  if (!field?.value) return ""
+  try {
+    const walk = (node: { value?: string; children?: unknown[] }): string => {
+      const own = node.value || ""
+      const kids = (node.children || []).map((c) => walk(c as { value?: string })).join("")
+      return own + kids + (node.children ? "\n" : "")
+    }
+    return walk(JSON.parse(field.value)).replace(/\n{3,}/g, "\n\n").trim()
+  } catch {
+    return cleanContent(field.value)
+  }
+}
+
 function buildProductText(p: ShopifyProduct): string {
   const cleanTags = (p.tags || []).filter((t) => t && !isJunkTag(t))
-  const advice = mf(p.advice)
-  const results = mf(p.results)
+  // accentuate (anciennes fiches) prioritaire, sinon custom.* (nouvelles fiches type LED Therapy Mask)
+  const advice = mf(p.advice) || mf(p.howToUse)
+  const results = mf(p.results) || richText(p.testCliniques)
   const ingredients = mf(p.ingredients)
-  const statement = mf(p.statement)
+  const statement = mf(p.statement) || mf(p.subTitle)
+  const functions = mf(p.functions)
   const size = mf(p.productSize)
   return [
     `# ${p.title}`,
@@ -112,6 +139,7 @@ function buildProductText(p: ShopifyProduct): string {
     cleanContent(p.descriptionHtml || ""),
     statement ? `\n## En bref\n${statement}` : "",
     advice ? `\n## Conseils d'utilisation\n${advice}` : "",
+    functions ? `\n## Technologie (longueurs d'onde)\n${functions}` : "",
     results ? `\n## Résultats\n${results}` : "",
     ingredients ? `\n## Ingrédients\n${ingredients}` : "",
   ]
