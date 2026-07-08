@@ -25,10 +25,14 @@ const SAV_OTHER =
   /\b(rembours\w*|réclamation|reclamation|litige|résilier|resilier|annul\w*\s+(ma|la|une|mon|cette|notre)\s+commande)\b|\b(colis|commande|article|produit|paquet|envoi|livraison)\b[^.?!]{0,30}\b(perdu\w*|égar\w*|jamais\s+(re[çc]u|arriv\w*|livr\w*)|pas\s+(re[çc]u|arriv\w*|livr\w*|encore)|non\s+re[çc]u|cass\w*|abîm\w*|abim\w*|défectu\w*|defectu\w*|endommag\w*|manquant|erron\w*|mauvais|ne\s+correspond)|\b(refund|return|complaint|broken|damaged|missing|defective|wrong\s+(item|product|order))\b/i
 
 // 3) Confirmation courte (« oui ») juste après une proposition d'escalade.
-const SHORT_YES =
-  /^\s*(oui+|ouais|ouaip|ok(ay|é)?|d['’]accord|volontiers|je\s+veux\s+bien|avec\s+plaisir|carrément|bien\s+sûr|yes+|yep|yeah|sure|please|s['’]il\s+(vous|te)\s+pla[îi]t|svp|stp)\s*[.!\s]*$/i
+// Accepte les politesses en suffixe (« oui svp », « oui merci », « oui je veux
+// bien ») : la version mono-mot ratait « oui svp » (vu en prod le 17/06, la
+// demande de transmission repartait en réponse produit).
+const YES_WORD =
+  "(?:oui+|ouais|ouaip|ok(?:ay|é)?|d['’]accord|volontiers|je\\s+veux\\s+bien|avec\\s+plaisir|carrément|bien\\s+sûr|yes+|yep|yeah|sure|please|s['’]il\\s+(?:vous|te)\\s+pla[îi]t|svp|stp|merci(?:\\s+beaucoup)?|thanks?(?:\\s+you)?)"
+const SHORT_YES = new RegExp(`^\\s*(?!\\s*merci)${YES_WORD}(?:[\\s,.!]+${YES_WORD})*\\s*[.!\\s]*$`, "i")
 const OFFERED_ESCALATION =
-  /(laisser?\s+un\s+message|parler?\s+à\s+(un|notre|l['’])|transmettre?\s+(à\s+(l['’]|notre)|votre|à\s+notre)|notre\s+équipe\s+(vous|pourra|se\s+fera)|un\s+conseiller|équipe\s+talika\s+(vous|pourra)|leave\s+(a\s+|your\s+)?message|talk\s+to\s+(our|the)\s+team)/i
+  /(laisser?\s+un\s+message|parler?\s+à\s+(un|notre|l['’])|transmet\w*\s+(à\s+(l['’]|notre)|votre|ta\s|sa\s|à\s+notre)|notre\s+équipe\s+(vous|pourra|se\s+fera)|un\s+conseiller|équipe\s+talika\s+(vous|pourra)|leave\s+(a\s+|your\s+)?message|talk\s+to\s+(our|the)\s+team)/i
 
 export function isSavTopic(message: string): boolean {
   if (SAV_OTHER.test(message)) return true
