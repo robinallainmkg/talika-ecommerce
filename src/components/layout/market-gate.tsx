@@ -3,11 +3,19 @@
 import { useEffect, useState } from "react"
 
 // Marché courant côté client (cookie tk_market, posé par le switch FR/UK du header).
+// ⚠️ Init synchrone depuis le cookie : avec un défaut "FR" corrigé en useEffect, la
+// page fetchait d'abord market=FR puis market=UK, et la réponse FR (plus lourde)
+// pouvait arriver en dernier → données FR affichées en mode UK (bug campagnes 09/07).
+function readMarketCookie(): "FR" | "UK" {
+  if (typeof document === "undefined") return "FR"
+  return document.cookie.match(/(?:^|; )tk_market=(FR|UK)/)?.[1] === "UK" ? "UK" : "FR"
+}
+
 export function useMarket(): "FR" | "UK" {
-  const [m, setM] = useState<"FR" | "UK">("FR")
+  const [m, setM] = useState<"FR" | "UK">(readMarketCookie)
+  // Resynchronise après hydratation (le rendu serveur suppose FR).
   useEffect(() => {
-    const x = typeof document !== "undefined" ? document.cookie.match(/(?:^|; )tk_market=(FR|UK)/) : null
-    setM(x?.[1] === "UK" ? "UK" : "FR")
+    setM(readMarketCookie())
   }, [])
   return m
 }
