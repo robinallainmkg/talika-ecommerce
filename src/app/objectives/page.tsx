@@ -205,25 +205,38 @@ export default function ObjectivesPage() {
     return { icon: "\u2717", color: "text-red-500", bg: "bg-red-50" }
   }
 
+  // Statut d\u00E9taill\u00E9 par crit\u00E8re : une pastille par crit\u00E8re (CA, Media, G\u00E9n\u00E9rosit\u00E9).
+  // Mois non rempli (pas de CA 2026) \u2192 pas de statut, on affiche "\u2014".
+  const DOT_COLORS: Record<string, string> = {
+    "\u2713": "bg-emerald-500",
+    "\u26A0": "bg-amber-400",
+    "\u2717": "bg-red-500",
+    "\u2014": "bg-zinc-200",
+  }
+
   function rowStatus(row: MonthData) {
+    if (row.ca_2026 === 0) return null
+
     const croissance = row.ca_2025 > 0 ? ((row.ca_2026 - row.ca_2025) / row.ca_2025) * 100 : 0
-    const mediaPct = row.ca_2026 > 0 ? (row.media_spent / row.ca_2026) * 100 : 0
+    const mediaPct = (row.media_spent / row.ca_2026) * 100
 
     const gs = growthStatus(croissance)
     const ms = mediaStatus(mediaPct)
     const gens = generositeStatus(row.generosite)
 
-    // Overall: worst of the three
-    if (gs.icon === "\u2717" || ms.icon === "\u2717" || gens.icon === "\u2717") {
-      return { icon: "\u2717", color: "text-red-500" }
+    const fmtSign = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
+    return {
+      dots: [
+        { key: "CA", icon: gs.icon, label: `Croissance ${fmtSign(croissance)} (cible +20%)` },
+        { key: "Media", icon: ms.icon, label: `Media ${mediaPct.toFixed(1)}% du CA (cible \u226425%)` },
+        { key: "G\u00E9n\u00E9", icon: gens.icon, label: `G\u00E9n\u00E9rosit\u00E9 ${row.generosite}% (cible \u226420%)` },
+      ],
+      title: [
+        `Croissance ${fmtSign(croissance)} ${gs.icon}`,
+        `Media ${mediaPct.toFixed(1)}% ${ms.icon}`,
+        `G\u00E9n\u00E9rosit\u00E9 ${row.generosite}% ${gens.icon}`,
+      ].join("\n"),
     }
-    if (gs.icon === "\u26A0" || ms.icon === "\u26A0" || gens.icon === "\u26A0") {
-      return { icon: "\u26A0", color: "text-amber-500" }
-    }
-    if (row.ca_2026 === 0 && row.ca_2025 === 0) {
-      return { icon: "\u2014", color: "text-zinc-400" }
-    }
-    return { icon: "\u2713", color: "text-emerald-600" }
   }
 
   return (
@@ -583,11 +596,24 @@ export default function ObjectivesPage() {
                               </div>
                             </td>
 
-                            {/* Status */}
+                            {/* Status : 3 pastilles CA / Media / Générosité */}
                             <td className="py-2.5 text-center">
-                              <span className={`text-lg font-bold ${status.color}`}>
-                                {status.icon}
-                              </span>
+                              {status ? (
+                                <div
+                                  className="inline-flex items-center gap-1 cursor-help"
+                                  title={status.title}
+                                >
+                                  {status.dots.map((d) => (
+                                    <span
+                                      key={d.key}
+                                      aria-label={d.label}
+                                      className={`inline-block w-2.5 h-2.5 rounded-full ${DOT_COLORS[d.icon] || "bg-zinc-200"}`}
+                                    />
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-zinc-300">{"—"}</span>
+                              )}
                             </td>
                           </tr>
                         )
@@ -641,16 +667,23 @@ export default function ObjectivesPage() {
 
             {/* ── Legend ─────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-500">
+              <div className="flex items-center gap-1.5">
+                <span className="font-medium">Statut :</span>
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-400" />
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-300" />
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-200" />
+                <span>= Croissance \u00B7 Media \u00B7 G\u00E9n\u00E9rosit\u00E9 (survoler pour le d\u00E9tail)</span>
+              </div>
               <div className="flex items-center gap-1">
-                <span className="text-emerald-600 font-bold">{"\u2713"}</span>
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
                 Objectif atteint
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-amber-500 font-bold">{"\u26A0"}</span>
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
                 Attention
               </div>
               <div className="flex items-center gap-1">
-                <span className="text-red-500 font-bold">{"\u2717"}</span>
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
                 Hors objectif
               </div>
               <div className="ml-auto text-zinc-400">
