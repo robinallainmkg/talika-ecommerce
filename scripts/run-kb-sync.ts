@@ -6,6 +6,7 @@ loadEnvConfig(process.cwd())
 
 import { createClient } from "@supabase/supabase-js"
 import { syncProducts } from "../src/lib/chat/shopify-products"
+import { syncThemeFaqs } from "../src/lib/chat/theme-faqs"
 
 async function main() {
   const db = createClient(
@@ -14,7 +15,8 @@ async function main() {
     { auth: { persistSession: false } }
   )
   const result = await syncProducts(db)
-  console.log(JSON.stringify(result, null, 2))
+  const themeFaqs = await syncThemeFaqs(db)
+  console.log(JSON.stringify({ ...result, theme_faqs: themeFaqs }, null, 2))
 }
 
 main().catch((err) => {
