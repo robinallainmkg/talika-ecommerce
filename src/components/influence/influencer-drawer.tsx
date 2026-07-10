@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { formatCurrency } from "@/lib/utils"
 import { MONTHS_FULL } from "@/components/influence/month-tabs"
 import { authClient } from "@/lib/auth/client"
+import { AudienceSection, type AudienceData } from "@/components/influence/audience-section"
 import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check, Plus, MessageCircle } from "lucide-react"
 
 // onOpenConversation (optionnel) : affiché seulement si fourni — la page campagnes
@@ -430,6 +431,10 @@ export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: 
                 </div>
               ))}
             </div>
+
+            {/* Audience (démographies média-kit, alimentées par la routine outreach) */}
+            <AudienceSection audience={meta.audience as AudienceData | undefined} />
+
 
             {/* Collabs (coût mensuel) */}
             <Section title="Collabs (coût par mois)" count={collabs.length}>
