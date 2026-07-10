@@ -77,12 +77,15 @@ function AgeChart({ age }: { age: AgeRow[] }) {
   const val = (r: AgeRow) => (r.total ?? (r.female ?? 0) + (r.male ?? 0))
   const max = Math.max(1, ...age.map((r) => Math.max(val(r), r.female ?? 0, r.male ?? 0)))
   const split = age.some((r) => r.female != null || r.male != null)
-  const h = (v: number) => `${Math.max(2, Math.round((v / max) * 100))}%`
+  // Hauteurs en PIXELS (pas en %) : un % de hauteur exige un parent à hauteur
+  // définie — dans ce flex imbriqué il se résolvait à 0 → barres invisibles.
+  const AREA = 76
+  const h = (v: number) => Math.max(2, Math.round((v / max) * AREA))
   return (
-    <div className="flex h-24 items-end gap-1.5">
+    <div className="flex gap-1.5">
       {age.map((r) => (
         <div key={r.bracket} className="flex flex-1 flex-col items-center gap-1">
-          <div className="flex h-full w-full items-end justify-center gap-0.5">
+          <div className="flex w-full items-end justify-center gap-0.5" style={{ height: AREA }}>
             {split ? (
               <>
                 <div className="w-2 rounded-t bg-violet-500" style={{ height: h(r.female ?? 0) }} title={`Femme ${pctLabel(r.female ?? 0)}`} />
@@ -93,6 +96,7 @@ function AgeChart({ age }: { age: AgeRow[] }) {
             )}
           </div>
           <span className="text-[9px] text-zinc-400">{r.bracket}</span>
+          <span className="text-[9px] font-medium text-zinc-500">{pctLabel(val(r))}</span>
         </div>
       ))}
     </div>
