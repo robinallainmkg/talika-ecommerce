@@ -5,7 +5,6 @@ import { cn, formatCurrency } from "@/lib/utils"
 import { STAGES, type Stage } from "@/lib/influence/pipeline"
 import { MONTH_NAMES } from "@/lib/influence/monthly-campaign"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
-import { ConversationDrawer } from "@/components/influence/conversation-drawer"
 import { Header } from "@/components/layout/header"
 import { Plus, X, Instagram, Megaphone, UserPlus, Trash2, Pencil, RotateCw, Send } from "lucide-react"
 import { OutreachCompose } from "@/components/influence/outreach-compose"
@@ -45,8 +44,9 @@ export default function CampagnesPage() {
   const [selected, setSelected] = useState<string>("")
   const [collabs, setCollabs] = useState<Collab[]>([])
   const [syncing, setSyncing] = useState(false)
-  const [drawerId, setDrawerId] = useState<string | null>(null)     // drawer profil (clic sur le NOM)
-  const [convId, setConvId] = useState<string | null>(null)         // drawer conversation (clic sur la CARTE)
+  // Drawer unifié à onglets : clic sur la CARTE → onglet Chat, clic sur le NOM → onglet Profil.
+  const [drawerId, setDrawerId] = useState<string | null>(null)
+  const [drawerTab, setDrawerTab] = useState<"chat" | "profile">("profile")
   const [dragId, setDragId] = useState<string | null>(null)
   const [showCampaign, setShowCampaign] = useState(false)
   const [editCampaign, setEditCampaign] = useState<Campaign | null>(null)
@@ -248,7 +248,7 @@ export default function CampagnesPage() {
                         key={c.id}
                         draggable
                         onDragStart={() => setDragId(c.id)}
-                        onClick={() => setConvId(c.influencer_id)}
+                        onClick={() => { setDrawerTab("chat"); setDrawerId(c.influencer_id) }}
                         className="group cursor-pointer rounded-lg border border-zinc-200 bg-white p-2.5 shadow-sm hover:border-zinc-300"
                         title="Voir la conversation"
                       >
@@ -259,7 +259,7 @@ export default function CampagnesPage() {
                           <div className="min-w-0 flex-1">
                             {/* Nom → profil ; carte → conversation */}
                             <button
-                              onClick={(e) => { e.stopPropagation(); setDrawerId(c.influencer_id) }}
+                              onClick={(e) => { e.stopPropagation(); setDrawerTab("profile"); setDrawerId(c.influencer_id) }}
                               className="block max-w-full truncate text-left text-sm font-medium text-zinc-900 hover:underline"
                               title="Voir le profil">
                               {c.name}
@@ -339,13 +339,8 @@ export default function CampagnesPage() {
       {showAdd && selected && <AddModal campaignId={selected} allInf={allInf} inCampaign={new Set(collabs.map((c) => c.influencer_id))} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); loadCollabs(selected); loadCampaigns() }} />}
       <InfluencerDrawer
         influencerId={drawerId}
+        initialTab={drawerTab}
         onClose={() => setDrawerId(null)}
-        onOpenConversation={(id) => { setDrawerId(null); setConvId(id) }}
-      />
-      <ConversationDrawer
-        influencerId={convId}
-        onClose={() => setConvId(null)}
-        onOpenProfile={(id) => { setConvId(null); setDrawerId(id) }}
       />
       {showCompose && sel.size > 0 && (
         <OutreachCompose

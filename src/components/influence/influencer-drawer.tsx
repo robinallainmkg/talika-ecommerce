@@ -5,11 +5,15 @@ import { formatCurrency } from "@/lib/utils"
 import { MONTHS_FULL } from "@/components/influence/month-tabs"
 import { authClient } from "@/lib/auth/client"
 import { AudienceSection, type AudienceData } from "@/components/influence/audience-section"
-import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check, Plus, MessageCircle } from "lucide-react"
+import { ConversationThread } from "@/components/influence/conversation-drawer"
+import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check, Plus, Handshake } from "lucide-react"
 
-// onOpenConversation (optionnel) : affiché seulement si fourni — la page campagnes
-// le passe pour basculer vers le drawer conversation (fil email influence_messages).
-interface Drawer { influencerId: string | null; onClose: () => void; onOpenConversation?: (id: string) => void }
+// Drawer unifié à onglets : Chat (fil email) / Profil (réseaux, démographies,
+// factures, codes…) / Collab (conditions & rate card). initialTab pilote
+// l'onglet d'ouverture : la page campagnes ouvre Chat au clic sur la carte,
+// Profil au clic sur le nom.
+export type DrawerTab = "chat" | "profile" | "collab"
+interface Drawer { influencerId: string | null; onClose: () => void; initialTab?: DrawerTab }
 
 type Code = { id: string; code: string; is_active: boolean }
 type MonthAmt = { year: number; month: number; amount: number }
@@ -49,9 +53,73 @@ function Section({ title, count, children }: { title: string; count?: number; ch
   )
 }
 
-export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: Drawer) {
+// ── Onglet Collab — résumé du deal + rate card ──
+// Lu depuis influencers.metadata : `collab_summary` (texte libre, rédigé par la
+// routine outreach au fil de la négo) et `rates` (extrait de la rate card reçue).
+// Lecture seule : la routine alimente, Robin arbitre.
+type RateLine = { label: string; price: number; note?: string }
+type Rates = { currency?: string; source?: string; updated_at?: string; lines?: RateLine[]; usage_note?: string }
+
+function CollabTab({ meta }: { meta: Record<string, unknown> }) {
+  const rates = meta.rates as Rates | undefined
+  const summary = meta.collab_summary as string | undefined
+  const fmt = (n: number) =>
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: rates?.currency || "GBP", maximumFractionDigits: 0 }).format(n)
+
+  if (!summary && !rates?.lines?.length) {
+    return (
+      <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+        <Handshake className="h-8 w-8 text-zinc-200" />
+        <p className="text-sm text-zinc-400">
+          Pas encore d&apos;infos de collab.<br />
+          Résumé du deal et rate card apparaîtront ici dès que la négo avance
+          (alimenté automatiquement par la routine outreach).
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 px-5 py-4">
+      {summary && (
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3.5">
+          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">Résumé de la collab</h4>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{summary}</p>
+        </div>
+      )}
+
+      {(rates?.lines?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-sm">
+          <div className="mb-2 flex items-start justify-between gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Rate card</h4>
+            <span className="text-[10px] text-zinc-400">
+              {rates?.source}{rates?.updated_at ? ` · ${rates.updated_at}` : ""}
+            </span>
+          </div>
+          <div className="divide-y divide-zinc-100">
+            {rates!.lines!.map((l) => (
+              <div key={l.label} className="flex items-baseline justify-between gap-3 py-2 text-sm">
+                <span className="min-w-0 text-zinc-600">
+                  {l.label}
+                  {l.note && <span className="block text-[11px] text-zinc-400">{l.note}</span>}
+                </span>
+                <span className="shrink-0 font-semibold text-zinc-900">{fmt(l.price)}</span>
+              </div>
+            ))}
+          </div>
+          {rates?.usage_note && (
+            <p className="mt-2 rounded-lg bg-zinc-50 px-2.5 py-2 text-[11px] leading-relaxed text-zinc-500">{rates.usage_note}</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function InfluencerDrawer({ influencerId, onClose, initialTab = "profile" }: Drawer) {
   const [data, setData] = useState<Detail | null>(null)
   const [loading, setLoading] = useState(false)
+  const [tab, setTab] = useState<DrawerTab>(initialTab)
   const [imgError, setImgError] = useState(false)
   const [docs, setDocs] = useState<Doc[]>([])
   const [uploadingDoc, setUploadingDoc] = useState(false)
@@ -67,6 +135,10 @@ export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: 
   const [newCode, setNewCode] = useState("")
   const [newPct, setNewPct] = useState("15")
   const [addingCode, setAddingCode] = useState(false)
+
+  useEffect(() => {
+    if (influencerId) setTab(initialTab)
+  }, [influencerId, initialTab])
 
   useEffect(() => {
     if (!influencerId) { setData(null); setDocs([]); setEmailEdit(null); setEditing(false); setDraft({}); return }
@@ -275,7 +347,7 @@ export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: 
   return (
     <>
       <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-md flex-col overflow-y-auto bg-white shadow-2xl">
+      <aside className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-md flex-col overflow-hidden bg-white shadow-2xl">
         {loading || !inf ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-300" />
@@ -314,14 +386,6 @@ export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: 
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-0.5">
-                {onOpenConversation && (
-                  <button
-                    onClick={() => onOpenConversation(inf.id)}
-                    className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-                    title="Voir la conversation">
-                    <MessageCircle className="h-4 w-4" />
-                  </button>
-                )}
                 <button
                   onClick={() => (editing ? setEditing(false) : openEditor())}
                   className={`rounded-lg p-1.5 ${editing ? "bg-zinc-900 text-white" : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"}`}
@@ -334,6 +398,30 @@ export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: 
               </div>
             </div>
 
+            {/* Onglets Chat / Profil / Collab */}
+            <div className="flex shrink-0 gap-1 border-b border-zinc-100 px-5">
+              {([["chat", "Chat"], ["profile", "Profil"], ["collab", "Collab"]] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setTab(k)}
+                  className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${tab === k ? "border-zinc-900 text-zinc-900" : "border-transparent text-zinc-400 hover:text-zinc-700"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Onglet Chat — fil email (influence_messages) */}
+            {tab === "chat" && <ConversationThread influencerId={influencerId} />}
+
+            {/* Onglet Collab — conditions négociées, rate card, résumé du deal */}
+            {tab === "collab" && (
+              <div className="flex-1 overflow-y-auto">
+                <CollabTab meta={meta} />
+              </div>
+            )}
+
+            {tab === "profile" && (
+            <div className="flex-1 overflow-y-auto">
             {/* Contact — l'email est éditable (nécessaire pour l'outreach) */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 text-sm">
               {emailEdit !== null ? (
@@ -598,6 +686,8 @@ export function InfluencerDrawer({ influencerId, onClose, onOpenConversation }: 
               </div>
               <p className="mt-1 text-[10px] text-zinc-400">Attribue le code ici (base companion). Le code doit aussi exister dans Shopify pour fonctionner en boutique.</p>
             </Section>
+            </div>
+            )}
           </>
         )}
       </aside>
