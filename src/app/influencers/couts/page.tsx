@@ -236,7 +236,7 @@ export default function CoutsInfluencePage() {
         body: JSON.stringify({ year, month }),
       })
       if (res.ok) load()
-      else setFeedback({ type: "error", text: "Verrouillage impossible." })
+      else setFeedback({ type: "error", text: "Verrouillage réservé à l'admin." })
     } catch {
       setFeedback({ type: "error", text: "Erreur réseau." })
     } finally {
@@ -290,10 +290,15 @@ export default function CoutsInfluencePage() {
                 <strong>{MONTHS[month - 1]} {year} verrouillé</strong>
                 {lock?.locked_by ? ` par ${lock.locked_by}` : ""}
                 {lock?.locked_at ? ` le ${new Date(lock.locked_at).toLocaleDateString("fr-FR")}` : ""}
-                {isAdmin && " — tu peux quand même éditer (admin)."}
+                {isAdmin
+                  ? " — tu peux quand même éditer (admin)."
+                  : " — les factures restent modifiables dans Facturation."}
               </span>
             ) : (
-              <span className="text-zinc-500">{MONTHS[month - 1]} {year} ouvert — verrouille quand tout est saisi.</span>
+              <span className="text-zinc-500">
+                {MONTHS[month - 1]} {year} ouvert
+                {isAdmin ? " — verrouille quand tout est saisi." : "."}
+              </span>
             )}
           </div>
           <div>
@@ -304,7 +309,7 @@ export default function CoutsInfluencePage() {
                     <Unlock className="h-3.5 w-3.5" /> Déverrouiller
                   </button>
                 )
-              : (
+              : isAdmin && (
                   <button onClick={lockMonth} disabled={locking}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50">
                     {locking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}

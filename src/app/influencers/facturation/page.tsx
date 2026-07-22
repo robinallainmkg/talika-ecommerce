@@ -74,7 +74,10 @@ export default function FacturationPage() {
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
-  const canUpload = !isLocked || isAdmin
+  // Le verrou de mois fige les MONTANTS, pas les documents : joindre/retirer une
+  // facture reste possible après clôture. Seul "sans facturation" est gelé (il
+  // sort la collab des coûts du mois) — cf. /api/influencers/billing/status.
+  const excludeFrozen = isLocked && !isAdmin
 
   useEffect(() => {
     ;(async () => {
@@ -309,8 +312,10 @@ export default function FacturationPage() {
 
       {isLocked && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-          <Lock className="h-4 w-4" /> Mois verrouillé{lock?.locked_by ? ` par ${lock.locked_by}` : ""}.
-          {isAdmin ? " (admin : tu peux encore joindre des factures)" : " Les factures ne peuvent plus être modifiées."}
+          <Lock className="h-4 w-4" /> Mois verrouillé{lock?.locked_by ? ` par ${lock.locked_by}` : ""} : les montants sont figés.
+          {isAdmin
+            ? " Tu peux tout modifier (admin)."
+            : " Tu peux toujours joindre les factures et suivre les paiements."}
         </div>
       )}
 
@@ -468,7 +473,10 @@ export default function FacturationPage() {
                         <div className="flex items-center gap-1.5">
                           <select
                             value={c.status}
-                            disabled={statusSavingId === c.influencer_id || (isLocked && !isAdmin)}
+                            disabled={
+                              statusSavingId === c.influencer_id ||
+                              (excludeFrozen && c.status === "sans_facturation")
+                            }
                             onChange={(e) => {
                               const v = e.target.value as BillingStatus
                               if (v === "reporte") setStatus(c, "reporte", c.deferred_to || defaultNextMonth())
@@ -482,14 +490,15 @@ export default function FacturationPage() {
                             <option value="a_regler">À régler</option>
                             <option value="reporte">Reporté</option>
                             <option value="paye">Payé</option>
-                            <option value="sans_facturation">Sans facturation</option>
+                            <option value="sans_facturation" disabled={excludeFrozen}>
+                              Sans facturation{excludeFrozen ? " (mois verrouillé)" : ""}
+                            </option>
                           </select>
                           {statusSavingId === c.influencer_id && <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" />}
                         </div>
                         {c.status === "reporte" && (
                           <select
                             value={c.deferred_to?.month || ""}
-                            disabled={isLocked && !isAdmin}
                             onChange={(e) => {
                               const tm = Number(e.target.value)
                               const ty = tm <= month ? year + 1 : year
@@ -517,26 +526,22 @@ export default function FacturationPage() {
                                 <span className="max-w-[160px] truncate">{inv.file_name}</span>
                                 <ExternalLink className="h-3 w-3 shrink-0 text-zinc-400" />
                               </button>
-                              {canUpload && (
-                                <button onClick={() => deleteInvoice(c, inv)} title="Supprimer la facture"
-                                  className="shrink-0 text-zinc-300 hover:text-red-500">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
+                              <button onClick={() => deleteInvoice(c, inv)} title="Supprimer la facture"
+                                className="shrink-0 text-zinc-300 hover:text-red-500">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           ))}
-                          {canUpload && (
-                            <label className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-700">
-                              <Paperclip className="h-3 w-3" /> remplacer / ajouter
-                              <input type="file" accept=".pdf,image/*" className="hidden"
-                                disabled={!!uploadingId}
-                                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadInvoice(c.influencer_id, f); e.target.value = "" }} />
-                            </label>
-                          )}
+                          <label className="inline-flex cursor-pointer items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-700">
+                            <Paperclip className="h-3 w-3" /> remplacer / ajouter
+                            <input type="file" accept=".pdf,image/*" className="hidden"
+                              disabled={!!uploadingId}
+                              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadInvoice(c.influencer_id, f); e.target.value = "" }} />
+                          </label>
                         </div>
                       ) : (
                         <label className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
-                          canUpload && !uploadingId
+                          !uploadingId
                             ? "cursor-pointer border-zinc-300 text-zinc-700 hover:bg-zinc-50"
                             : "cursor-not-allowed border-zinc-200 text-zinc-300"
                         }`}>
@@ -546,7 +551,7 @@ export default function FacturationPage() {
                             <><Paperclip className="h-3.5 w-3.5" /> Joindre la facture</>
                           )}
                           <input type="file" accept=".pdf,image/*" className="hidden"
-                            disabled={!canUpload || !!uploadingId}
+                            disabled={!!uploadingId}
                             onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadInvoice(c.influencer_id, f); e.target.value = "" }} />
                         </label>
                       )}

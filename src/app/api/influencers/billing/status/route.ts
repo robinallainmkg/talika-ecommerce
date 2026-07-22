@@ -31,18 +31,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "params invalides" }, { status: 400 })
   }
 
-  // Verrou de mois : édition bloquée sauf admin.
-  const { data: lock } = await supabase
-    .from("influence_month_locks")
-    .select("locked_by")
-    .eq("year", year)
-    .eq("month", month)
-    .maybeSingle()
-  if (lock && (user.user_metadata?.role as string) !== "admin") {
-    return NextResponse.json(
-      { error: "Mois verrouillé — seul un admin peut éditer.", locked: true },
-      { status: 423 }
-    )
+  // Verrou de mois : il fige les MONTANTS, pas le suivi de facturation.
+  // Seul "sans_facturation" change le coût du mois (loadExcludedKeys le sort des
+  // totaux) — donc seules les transitions VERS ou DEPUIS ce statut sont refusées.
+  // À régler / reporté / payé restent modifiables mois verrouillé, comme les
+  // factures : l'agente finit sa facturation après la clôture des chiffres.
+  if ((user.user_metadata?.role as string) !== "admin") {
+    const { data: lock } = await supabase
+      .from("influence_month_locks")
+      .select("locked_by")
+      .eq("year", year)
+      .eq("month", month)
+      .maybeSingle()
+    if (lock) {
+      const { data: current } = await supabase
+        .from("influence_billing_status")
+        .select("status")
+        .eq("influencer_id", influencer_id)
+        .eq("year", year)
+        .eq("month", month)
+        .maybeSingle()
+      if (status === "sans_facturation" || current?.status === "sans_facturation") {
+        return NextResponse.json(
+          {
+            error:
+              "Mois verrouillé — « sans facturation » change le coût du mois, seul un admin peut le modifier.",
+            locked: true,
+          },
+          { status: 423 }
+        )
+      }
+    }
   }
 
   // Retour au défaut = suppression de la ligne.

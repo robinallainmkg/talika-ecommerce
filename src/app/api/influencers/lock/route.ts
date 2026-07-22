@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { getSessionUser, requireAdminUser } from "@/lib/auth/server"
+import { requireAdminUser } from "@/lib/auth/server"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -14,9 +14,18 @@ const supabase = createClient(
 )
 
 // Verrouillage de fin de mois des coûts influence.
-// Présence d'une ligne = mois verrouillé. Verrouiller = agent influence/admin.
-// Déverrouiller = admin uniquement. (L'admin peut éditer même verrouillé — cf. la
-// garde dans /api/influencers/commissions.)
+// Présence d'une ligne = mois verrouillé. Verrouiller ET déverrouiller = admin
+// uniquement : figer un mois arrête les montants qui alimentent le P&L et le
+// media_spent, c'est une décision de clôture (l'agente influence continue de
+// travailler sur ses factures après, cf. /api/influencers/billing/status).
+//
+// Ce que le verrou fige = les MONTANTS SEULEMENT :
+//   - commissions / forfaits (/api/influencers/commissions)
+//   - le statut "sans_facturation", qui retire un coût du total du mois
+// Ce qu'il laisse ouvert : joindre/supprimer les factures, et le suivi de
+// paiement (à régler / reporté / payé).
+//
+// ⚠️ Pas de colonne `market` : un verrou vaut pour TOUS les marchés (FR + UK).
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -32,8 +41,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getSessionUser()
-  if (!user) return NextResponse.json({ error: "non authentifié" }, { status: 401 })
+  // Verrouillage = admin uniquement (même règle que le déverrouillage).
+  const auth = await requireAdminUser()
+  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+  const user = auth.user
 
   const body = await request.json().catch(() => ({}))
   const year = Number(body.year)
