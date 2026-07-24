@@ -1,13 +1,15 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Monitor, Mail, Clock, FileText, ShoppingBag, ExternalLink, User } from "lucide-react"
+import { Monitor, Mail, Clock, FileText, ShoppingBag, ExternalLink, User, Phone, Truck } from "lucide-react"
 import { adminFetch } from "@/lib/chat/admin-fetch"
 import { parseUserAgent } from "@/lib/chat/ua"
 import { relativeTime } from "@/components/chat/helpers"
 
 type ConversationDetail = {
   id: string
+  channel?: string | null
+  visitor_phone?: string | null
   visitor_email: string | null
   visitor_name: string | null
   user_agent: string | null
@@ -15,6 +17,27 @@ type ConversationDetail = {
   last_page_url: string | null
   created_at: string
   message_count: number
+}
+
+// Réponse de /api/whatsapp/context (dossier livraison par téléphone).
+type DeliveryContext = {
+  matched: boolean
+  matchedVia: "klaviyo_profile" | "shopify_phone" | null
+  email: string | null
+  firstName: string | null
+  ordersLifetime: number
+  summary: string
+  warnings: string[]
+  packageEvents: { status: string; at: string; carrier: string | null }[]
+}
+
+const PACKAGE_LABELS: Record<string, string> = {
+  picked_up: "pris en charge",
+  in_transit: "en transit",
+  out_for_delivery: "en cours de livraison",
+  delivered: "livré",
+  delayed: "retardé",
+  exception: "incident",
 }
 
 type CustomerOrder = {
@@ -51,6 +74,8 @@ function Row({ icon, label, value, title }: { icon: React.ReactNode; label: stri
 export function VisitorPanel({ conversation }: { conversation: ConversationDetail }) {
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [loadingCustomer, setLoadingCustomer] = useState(false)
+  const [delivery, setDelivery] = useState<DeliveryContext | null>(null)
+  const isWhatsapp = conversation.channel === "whatsapp"
 
   useEffect(() => {
     setCustomer(null)
@@ -63,27 +88,47 @@ export function VisitorPanel({ conversation }: { conversation: ConversationDetai
       .finally(() => setLoadingCustomer(false))
   }, [conversation.id, conversation.visitor_email])
 
+  // Dossier livraison WhatsApp : rattachement par téléphone (profil Klaviyo -> Shopify
+  // -> évènements colis). C'est LA raison d'être du canal : répondre avec des faits.
+  useEffect(() => {
+    setDelivery(null)
+    if (!isWhatsapp) return
+    adminFetch(`/api/whatsapp/context?conversation=${conversation.id}`)
+      .then((r) => r.json())
+      .then((d) => setDelivery(d?.summary ? d : null))
+      .catch(() => setDelivery(null))
+  }, [conversation.id, isWhatsapp])
+
   return (
     <div className="w-72 shrink-0 overflow-y-auto border-l border-zinc-200 bg-zinc-50/50 p-4">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Visiteur</h3>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+        {isWhatsapp ? "Cliente WhatsApp" : "Visiteur"}
+      </h3>
       <div className="rounded-lg border border-zinc-200 bg-white px-3 py-1">
         {conversation.visitor_name && (
           <Row icon={<User className="h-3.5 w-3.5" />} label="Nom" value={conversation.visitor_name} />
+        )}
+        {isWhatsapp && conversation.visitor_phone && (
+          <Row icon={<Phone className="h-3.5 w-3.5" />} label="Téléphone" value={conversation.visitor_phone} />
         )}
         <Row
           icon={<Mail className="h-3.5 w-3.5" />}
           label="Email"
           value={conversation.visitor_email || "Non communiqué"}
         />
-        <Row icon={<Monitor className="h-3.5 w-3.5" />} label="Appareil" value={parseUserAgent(conversation.user_agent)} />
-        <Row
-          icon={<FileText className="h-3.5 w-3.5" />}
-          label="Page actuelle"
-          value={conversation.last_page_url || conversation.first_page_url || "—"}
-          title={conversation.last_page_url || conversation.first_page_url || ""}
-        />
-        {conversation.first_page_url && conversation.first_page_url !== conversation.last_page_url && (
-          <Row icon={<FileText className="h-3.5 w-3.5" />} label="Page d'arrivée" value={conversation.first_page_url} title={conversation.first_page_url} />
+        {!isWhatsapp && (
+          <>
+            <Row icon={<Monitor className="h-3.5 w-3.5" />} label="Appareil" value={parseUserAgent(conversation.user_agent)} />
+            <Row
+              icon={<FileText className="h-3.5 w-3.5" />}
+              label="Page actuelle"
+              value={conversation.last_page_url || conversation.first_page_url || "—"}
+              title={conversation.last_page_url || conversation.first_page_url || ""}
+            />
+            {conversation.first_page_url && conversation.first_page_url !== conversation.last_page_url && (
+              <Row icon={<FileText className="h-3.5 w-3.5" />} label="Page d'arrivée" value={conversation.first_page_url} title={conversation.first_page_url} />
+            )}
+          </>
         )}
         <Row
           icon={<Clock className="h-3.5 w-3.5" />}
@@ -91,6 +136,37 @@ export function VisitorPanel({ conversation }: { conversation: ConversationDetai
           value={`${conversation.message_count} msg · ${relativeTime(conversation.created_at)}`}
         />
       </div>
+
+      {isWhatsapp && delivery && (
+        <>
+          <h3 className="mb-2 mt-5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <Truck className="h-3.5 w-3.5" /> Dossier livraison
+          </h3>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 text-xs text-zinc-700">
+            <p>{delivery.summary}</p>
+            {delivery.matched && (
+              <p className="mt-1.5 text-[10px] text-zinc-400">
+                Rattachée via {delivery.matchedVia === "klaviyo_profile" ? "profil Klaviyo" : "téléphone Shopify"}
+                {delivery.email ? ` · ${delivery.email}` : ""}
+              </p>
+            )}
+            {delivery.warnings.map((w, i) => (
+              <p key={i} className="mt-1 text-[10px] text-amber-600">⚠ {w}</p>
+            ))}
+            {delivery.packageEvents.length > 0 && (
+              <ul className="mt-2 space-y-0.5 border-t border-emerald-100 pt-1.5 text-[11px] text-zinc-600">
+                {delivery.packageEvents.slice(0, 4).map((e, i) => (
+                  <li key={i}>
+                    {new Date(e.at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} —{" "}
+                    {PACKAGE_LABELS[e.status] ?? e.status}
+                    {e.carrier ? ` (${e.carrier})` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
 
       <h3 className="mb-2 mt-5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
         <ShoppingBag className="h-3.5 w-3.5" /> Client Shopify

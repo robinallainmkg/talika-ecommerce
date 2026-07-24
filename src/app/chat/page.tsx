@@ -13,6 +13,8 @@ import { SalesCard } from "@/components/chat/sales-card"
 type ConversationRow = {
   id: string
   status: string
+  channel: string | null
+  visitor_phone: string | null
   visitor_email: string | null
   first_page_url: string | null
   message_count: number
@@ -22,6 +24,7 @@ type ConversationRow = {
   last_message_preview: string
   customer_orders_count: number | null
   taken_over_by: string | null
+  service_window_expires_at: string | null
 }
 
 type ConversationDetail = ConversationRow & {
@@ -253,17 +256,29 @@ export default function ChatInboxPage() {
 
   async function sendReply(content: string) {
     if (!selected) return
-    const res = await adminFetch(`/api/chat/admin/conversations/${selected.id}/reply`, {
-      method: "POST",
-      body: JSON.stringify({ content }),
-    })
+    // WhatsApp passe par une route dédiée : l'envoi part chez la cliente via Klaviyo,
+    // sous garde-fous serveur (fenêtre 24 h, confirmed). Le clic Envoyer = la confirmation.
+    const isWa = selected.channel === "whatsapp"
+    const res = await adminFetch(
+      `/api/chat/admin/conversations/${selected.id}/${isWa ? "reply-whatsapp" : "reply"}`,
+      {
+        method: "POST",
+        body: JSON.stringify(isWa ? { content, confirmed: true } : { content }),
+      }
+    )
     if (res.ok) {
       const data = await res.json()
       if (data.message) setMessages((prev) => [...prev, data.message])
+      if (data.warning) alert(data.warning)
       await fetchThread(selected.id)
       fetchList()
     } else {
-      alert("L'envoi a échoué. Réessayez.")
+      const err = await res.json().catch(() => null)
+      alert(
+        err?.error
+          ? `Échec de l'envoi : ${err.error}${err.detail ? `\n${err.detail}` : ""}`
+          : "L'envoi a échoué. Réessayez."
+      )
     }
   }
 
@@ -279,6 +294,18 @@ export default function ChatInboxPage() {
   }
 
   const canReply = selected && (selected.status === "human" || selected.status === "queued")
+  const isWhatsapp = selected?.channel === "whatsapp"
+  // Fenêtre de service Meta : hors fenêtre, un message libre serait refusé — on bloque côté UI aussi.
+  const waWindowMsLeft = selected?.service_window_expires_at
+    ? new Date(selected.service_window_expires_at).getTime() - Date.now()
+    : null
+  const waWindowOpen = isWhatsapp && waWindowMsLeft !== null && waWindowMsLeft > 0
+  const waWindowLabel =
+    waWindowMsLeft !== null && waWindowMsLeft > 0
+      ? waWindowMsLeft > 3600_000
+        ? `fenêtre de réponse : ${Math.floor(waWindowMsLeft / 3600_000)} h restantes`
+        : `fenêtre de réponse : ${Math.max(1, Math.floor(waWindowMsLeft / 60_000))} min restantes`
+      : "fenêtre de réponse fermée"
 
   return (
     <div className="flex h-[calc(100vh-0px)] flex-col p-6 lg:p-8">
@@ -361,6 +388,11 @@ export default function ChatInboxPage() {
                 >
                   <div className="flex items-center gap-2">
                     <StatusBadge status={conv.status} />
+                    {conv.channel === "whatsapp" && (
+                      <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        WhatsApp
+                      </span>
+                    )}
                     {(conv.customer_orders_count || 0) >= 3 && (
                       <span
                         className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
@@ -373,7 +405,11 @@ export default function ChatInboxPage() {
                     <span className="ml-auto text-[11px] text-zinc-400">{relativeTime(conv.last_message_at)}</span>
                   </div>
                   <p className="mt-1 truncate text-xs text-zinc-600">{conv.last_message_preview || "—"}</p>
-                  {conv.visitor_email && <p className="mt-0.5 truncate text-[11px] text-zinc-400">{conv.visitor_email}</p>}
+                  {(conv.visitor_email || conv.visitor_phone) && (
+                    <p className="mt-0.5 truncate text-[11px] text-zinc-400">
+                      {conv.visitor_email || conv.visitor_phone}
+                    </p>
+                  )}
                 </button>
               ))
             )}
@@ -392,6 +428,16 @@ export default function ChatInboxPage() {
             <>
               <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
                 <StatusBadge status={selected.status} />
+                {isWhatsapp && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      waWindowOpen ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"
+                    }`}
+                    title="Meta autorise une réponse libre pendant 24 h après le dernier message de la cliente"
+                  >
+                    WhatsApp · {waWindowLabel}
+                  </span>
+                )}
                 <span className="text-xs text-zinc-500">
                   {selected.message_count} messages · créée {relativeTime(selected.created_at)}
                 </span>
@@ -404,7 +450,7 @@ export default function ChatInboxPage() {
                       <Hand className="h-3.5 w-3.5" /> Prendre la main
                     </button>
                   )}
-                  {selected.status === "human" && (
+                  {selected.status === "human" && !isWhatsapp && (
                     <button
                       onClick={() => takeover("release")}
                       className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
@@ -442,7 +488,12 @@ export default function ChatInboxPage() {
                 ))}
                 <div ref={messagesEndRef} />
               </div>
-              {canReply ? (
+              {canReply && isWhatsapp && !waWindowOpen ? (
+                <div className="border-t border-zinc-200 px-4 py-2 text-center text-[11px] text-zinc-400">
+                  Fenêtre de service WhatsApp fermée (24 h après le dernier message de la cliente).
+                  Relance possible uniquement par template approuvé ou par email.
+                </div>
+              ) : canReply ? (
                 <ReplyComposer onSend={sendReply} />
               ) : selected.status === "bot" ? (
                 <div className="border-t border-zinc-200 px-4 py-2 text-center text-[11px] text-zinc-400">

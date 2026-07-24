@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     let query = db
       .from("chat_conversations")
       .select(
-        "id, status, is_internal, visitor_email, visitor_name, first_page_url, message_count, unread_count, last_message_at, created_at, customer_orders_count, taken_over_by"
+        "id, status, is_internal, channel, visitor_phone, visitor_email, visitor_name, first_page_url, message_count, unread_count, last_message_at, created_at, customer_orders_count, taken_over_by, service_window_expires_at"
       )
       .eq("is_internal", internal)
       .gt("message_count", 0)
