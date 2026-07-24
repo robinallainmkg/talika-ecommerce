@@ -18,6 +18,7 @@ import {
   isConversationsConfigured,
 } from "@/lib/chat/whatsapp/klaviyo-conversations"
 import { buildDeliveryContext } from "@/lib/chat/whatsapp/delivery-context"
+import { seedWatchlistFromDelivered } from "@/lib/chat/whatsapp/seed-watchlist"
 
 export const dynamic = "force-dynamic"
 export const fetchCache = "force-no-store"
@@ -65,6 +66,11 @@ export async function GET(request: Request) {
 
   const db = chatDb()
   const now = Date.now()
+
+  // Alimentation de la watchlist depuis la métrique « Received WhatsApp » (délivré).
+  // Remplace le webhook prévu initialement : sa création exige Advanced KDP (403, testé
+  // le 24/07/2026). Latence = un tour de cron, ce qui suffit largement.
+  const seed = await seedWatchlistFromDelivered(db)
 
   const { data: watched, error } = await db
     .from("whatsapp_watchlist")
@@ -267,11 +273,12 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
+    seeded: seed.seeded,
     watched: watched?.length ?? 0,
     swept: sweep ? due.filter((d) => !d.in_watchlist).length : 0,
     polled: batch.length,
     newConversations,
     newMessages,
-    errors: errors.slice(0, 10),
+    errors: [...seed.errors, ...errors].slice(0, 10),
   })
 }
