@@ -53,7 +53,7 @@ const NAV: Entry[] = [
       { name: "P&L", href: "/pnl" },
     ],
   },
-  { name: "Chat IA", href: "/chat", icon: MessageCircle },
+  { name: "SAV", href: "/chat", icon: MessageCircle },
   { name: "Calendrier", href: "/calendar", icon: Calendar },
   { name: "Projets", href: "/projects", icon: FolderKanban },
   { name: "Équipe", href: "/users", icon: UserCog },

@@ -183,7 +183,7 @@ export default function ChatInboxPage() {
       // Titre d'onglet avec le compteur "à traiter"
       const waitingCount = convs.filter((c) => c.status === "queued" || c.unread_count > 0).length
       if (typeof document !== "undefined") {
-        document.title = waitingCount > 0 ? `(${waitingCount}) Chat IA — Talika` : "Chat IA — Talika"
+        document.title = waitingCount > 0 ? `(${waitingCount}) SAV — Talika` : "SAV — Talika"
       }
     } catch {
       // silent
@@ -311,8 +311,8 @@ export default function ChatInboxPage() {
     <div className="flex h-[calc(100vh-0px)] flex-col p-6 lg:p-8">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Chat IA</h1>
-          <p className="text-sm text-zinc-500">Conversations du chat talika.fr</p>
+          <h1 className="text-2xl font-bold text-zinc-900">SAV</h1>
+          <p className="text-sm text-zinc-500">Chat talika.fr &amp; WhatsApp</p>
         </div>
         <div className="flex items-center gap-2">
           <button
