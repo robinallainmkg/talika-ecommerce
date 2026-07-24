@@ -19,18 +19,41 @@
 // avant le premier message entrant réel. Le parseur ci-dessous est donc défensif et
 // getWhatsappConversation() peut ne rendre que l'id + le canal.
 
+import { chatDb } from "@/lib/chat/db"
+
 const REVISION = "2026-07-15" // révision qui rend `conversations` pluriel + multi-canal
+
+/** Tokens OAuth rangés en base par /api/whatsapp/oauth/callback — pas en env, pour
+ *  éviter un redéploiement à chaque (ré)autorisation et absorber une rotation. */
+export const OAUTH_TOKENS_KEY = "fr:klaviyo:oauth_tokens"
+
+type StoredTokens = {
+  refresh_token: string
+  access_token: string | null
+  access_expires_at: string | null
+}
 
 type TokenCache = { accessToken: string; expiresAt: number }
 let cache: TokenCache | null = null
 
-/** Échange le refresh token contre un access token (1 h de validité, mis en cache). */
+/** Access token OAuth valide, ou null si l'app n'est pas (encore) autorisée. */
 export async function getAccessToken(): Promise<string | null> {
   const clientId = process.env.KLAVIYO_OAUTH_CLIENT_ID
   const clientSecret = process.env.KLAVIYO_OAUTH_CLIENT_SECRET
-  const refreshToken = process.env.KLAVIYO_OAUTH_REFRESH_TOKEN
-  if (!clientId || !clientSecret || !refreshToken) return null
+  if (!clientId || !clientSecret) return null
   if (cache && cache.expiresAt > Date.now() + 60_000) return cache.accessToken
+
+  const db = chatDb()
+  const { data: row } = await db.from("data_cache").select("data").eq("key", OAUTH_TOKENS_KEY).maybeSingle()
+  const stored = (row?.data as StoredTokens | null) ?? null
+  const refreshToken = process.env.KLAVIYO_OAUTH_REFRESH_TOKEN || stored?.refresh_token
+  if (!refreshToken) return null
+
+  // Access token stocké encore frais ? (les lambdas ne partagent pas le cache module)
+  if (stored?.access_token && stored.access_expires_at && new Date(stored.access_expires_at).getTime() > Date.now() + 120_000) {
+    cache = { accessToken: stored.access_token, expiresAt: new Date(stored.access_expires_at).getTime() }
+    return stored.access_token
+  }
 
   const response = await fetch("https://a.klaviyo.com/oauth/token", {
     method: "POST",
@@ -42,21 +65,30 @@ export async function getAccessToken(): Promise<string | null> {
     cache: "no-store",
   })
   if (!response.ok) return null
-  const json = (await response.json()) as { access_token?: string; expires_in?: number }
+  const json = (await response.json()) as { access_token?: string; refresh_token?: string; expires_in?: number }
   if (!json.access_token) return null
-  cache = {
-    accessToken: json.access_token,
-    expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
-  }
-  return cache.accessToken
+  const expiresAt = Date.now() + (json.expires_in ?? 3600) * 1000
+  cache = { accessToken: json.access_token, expiresAt }
+  await db.from("data_cache").upsert(
+    {
+      key: OAUTH_TOKENS_KEY,
+      data: {
+        // Certains fournisseurs font tourner le refresh token à chaque usage : on garde le plus récent.
+        refresh_token: json.refresh_token ?? refreshToken,
+        access_token: json.access_token,
+        access_expires_at: new Date(expiresAt).toISOString(),
+      },
+      source: "manual",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "key" }
+  )
+  return json.access_token
 }
 
+/** Vrai si les identifiants de l'app OAuth existent (l'autorisation, elle, vit en base). */
 export function isConversationsConfigured(): boolean {
-  return Boolean(
-    process.env.KLAVIYO_OAUTH_CLIENT_ID &&
-      process.env.KLAVIYO_OAUTH_CLIENT_SECRET &&
-      process.env.KLAVIYO_OAUTH_REFRESH_TOKEN
-  )
+  return Boolean(process.env.KLAVIYO_OAUTH_CLIENT_ID && process.env.KLAVIYO_OAUTH_CLIENT_SECRET)
 }
 
 /**
@@ -142,7 +174,7 @@ export async function sendConversationMessage(
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
   if (!isConversationsConfigured()) {
     // La clé privée renvoie 403 sur cet endpoint (testé le 24/07/2026) : inutile d'essayer.
-    return { ok: false, error: "OAuth Klaviyo non configuré (requis pour l'envoi)" }
+    return { ok: false, error: "App OAuth Klaviyo non configurée (KLAVIYO_OAUTH_CLIENT_ID/SECRET)" }
   }
   const response = await apiFetch(
     "conversation-messages",
@@ -159,7 +191,9 @@ export async function sendConversationMessage(
     },
     "write"
   )
-  if (!response) return { ok: false, error: "OAuth Klaviyo non configuré" }
+  if (!response) {
+    return { ok: false, error: "App OAuth non autorisée — ouvrir /api/whatsapp/oauth/start?secret=… une fois" }
+  }
   if (!response.ok) return { ok: false, error: `Klaviyo ${response.status}: ${await response.text()}` }
   // L'id du message créé sert d'external_id local : sans lui, le prochain poll
   // réinsérerait notre propre réponse en DOUBLON quand elle revient de l'API.
