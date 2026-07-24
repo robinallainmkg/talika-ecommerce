@@ -194,6 +194,17 @@ export async function sendConversationMessage(
   if (!response) {
     return { ok: false, error: "App OAuth non autorisée — ouvrir /api/whatsapp/oauth/start?secret=… une fois" }
   }
+  if (response.status === 403) {
+    // Vérifié le 24/07/2026 : token OAuth valide avec conversations:write -> 403 quand même.
+    // La doc de l'endpoint : « Requires account-level enablement. To request access,
+    // reach out in the developer community. » Il faut que Klaviyo active l'envoi pour le compte.
+    return {
+      ok: false,
+      error:
+        "Envoi refusé par Klaviyo : l'API Conversations en écriture doit être ACTIVÉE pour le compte " +
+        "(demande d'account-level enablement en attente). En attendant, répondre depuis l'inbox Klaviyo.",
+    }
+  }
   if (!response.ok) return { ok: false, error: `Klaviyo ${response.status}: ${await response.text()}` }
   // L'id du message créé sert d'external_id local : sans lui, le prochain poll
   // réinsérerait notre propre réponse en DOUBLON quand elle revient de l'API.
