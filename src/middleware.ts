@@ -22,6 +22,8 @@ const PUBLIC_PREFIXES = [
   // OAuth Klaviyo (WhatsApp) : start = CRON_SECRET, callback = state + PKCE.
   // Le retour de Klaviyo arrive sans session Supabase, il doit passer le middleware.
   "/api/whatsapp/oauth/",
+  // Sonde d'activation de l'envoi (routine quotidienne, protégée par CRON_SECRET).
+  "/api/whatsapp/write-status",
   // TEMPORAIRE — revue des conversations chat partagée avec une relectrice
   // externe (page noindex, emails masqués). À retirer après la revue.
   "/revue-chat",
