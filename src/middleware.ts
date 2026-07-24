@@ -19,6 +19,9 @@ const PUBLIC_PREFIXES = [
   "/api/chat/email",
   "/api/cron/",
   "/api/google/callback",
+  // OAuth Klaviyo (WhatsApp) : start = CRON_SECRET, callback = state + PKCE.
+  // Le retour de Klaviyo arrive sans session Supabase, il doit passer le middleware.
+  "/api/whatsapp/oauth/",
   // TEMPORAIRE — revue des conversations chat partagée avec une relectrice
   // externe (page noindex, emails masqués). À retirer après la revue.
   "/revue-chat",
