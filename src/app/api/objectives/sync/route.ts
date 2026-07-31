@@ -72,14 +72,20 @@ export async function POST() {
     }
 
     // Cache closed months + backfill missing
+    // ⚠️ data_cache.source est NOT NULL : sans lui l'upsert échoue en 23502.
+    // C'est resté silencieux (erreur jamais lue) pendant des mois → le cache ne
+    // persistait JAMAIS et janv–mai étaient re-téléchargés de Shopify chaque run
+    // (~220 s), ce qui faisait dépasser les 300 s au cron. On loggue désormais.
     for (const m of [...freshMonths, ...cachedMonths]) {
       if (m < 1 || m >= currentMonth) continue
       if (resultByMonth[m]) {
-        await supabase.from("data_cache").upsert({
+        const { error: cacheErr } = await supabase.from("data_cache").upsert({
           key: `objectives_gen_2026_${m}`,
           data: resultByMonth[m],
+          source: "objectives",
           updated_at: new Date().toISOString(),
         }, { onConflict: "key" })
+        if (cacheErr) console.error(`[objectives] cache mois ${m} non écrit: ${cacheErr.message}`)
       }
     }
 
@@ -94,11 +100,13 @@ export async function POST() {
       })
       totalOrdersFetched += orders.length
       resultByMonth[m] = computeGenerosite(orders, categoryMap)
-      await supabase.from("data_cache").upsert({
+      const { error: cacheErr } = await supabase.from("data_cache").upsert({
         key: `objectives_gen_2026_${m}`,
         data: resultByMonth[m],
+        source: "objectives",
         updated_at: new Date().toISOString(),
       }, { onConflict: "key" })
+      if (cacheErr) console.error(`[objectives] backfill mois ${m} non écrit: ${cacheErr.message}`)
     }
 
     // Write generosity to objectives_2026

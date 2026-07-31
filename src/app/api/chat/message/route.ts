@@ -186,16 +186,21 @@ export async function POST(request: Request) {
           }
           const embeddings = await embedTexts([retrievalText])
 
-          const rag = await retrieveContext(db, embeddings[0])
+          const rag = await retrieveContext(db, embeddings[0], { pageUrl: body.page_url })
 
           const history: ChatMessage[] = (historyRows || [])
             .reverse()
             .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
 
           const localeHint = isEn ? "\n(langue de la page : en)" : ""
+          // Sans cette ancre, une question sans nom de produit (« les ingrédients ? »)
+          // est traitée hors contexte et le bot répond sur un autre produit.
+          const pageHint = rag.pageProduct
+            ? `\n(Le visiteur consulte la fiche « ${rag.pageProduct.title} ». Sauf s'il nomme explicitement un autre produit, sa question porte sur celui-ci : ne réponds pas sur un autre produit, et n'affirme jamais qu'il en a mentionné un.)`
+            : ""
           const userContent = rag.contextBlock
-            ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}${localeHint}`
-            : `${message}${localeHint}`
+            ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}${pageHint}${localeHint}`
+            : `${message}${pageHint}${localeHint}`
 
           const messages: ChatMessage[] = [
             { role: "system", content: buildSystemPrompt(settings.prompt_addendum as string) },

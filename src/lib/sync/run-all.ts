@@ -71,6 +71,36 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
   let discountCodesCount = 0
   let matchedOrders = 0
 
+  /**
+   * Trace incrémentale sous une clé DÉDIÉE (last_cron_sync garde sa sémantique
+   * "dernier run TERMINÉ"). Écrite après chaque étape : si la lambda est tuée
+   * par maxDuration, cette clé montre exactement où le run s'est arrêté —
+   * incident du 3-8 juil. 2026 : 6 crons morts en silence, rien pour le voir.
+   */
+  async function persistTrace(done: boolean) {
+    try {
+      await supabase.from("data_cache").upsert(
+        {
+          key: "last_cron_sync_trace",
+          data: {
+            trigger,
+            ran_at: now.toISOString(),
+            in_progress: !done,
+            duration_ms: Date.now() - startedAt,
+            steps,
+            log,
+          },
+          source: trigger === "cron" ? "cron" : "manual",
+          updated_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+        { onConflict: "key" }
+      )
+    } catch {
+      // la trace ne doit jamais bloquer le pipeline
+    }
+  }
+
   /** Exécute une étape isolée : la trace toujours, ne propage jamais l'erreur. */
   async function step(key: string, label: string, fn: () => Promise<string>) {
     const t0 = Date.now()
@@ -83,6 +113,7 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
       steps.push({ key, label, status: "error", detail, ms: Date.now() - t0 })
       log.push(`✗ ${label} — ${detail}`)
     }
+    await persistTrace(false)
   }
 
   // ── 1. Commandes Shopify (mois en cours + mois précédent) ──
@@ -215,6 +246,7 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
         key: `shopify_discount_codes_${year}`,
         data: discountCodes,
         source: "shopify",
+        updated_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       },
       { onConflict: "key" }
@@ -369,15 +401,6 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     return `${r.name} : ${r.total_active} actives${r.added ? `, ${r.added} ajoutée(s)` : ""}${r.created ? " (créée)" : ""}`
   })
 
-  // ── 4ter. Contenu + stats Instagram (Business Discovery Meta) ──
-  // Posts réels + followers/engagement de chaque @handle (tous marchés).
-  await step("instagram_content", "Contenu Instagram", async () => {
-    const { syncInstagramContent, instagramConfigured } = await import("@/lib/influence/instagram")
-    if (!instagramConfigured()) return "ignoré (META_ACCESS_TOKEN absent)"
-    const r = await syncInstagramContent()
-    return `${r.profiles_ok} profils, ${r.posts_upserted} posts (${r.brand_posts} marque), ${r.mentions_upserted} mentions, ${r.profiles_failed.length} introuvables`
-  })
-
   // ── 5. Klaviyo (campagnes, flows, listes) ──
   await step("klaviyo", "Klaviyo", async () => {
     const klavData = await (await syncKlaviyoRoute()).json()
@@ -481,6 +504,21 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     return `${n} opportunité${n !== 1 ? "s" : ""} générée${n !== 1 ? "s" : ""}`
   })
 
+  // ── 10bis. Contenu + stats Instagram (Business Discovery Meta) — DERNIÈRE étape ──
+  // Posts réels + followers/engagement de chaque @handle (tous marchés).
+  // ~88 profils × (fetch + 250 ms de rate-limit) ≈ 1-2 min : c'est l'étape la plus
+  // lente ET la moins critique (aucun autre calcul n'en dépend). Elle est donc
+  // placée en DERNIER — si le budget des 300 s est dépassé, elle seule saute, pas
+  // les caches qui alimentent le dashboard. Avant (3-31 juil. 2026) elle tournait
+  // en 6ᵉ position et tuait tout ce qui suivait : Meta/Google/Klaviyo/P&L/analyse
+  // sont restés figés au 2 juillet pendant un mois.
+  await step("instagram_content", "Contenu Instagram", async () => {
+    const { syncInstagramContent, instagramConfigured } = await import("@/lib/influence/instagram")
+    if (!instagramConfigured()) return "ignoré (META_ACCESS_TOKEN absent)"
+    const r = await syncInstagramContent()
+    return `${r.profiles_ok} profils, ${r.posts_upserted} posts (${r.brand_posts} marque), ${r.mentions_upserted} mentions, ${r.profiles_failed.length} introuvables`
+  })
+
   // ── 11. Trace finale : last_cron_sync (toujours écrit, même en échec partiel) ──
   const success = steps.every((s) => s.status === "ok")
   const result: SyncResult = {
@@ -500,10 +538,12 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
       key: "last_cron_sync",
       data: result,
       source: trigger === "cron" ? "cron" : "manual",
+      updated_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     },
     { onConflict: "key" }
   )
+  await persistTrace(true)
 
   return result
 }
