@@ -70,7 +70,12 @@ export interface InstagramSyncResult {
   brand_posts: number
   mentions_upserted: number
   mentions_unknown: string[]
+  /** Profils non traités faute de temps (budget atteint) — jamais silencieux. */
+  profiles_skipped: number
 }
+
+/** Marge sous les 300 s de la lambda : on s'arrête net et on le dit. */
+const DEFAULT_BUDGET_MS = 240_000
 
 // Mentions par TAG : tous les médias où @talika_paris est tagué — y compris
 // par des comptes HORS base (earned media). Auteur connu → rattaché à
@@ -94,32 +99,41 @@ export async function syncTaggedMentions(): Promise<{ upserted: number; unknown:
     const res = await fetch(url, { cache: "no-store" })
     const json = await res.json()
     if (!res.ok || !json.data) break
+    // Un seul upsert par page : Vercel (iad1) et Supabase (eu-west-3) sont de
+    // part et d'autre de l'Atlantique — ~130 ms d'aller-retour par écriture.
+    // Ligne par ligne, la sync entière dépassait les 300 s de la lambda.
+    const rows = new Map<string, Record<string, unknown>>()
     for (const m of json.data as (IgMedia & { username?: string })[]) {
       const author = (m.username || "").toLowerCase()
       const influencerId = byHandle.get(author) || null
       if (!influencerId && author && !result.unknown.includes(author)) result.unknown.push(author)
-      const { error } = await supabase.from("influencer_content").upsert(
-        {
-          influencer_id: influencerId,
-          external_id: m.id,
-          platform: "instagram",
-          type: (m.media_product_type || m.media_type || "post").toLowerCase(),
-          media_product_type: m.media_product_type || null,
-          url: m.permalink || null,
-          caption: m.caption?.slice(0, 2000) || null,
-          thumbnail_url: m.thumbnail_url || m.media_url || null,
-          media_url: m.media_url || null,
-          like_count: m.like_count ?? null,
-          comments_count: m.comments_count ?? null,
-          is_brand: true,
-          is_mention: true,
-          author_username: m.username || null,
-          posted_at: m.timestamp || null,
-          stats_updated_at: new Date().toISOString(),
-        },
-        { onConflict: "external_id" }
-      )
-      if (!error) result.upserted++
+      // Map : deux fois le même external_id dans un même upsert ferait échouer
+      // tout le lot ("cannot affect row a second time").
+      rows.set(m.id, {
+        influencer_id: influencerId,
+        external_id: m.id,
+        platform: "instagram",
+        type: (m.media_product_type || m.media_type || "post").toLowerCase(),
+        media_product_type: m.media_product_type || null,
+        url: m.permalink || null,
+        caption: m.caption?.slice(0, 2000) || null,
+        thumbnail_url: m.thumbnail_url || m.media_url || null,
+        media_url: m.media_url || null,
+        like_count: m.like_count ?? null,
+        comments_count: m.comments_count ?? null,
+        is_brand: true,
+        is_mention: true,
+        author_username: m.username || null,
+        posted_at: m.timestamp || null,
+        stats_updated_at: new Date().toISOString(),
+      })
+    }
+    if (rows.size > 0) {
+      const { error } = await supabase
+        .from("influencer_content")
+        .upsert([...rows.values()], { onConflict: "external_id" })
+      if (error) console.error(`[instagram] mentions page ${page} non écrite: ${error.message}`)
+      else result.upserted += rows.size
     }
     url = json.paging?.next || null
     await new Promise((r) => setTimeout(r, 250))
@@ -130,10 +144,12 @@ export async function syncTaggedMentions(): Promise<{ upserted: number; unknown:
 // Sync complet : pour chaque influenceuse avec un @instagram (tous marchés) —
 // snapshot stats compte (1/jour max) + refresh metadata.followers + upsert des
 // posts (dédup par external_id, stats likes/commentaires rafraîchies).
-export async function syncInstagramContent(): Promise<InstagramSyncResult> {
+export async function syncInstagramContent(opts?: { budgetMs?: number }): Promise<InstagramSyncResult> {
+  const startedAt = Date.now()
+  const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS
   const result: InstagramSyncResult = {
     profiles_ok: 0, profiles_failed: [], posts_upserted: 0, brand_posts: 0,
-    mentions_upserted: 0, mentions_unknown: [],
+    mentions_upserted: 0, mentions_unknown: [], profiles_skipped: 0,
   }
   if (!instagramConfigured()) return result
 
@@ -155,6 +171,12 @@ export async function syncInstagramContent(): Promise<InstagramSyncResult> {
   const snapshotDone = new Set((recentStats || []).map((s) => s.influencer_id))
 
   for (const inf of influencers || []) {
+    // Budget dépassé : on rend la main proprement plutôt que de se faire tuer
+    // par la lambda au milieu d'une écriture, et on compte ce qui n'a pas été vu.
+    if (Date.now() - startedAt > budgetMs) {
+      result.profiles_skipped++
+      continue
+    }
     const handle = (inf.instagram_handle || "").replace(/^@/, "").trim()
     if (!handle) continue
     let profile: IgProfile | null = null
@@ -189,32 +211,38 @@ export async function syncInstagramContent(): Promise<InstagramSyncResult> {
     meta.ig_stats_at = new Date().toISOString()
     await supabase.from("influencers").update({ metadata: meta }).eq("id", inf.id)
 
-    // Posts : upsert par external_id
+    // Posts : UN SEUL upsert pour tous les médias du profil (dédup par
+    // external_id). Un appel par post = ~130 ms d'aller-retour iad1 ↔ eu-west-3,
+    // soit ~3 s par influenceuse et une sync qui dépassait les 300 s.
     const codes = codesByInf.get(inf.id) || []
+    const rows = new Map<string, Record<string, unknown>>()
     for (const m of media) {
       const brand = isBrandContent(m.caption, codes)
       if (brand) result.brand_posts++
-      const { error } = await supabase.from("influencer_content").upsert(
-        {
-          influencer_id: inf.id,
-          external_id: m.id,
-          platform: "instagram",
-          type: (m.media_product_type || m.media_type || "post").toLowerCase(),
-          media_product_type: m.media_product_type || null,
-          url: m.permalink || null,
-          title: null,
-          caption: m.caption?.slice(0, 2000) || null,
-          thumbnail_url: m.thumbnail_url || m.media_url || null,
-          media_url: m.media_url || null,
-          like_count: m.like_count ?? null,
-          comments_count: m.comments_count ?? null,
-          is_brand: brand,
-          posted_at: m.timestamp || null,
-          stats_updated_at: new Date().toISOString(),
-        },
-        { onConflict: "external_id" }
-      )
-      if (!error) result.posts_upserted++
+      rows.set(m.id, {
+        influencer_id: inf.id,
+        external_id: m.id,
+        platform: "instagram",
+        type: (m.media_product_type || m.media_type || "post").toLowerCase(),
+        media_product_type: m.media_product_type || null,
+        url: m.permalink || null,
+        title: null,
+        caption: m.caption?.slice(0, 2000) || null,
+        thumbnail_url: m.thumbnail_url || m.media_url || null,
+        media_url: m.media_url || null,
+        like_count: m.like_count ?? null,
+        comments_count: m.comments_count ?? null,
+        is_brand: brand,
+        posted_at: m.timestamp || null,
+        stats_updated_at: new Date().toISOString(),
+      })
+    }
+    if (rows.size > 0) {
+      const { error } = await supabase
+        .from("influencer_content")
+        .upsert([...rows.values()], { onConflict: "external_id" })
+      if (error) console.error(`[instagram] posts de ${handle} non écrits: ${error.message}`)
+      else result.posts_upserted += rows.size
     }
     await new Promise((r) => setTimeout(r, 250)) // rate limit Meta (200 calls/h)
   }

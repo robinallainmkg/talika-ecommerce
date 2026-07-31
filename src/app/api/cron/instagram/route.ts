@@ -36,7 +36,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await syncInstagramContent()
+    // 270 s : marge sous les 300 s de la lambda pour l'écriture de la trace.
+    const result = await syncInstagramContent({ budgetMs: 270_000 })
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
