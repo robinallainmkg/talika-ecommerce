@@ -504,20 +504,9 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     return `${n} opportunité${n !== 1 ? "s" : ""} générée${n !== 1 ? "s" : ""}`
   })
 
-  // ── 10bis. Contenu + stats Instagram (Business Discovery Meta) — DERNIÈRE étape ──
-  // Posts réels + followers/engagement de chaque @handle (tous marchés).
-  // ~88 profils × (fetch + 250 ms de rate-limit) ≈ 1-2 min : c'est l'étape la plus
-  // lente ET la moins critique (aucun autre calcul n'en dépend). Elle est donc
-  // placée en DERNIER — si le budget des 300 s est dépassé, elle seule saute, pas
-  // les caches qui alimentent le dashboard. Avant (3-31 juil. 2026) elle tournait
-  // en 6ᵉ position et tuait tout ce qui suivait : Meta/Google/Klaviyo/P&L/analyse
-  // sont restés figés au 2 juillet pendant un mois.
-  await step("instagram_content", "Contenu Instagram", async () => {
-    const { syncInstagramContent, instagramConfigured } = await import("@/lib/influence/instagram")
-    if (!instagramConfigured()) return "ignoré (META_ACCESS_TOKEN absent)"
-    const r = await syncInstagramContent()
-    return `${r.profiles_ok} profils, ${r.posts_upserted} posts (${r.brand_posts} marque), ${r.mentions_upserted} mentions, ${r.profiles_failed.length} introuvables`
-  })
+  // NB. Le contenu Instagram N'EST PLUS dans ce pipeline : ~88 profils × 250 ms de
+  // rate-limit Meta ≈ 2-3 min, qui ne tiennent pas dans les 300 s avec le reste.
+  // Il a son propre cron → GET /api/cron/instagram (cf. vercel.json).
 
   // ── 11. Trace finale : last_cron_sync (toujours écrit, même en échec partiel) ──
   const success = steps.every((s) => s.status === "ok")
