@@ -42,6 +42,59 @@ interface Detail {
 
 const periodLabel = (y: number, m: number) => `${MONTHS_FULL[m - 1]} ${y}`
 
+// ── Stats de performance (Profil) ──
+// Lu depuis influencers.metadata, alimenté par la routine outreach et le sourcing
+// Kolsquare : followers, engagement_rate (déjà en %), uk_audience_pct,
+// audience_credibility, story_views {median, period, source, reach_note}.
+// Affiché dès qu'AU MOINS une stat existe — c'est la vue « ça vaut combien »
+// qui manquait au drawer (les vues stories n'apparaissaient nulle part).
+type StoryViews = { median?: number; period?: string; source?: string; reach_note?: string }
+const fmtK = (v: number) => (v >= 10000 ? `${Math.round(v / 1000)} K` : v >= 1000 ? `${(v / 1000).toFixed(1).replace(".", ",")} K` : String(v))
+const fmtPct = (v: number) => `${v.toFixed(1).replace(".", ",")} %`
+
+function KeyStatsSection({ meta }: { meta: Record<string, unknown> }) {
+  const num = (k: string) => (typeof meta[k] === "number" ? (meta[k] as number) : null)
+  const sv = (meta.story_views ?? null) as StoryViews | null
+  const followers = num("followers")
+  const er = num("engagement_rate")
+  const uk = num("uk_audience_pct")
+  const cred = num("audience_credibility")
+  const tiles: [string, string][] = []
+  if (sv?.median != null) tiles.push(["Vues / story (méd.)", fmtK(sv.median)])
+  if (followers != null) tiles.push(["Abonnés", fmtK(followers)])
+  if (uk != null) tiles.push(["Audience UK", fmtPct(uk)])
+  if (er != null) tiles.push(["Engagement", fmtPct(er)])
+  if (cred != null) tiles.push(["Crédibilité", fmtPct(cred)])
+  if (tiles.length === 0) return null
+  return (
+    <div className="border-t border-zinc-100 px-5 py-4">
+      <h3 className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">Stats</h3>
+      {/* Tailwind ne compile pas les classes dynamiques → lookup statique */}
+      <div className={`grid gap-px rounded-xl border border-zinc-100 bg-zinc-100 text-center ${["grid-cols-1", "grid-cols-1", "grid-cols-2", "grid-cols-3", "grid-cols-4"][Math.min(tiles.length, 4)]}`}>
+        {tiles.slice(0, 4).map(([l, v]) => (
+          <div key={l} className="bg-white px-2 py-2.5 first:rounded-l-xl last:rounded-r-xl">
+            <div className="text-sm font-semibold text-zinc-900">{v}</div>
+            <div className="text-[10px] uppercase text-zinc-400">{l}</div>
+          </div>
+        ))}
+      </div>
+      {tiles.length > 4 && (
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5">
+          {tiles.slice(4).map(([l, v]) => (
+            <span key={l} className="text-xs text-zinc-500">{l} : <b className="font-semibold text-zinc-800">{v}</b></span>
+          ))}
+        </div>
+      )}
+      {sv?.median != null && (sv.period || sv.reach_note) && (
+        <p className="mt-1.5 text-[10px] leading-snug text-zinc-400">
+          {sv.period && <>Vues stories : période {sv.period}. </>}{sv.reach_note}
+        </p>
+      )}
+      {sv?.source && <p className="mt-0.5 text-[10px] text-zinc-400">Source : {sv.source}</p>}
+    </div>
+  )
+}
+
 function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
   return (
     <div className="border-t border-zinc-100 px-5 py-4">
@@ -519,6 +572,9 @@ export function InfluencerDrawer({ influencerId, onClose, initialTab = "profile"
                 </div>
               ))}
             </div>
+
+            {/* Stats de performance (metadata : story_views, followers, ER, % UK…) */}
+            <KeyStatsSection meta={meta} />
 
             {/* Audience (démographies média-kit, alimentées par la routine outreach) */}
             <AudienceSection audience={meta.audience as AudienceData | undefined} />
