@@ -1,5 +1,5 @@
 // Étapes du pipeline de prospection influence (par campagne × influenceuse).
-export type Stage = "prospect" | "contacte" | "discussion" | "confirme" | "actif" | "decline"
+export type Stage = "prospect" | "contacte" | "discussion" | "confirme" | "actif" | "later" | "decline"
 
 export const STAGES: { key: Stage; label: string }[] = [
   { key: "prospect", label: "Prospect" },
@@ -7,6 +7,9 @@ export const STAGES: { key: Stage; label: string }[] = [
   { key: "discussion", label: "En discussion" },
   { key: "confirme", label: "Confirmé" },
   { key: "actif", label: "Actif" },
+  // "Plus tard" = parking volontaire (géo/fit disqualifiant, budget) — jamais touché par la
+  // synchro auto de la routine outreach, sortie/entrée uniquement à la main ou sur décision Robin.
+  { key: "later", label: "Plus tard" },
   { key: "decline", label: "Décliné" },
 ]
 
