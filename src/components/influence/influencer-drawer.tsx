@@ -120,7 +120,7 @@ type RateLine = { label: string; price: number; note?: string }
 type Rates = { currency?: string; source?: string; updated_at?: string; lines?: RateLine[]; usage_note?: string }
 // Format historique écrit par la routine outreach : { items: { story_set_3_frames: 1250, … } }
 type RateCard = { items?: Record<string, number>; currency?: string; source?: string; received_at?: string; vat_excluded?: boolean; note?: string }
-type DealTerms = { type?: string; commission_pct?: number; status?: string; decided_by?: string; decided_at?: string; proposed_at?: string; note?: string }
+type DealTerms = { type?: string; commission_pct?: number; status?: string; decided_by?: string; decided_at?: string; proposed_at?: string; note?: string; agreed?: boolean }
 
 function CollabTab({ meta }: { meta: Record<string, unknown> }) {
   const summary = meta.collab_summary as string | undefined
@@ -160,10 +160,13 @@ function CollabTab({ meta }: { meta: Record<string, unknown> }) {
         </div>
       )}
 
-      {/* Conditions décidées / proposées (gifting + commission…) */}
+      {/* Conditions : « Accord » seulement si l'influenceuse a accepté (agreed) ;
+          sinon c'est NOTRE proposition en cours — affichée comme telle (règle Robin 05/08). */}
       {deal && (
-        <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3.5">
-          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-600">Conditions</h4>
+        <div className={`rounded-xl border p-3.5 ${deal.agreed ? "border-emerald-100 bg-emerald-50/50" : "border-amber-100 bg-amber-50/40"}`}>
+          <h4 className={`mb-1.5 text-xs font-semibold uppercase tracking-wide ${deal.agreed ? "text-emerald-600" : "text-amber-600"}`}>
+            {deal.agreed ? "Accord" : "Notre proposition (en attente de son accord)"}
+          </h4>
           <p className="text-sm text-zinc-700">
             {deal.type === "gifting" ? "Gifting" : deal.type || "—"}
             {deal.commission_pct != null && <> + <b>{deal.commission_pct} %</b> de commission sur les ventes</>}
