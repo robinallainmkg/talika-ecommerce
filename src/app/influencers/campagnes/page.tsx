@@ -23,6 +23,31 @@ interface Collab {
   next_action: string | null; next_action_date: string | null
   themes: string[]; fee: number; commission: number; commission_rate: number | null
   message_count: number; last_message_at: string | null; awaiting_reply: boolean
+  qual: { stats: boolean; demo: boolean; prix: boolean }
+}
+
+// Badges de qualification : visibles dès qu'un contact est engagé (discussion et
+// au-delà) — un lead est "Qualifié" quand les 3 sont verts (stats, démo, prix).
+const QUAL_STAGES: Stage[] = ["discussion", "qualifie", "confirme", "actif", "later"]
+function QualBadges({ c }: { c: Collab }) {
+  if (!QUAL_STAGES.includes(c.stage) || !c.qual) return null
+  const items: [keyof Collab["qual"], string, string][] = [
+    ["stats", "Stats", "vues réelles (stories / 30 j)"],
+    ["demo", "Démo", "démographie d'audience"],
+    ["prix", "Prix", "rate card reçue ou conditions décidées"],
+  ]
+  return (
+    <div className="mt-1.5 flex gap-1">
+      {items.map(([k, label, tip]) => (
+        <span key={k}
+          title={`${tip} : ${c.qual[k] ? "OK" : "manquant"}`}
+          className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium",
+            c.qual[k] ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-400 line-through decoration-zinc-300")}>
+          {label}
+        </span>
+      ))}
+    </div>
+  )
 }
 interface InfLite { id: string; name: string }
 
@@ -285,6 +310,9 @@ export default function CampagnesPage() {
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
+
+                        {/* Qualification (stats / démo / prix) */}
+                        <QualBadges c={c} />
 
                         {/* Coût du mois (forfait + commission) */}
                         {(c.fee > 0 || c.commission > 0) && (

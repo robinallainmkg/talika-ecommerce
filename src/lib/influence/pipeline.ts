@@ -1,10 +1,13 @@
 // Étapes du pipeline de prospection influence (par campagne × influenceuse).
-export type Stage = "prospect" | "contacte" | "discussion" | "confirme" | "actif" | "later" | "decline"
+export type Stage = "prospect" | "contacte" | "discussion" | "qualifie" | "confirme" | "actif" | "later" | "decline"
 
 export const STAGES: { key: Stage; label: string }[] = [
   { key: "prospect", label: "Prospect" },
   { key: "contacte", label: "Contacté" },
   { key: "discussion", label: "En discussion" },
+  // "Qualifié" = on a TOUT pour arbitrer : stats de vues + démographie + prix.
+  // Entrée automatisable (les 3 badges verts), jamais rétrogradé par la synchro routine.
+  { key: "qualifie", label: "Qualifié" },
   { key: "confirme", label: "Confirmé" },
   { key: "actif", label: "Actif" },
   // "Plus tard" = parking volontaire (géo/fit disqualifiant, budget) — jamais touché par la

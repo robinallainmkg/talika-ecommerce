@@ -49,18 +49,23 @@ const periodLabel = (y: number, m: number) => `${MONTHS_FULL[m - 1]} ${y}`
 // Affiché dès qu'AU MOINS une stat existe — c'est la vue « ça vaut combien »
 // qui manquait au drawer (les vues stories n'apparaissaient nulle part).
 type StoryViews = { median?: number; period?: string; source?: string; reach_note?: string }
+type Insights = { views?: number; period?: string; views_stories?: number; accounts_reached?: number }
 const fmtK = (v: number) => (v >= 10000 ? `${Math.round(v / 1000)} K` : v >= 1000 ? `${(v / 1000).toFixed(1).replace(".", ",")} K` : String(v))
 const fmtPct = (v: number) => `${v.toFixed(1).replace(".", ",")} %`
 
 function KeyStatsSection({ meta }: { meta: Record<string, unknown> }) {
   const num = (k: string) => (typeof meta[k] === "number" ? (meta[k] as number) : null)
   const sv = (meta.story_views ?? null) as StoryViews | null
+  // insights_30d = totaux Instagram Insights reçus (vues tous contenus / stories / reach)
+  const ins = (meta.insights_30d ?? null) as Insights | null
   const followers = num("followers")
   const er = num("engagement_rate")
   const uk = num("uk_audience_pct")
   const cred = num("audience_credibility")
   const tiles: [string, string][] = []
   if (sv?.median != null) tiles.push(["Vues / story (méd.)", fmtK(sv.median)])
+  if (ins?.views != null) tiles.push(["Vues / 30 j", fmtK(ins.views)])
+  if (ins?.views_stories != null && sv?.median == null) tiles.push(["Vues stories / 30 j", fmtK(ins.views_stories)])
   if (followers != null) tiles.push(["Abonnés", fmtK(followers)])
   if (uk != null) tiles.push(["Audience UK", fmtPct(uk)])
   if (er != null) tiles.push(["Engagement", fmtPct(er)])
@@ -90,6 +95,7 @@ function KeyStatsSection({ meta }: { meta: Record<string, unknown> }) {
           {sv.period && <>Vues stories : période {sv.period}. </>}{sv.reach_note}
         </p>
       )}
+      {ins?.period && <p className="mt-0.5 text-[10px] text-zinc-400">Insights 30 j : {ins.period}{ins.accounts_reached != null ? ` · reach ${fmtK(ins.accounts_reached)}` : ""}</p>}
       {sv?.source && <p className="mt-0.5 text-[10px] text-zinc-400">Source : {sv.source}</p>}
     </div>
   )
@@ -112,14 +118,27 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 // Lecture seule : la routine alimente, Robin arbitre.
 type RateLine = { label: string; price: number; note?: string }
 type Rates = { currency?: string; source?: string; updated_at?: string; lines?: RateLine[]; usage_note?: string }
+// Format historique écrit par la routine outreach : { items: { story_set_3_frames: 1250, … } }
+type RateCard = { items?: Record<string, number>; currency?: string; source?: string; received_at?: string; vat_excluded?: boolean; note?: string }
+type DealTerms = { type?: string; commission_pct?: number; status?: string; decided_by?: string; decided_at?: string; proposed_at?: string; note?: string }
 
 function CollabTab({ meta }: { meta: Record<string, unknown> }) {
-  const rates = meta.rates as Rates | undefined
   const summary = meta.collab_summary as string | undefined
+  const deal = meta.deal_terms as DealTerms | undefined
+  // La routine écrit `rate_card` (items) ; le format cible du drawer est `rates`
+  // (lines). On lit les deux — sinon les grilles tarifaires reçues sont invisibles.
+  const rc = meta.rate_card as RateCard | undefined
+  const rates: Rates | undefined = (meta.rates as Rates | undefined) ?? (rc?.items ? {
+    currency: rc.currency,
+    source: rc.source,
+    updated_at: rc.received_at,
+    usage_note: [rc.note, rc.vat_excluded ? "Tarifs hors TVA." : null].filter(Boolean).join(" · ") || undefined,
+    lines: Object.entries(rc.items).map(([k, v]) => ({ label: k.replace(/_/g, " "), price: v })),
+  } : undefined)
   const fmt = (n: number) =>
     new Intl.NumberFormat("fr-FR", { style: "currency", currency: rates?.currency || "GBP", maximumFractionDigits: 0 }).format(n)
 
-  if (!summary && !rates?.lines?.length) {
+  if (!summary && !rates?.lines?.length && !deal) {
     return (
       <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
         <Handshake className="h-8 w-8 text-zinc-200" />
@@ -138,6 +157,23 @@ function CollabTab({ meta }: { meta: Record<string, unknown> }) {
         <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3.5">
           <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-400">Résumé de la collab</h4>
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-700">{summary}</p>
+        </div>
+      )}
+
+      {/* Conditions décidées / proposées (gifting + commission…) */}
+      {deal && (
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3.5">
+          <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-600">Conditions</h4>
+          <p className="text-sm text-zinc-700">
+            {deal.type === "gifting" ? "Gifting" : deal.type || "—"}
+            {deal.commission_pct != null && <> + <b>{deal.commission_pct} %</b> de commission sur les ventes</>}
+          </p>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            {deal.status && <>{deal.status} · </>}
+            {deal.decided_by && <>décidé par {deal.decided_by}{deal.decided_at ? ` le ${deal.decided_at}` : ""}</>}
+            {!deal.decided_by && deal.proposed_at && <>proposé le {deal.proposed_at}</>}
+          </p>
+          {deal.note && <p className="mt-1 text-[11px] text-zinc-500">{deal.note}</p>}
         </div>
       )}
 

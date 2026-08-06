@@ -74,7 +74,18 @@ export async function GET(request: Request) {
       const inf = byId[c.influencer_id]
       const meta = (inf?.metadata || {}) as Record<string, unknown>
       const ms = msgStats[c.influencer_id]
+      // Qualification "on a tout pour arbitrer" : stats de vues réelles
+      // (story_views / insights_*), démographie (audience), prix (rate card
+      // reçue OU conditions décidées deal_terms). Affichée en badges sur la carte.
+      const aud = meta.audience as { platforms?: Record<string, unknown> } | undefined
+      const sv = meta.story_views as { median?: number } | undefined
+      const qual = {
+        stats: sv?.median != null || meta.insights_30d != null || meta.insights_90d != null,
+        demo: !!aud?.platforms && Object.keys(aud.platforms).length > 0,
+        prix: meta.rates != null || meta.rate_card != null || meta.deal_terms != null,
+      }
       return {
+        qual,
         message_count: ms?.message_count || 0,
         last_message_at: ms?.last_message_at || null,
         // Dernier message = entrant → une réponse attend d'être traitée.
