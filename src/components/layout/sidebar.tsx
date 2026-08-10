@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 import { navVisible } from "@/lib/roles"
+import { adminFetch } from "@/lib/chat/admin-fetch"
 
 type Leaf = { name: string; href: string; icon?: typeof Users }
 type Group = { name: string; icon: typeof Users; children: Leaf[] }
@@ -70,11 +71,14 @@ const ROLE_LABELS: Record<string, string> = {
 
 interface RoutineCheck { id: string; label: string; status: "done" | "pending" | "warning"; detail?: string; link?: string }
 
-function Badge({ count, active }: { count: number; active: boolean }) {
+// Ambre = tâche interne en attente. Rouge = un CLIENT attend un humain (SAV).
+function Badge({ count, active, tone = "amber" }: { count: number; active: boolean; tone?: "amber" | "red" }) {
   return (
     <span className={cn(
       "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold",
-      active ? "bg-amber-400 text-zinc-900" : "bg-amber-100 text-amber-700"
+      tone === "red"
+        ? active ? "bg-red-500 text-white" : "bg-red-600 text-white"
+        : active ? "bg-amber-400 text-zinc-900" : "bg-amber-100 text-amber-700"
     )}>{count}</span>
   )
 }
@@ -82,7 +86,9 @@ function Badge({ count, active }: { count: number; active: boolean }) {
 export function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [badges, setBadges] = useState<Record<string, { count: number; labels: string[] }>>({})
+  const [badges, setBadges] = useState<Record<string, { count: number; labels: string[]; tone?: "amber" | "red" }>>({})
+  // Dernier compteur SAV connu → notification navigateur seulement quand il MONTE.
+  const savCount = useRef<number | null>(null)
   const [role, setRole] = useState<string | null>(null)
   const [sections, setSections] = useState<unknown>(undefined)
   const [userEmail, setUserEmail] = useState<string | null>(null)
@@ -132,10 +138,40 @@ export function Sidebar() {
   const isOpen = (g: Group) => openMap[g.name] ?? groupHasActive(g)
 
   const fetchBadges = useCallback(async () => {
-    const grouped: Record<string, { count: number; labels: string[] }> = {}
-    // Badges routine (ops mensuelle)
+    const grouped: Record<string, { count: number; labels: string[]; tone?: "amber" | "red" }> = {}
+    // Badge SAV (rouge) : fils où un CLIENT attend une action humaine. Feature FR
+    // (chat talika.fr + WhatsApp), indépendante du marché affiché.
     try {
-      const res = await fetch("/api/routine")
+      const res = await adminFetch("/api/chat/admin/awaiting")
+      const data = await res.json()
+      const items: { contact: string | null; preview: string }[] = data?.items || []
+      if (typeof data?.count === "number" && data.count > 0) {
+        grouped["/chat"] = {
+          count: data.count,
+          tone: "red",
+          labels: items.slice(0, 3).map((i) => i.contact || i.preview || "conversation en attente"),
+        }
+      }
+      // Notification navigateur GLOBALE quand le compteur monte (permission
+      // accordée depuis /chat). Pas de doublon quand on est déjà sur /chat :
+      // la page a ses propres notifications par conversation + carillon.
+      if (typeof data?.count === "number") {
+        const prev = savCount.current
+        savCount.current = data.count
+        const onChat = window.location.pathname.startsWith("/chat")
+        if (prev !== null && data.count > prev && !onChat &&
+            "Notification" in window && Notification.permission === "granted") {
+          new Notification("Talika — SAV", {
+            body: `${data.count} conversation(s) attendent une réponse humaine`,
+            tag: "sav-awaiting",
+          })
+        }
+      }
+    } catch { /* silent */ }
+    // Badges routine (ops mensuelle) — feature FR : marché explicite, sinon le
+    // cookie tk_market=UK (basculé pour l'outreach) éteignait TOUS les badges.
+    try {
+      const res = await fetch("/api/routine?market=FR")
       const data = await res.json()
       const pending = ((data.checks as RoutineCheck[]) || []).filter((c) => (c.status === "pending" || c.status === "warning") && c.link)
       for (const check of pending) {
@@ -145,7 +181,8 @@ export function Sidebar() {
         grouped[link].labels.push(check.label)
       }
     } catch { /* silent */ }
-    // Badge "collabs sans facture" sur Facturation (403 silencieux pour rôle sav)
+    // Badge "collabs sans facture" sur Facturation (403 silencieux pour rôle sav).
+    // Reste scopé au marché affiché : la facturation existe en FR ET en UK.
     try {
       const res = await fetch("/api/influencers/billing/summary")
       const data = await res.json()
@@ -156,9 +193,9 @@ export function Sidebar() {
         }
       }
     } catch { /* silent */ }
-    // Badge opportunités en attente
+    // Badge opportunités en attente — feature FR, marché explicite (cf. routine)
     try {
-      const res = await fetch("/api/opportunities?status=pending")
+      const res = await fetch("/api/opportunities?status=pending&market=FR")
       const data = await res.json()
       if (Array.isArray(data) && data.length > 0) {
         grouped["/opportunities"] = {
@@ -170,7 +207,15 @@ export function Sidebar() {
     setBadges(grouped)
   }, [])
 
-  useEffect(() => { fetchBadges() }, [fetchBadges])
+  // Rafraîchi toutes les 60 s + au retour sur l'onglet (avant : une seule fois au
+  // montage → compteurs figés/absents jusqu'au prochain rechargement complet).
+  useEffect(() => {
+    fetchBadges()
+    const interval = setInterval(fetchBadges, 60_000)
+    const onFocus = () => fetchBadges()
+    window.addEventListener("focus", onFocus)
+    return () => { clearInterval(interval); window.removeEventListener("focus", onFocus) }
+  }, [fetchBadges])
   useEffect(() => { setMobileOpen(false) }, [pathname])
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : ""
@@ -242,7 +287,7 @@ export function Sidebar() {
                                   active ? "bg-zinc-900 font-medium text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
                                 )}>
                                 <span className="flex-1">{c.name}</span>
-                                {badge && <Badge count={badge.count} active={active} />}
+                                {badge && <Badge count={badge.count} active={active} tone={badge.tone} />}
                               </Link>
                             </li>
                           )
@@ -267,7 +312,7 @@ export function Sidebar() {
                     )}>
                     <Icon className="h-5 w-5" />
                     <span className="flex-1">{item.name}</span>
-                    {badge && <Badge count={badge.count} active={active} />}
+                    {badge && <Badge count={badge.count} active={active} tone={badge.tone} />}
                   </Link>
                 </li>
               )

@@ -6,6 +6,7 @@ import { RefreshCw, Trash2, Inbox, FlaskConical, BookOpen, Settings, Bell, BellO
 import { adminFetch } from "@/lib/chat/admin-fetch"
 import { MessageBubble, ChatMessageView } from "@/components/chat/message-bubble"
 import { relativeTime, StatusBadge } from "@/components/chat/helpers"
+import { needsHumanReply } from "@/lib/chat/awaiting"
 import { ReplyComposer } from "@/components/chat/reply-composer"
 import { VisitorPanel } from "@/components/chat/visitor-panel"
 import { SalesCard } from "@/components/chat/sales-card"
@@ -368,7 +369,11 @@ export default function ChatInboxPage() {
                 <p className="text-sm text-zinc-400">Aucune conversation pour le moment.</p>
               </div>
             ) : (
-              conversations.map((conv) => (
+              conversations.map((conv) => {
+                // Rouge = c'est à Meha de répondre (queued, ou humain avec un
+                // message visiteur sans réponse — hors désabonnements auto-traités).
+                const awaiting = needsHumanReply(conv.status, conv.last_message_preview || "")
+                return (
                 <button
                   key={conv.id}
                   onClick={() => {
@@ -383,11 +388,20 @@ export default function ChatInboxPage() {
                     }
                   }}
                   className={`block w-full border-b border-zinc-100 px-3 py-2.5 text-left hover:bg-[#FBF9F3] ${
-                    selectedId === conv.id ? "bg-[#F7F4ED] shadow-[inset_2px_0_0_#0A1638]" : ""
+                    selectedId === conv.id
+                      ? "bg-[#F7F4ED] shadow-[inset_2px_0_0_#0A1638]"
+                      : awaiting
+                        ? "bg-red-50 shadow-[inset_2px_0_0_#DC2626] hover:bg-red-50/70"
+                        : ""
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     <StatusBadge status={conv.status} />
+                    {awaiting && (
+                      <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        À répondre
+                      </span>
+                    )}
                     {conv.channel === "whatsapp" && (
                       <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
                         WhatsApp
@@ -411,7 +425,8 @@ export default function ChatInboxPage() {
                     </p>
                   )}
                 </button>
-              ))
+                )
+              })
             )}
           </div>
         </div>
