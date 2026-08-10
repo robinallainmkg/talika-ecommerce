@@ -274,8 +274,10 @@ export default function CampagnesPage() {
                         draggable
                         onDragStart={() => setDragId(c.id)}
                         onClick={() => { setDrawerTab("chat"); setDrawerId(c.influencer_id) }}
-                        className="group cursor-pointer rounded-lg border border-zinc-200 bg-white p-2.5 shadow-sm hover:border-zinc-300"
-                        title="Voir la conversation"
+                        className={cn("group cursor-pointer rounded-lg border p-2.5 shadow-sm",
+                          // Fond ambre = elle a répondu en dernier (la balle est chez nous)
+                          c.awaiting_reply ? "border-amber-300 bg-amber-50 hover:border-amber-400" : "border-zinc-200 bg-white hover:border-zinc-300")}
+                        title={c.awaiting_reply ? "Dernier message reçu — réponse attendue" : "Voir la conversation"}
                       >
                         <div className="flex items-start gap-2">
                           <input type="checkbox" checked={sel.has(c.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(c.id)}
