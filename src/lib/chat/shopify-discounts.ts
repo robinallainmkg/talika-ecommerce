@@ -1,4 +1,4 @@
-const API_VERSION = "2024-10"
+import { SHOPIFY_API_VERSION } from "@/lib/shopify-api-version"
 
 export type DiscountInfo = {
   found: boolean
@@ -51,7 +51,7 @@ export async function lookupDiscountCode(code: string): Promise<DiscountInfo> {
       }
     }`
 
-  const response = await fetch(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     body: JSON.stringify({ query, variables: { code: clean } }),

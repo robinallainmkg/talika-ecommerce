@@ -11,7 +11,8 @@
 // les métriques colis Klaviyo (Package in transit / out for delivery / delivered) sont
 // alimentées en continu. On lit les deux, Klaviyo arbitre quand il est plus récent.
 
-const SHOPIFY_API_VERSION = "2024-10"
+import { SHOPIFY_API_VERSION } from "@/lib/shopify-api-version"
+
 const KLAVIYO_REVISION = "2025-01-15"
 
 // Métriques de suivi colis du compte Klaviyo FR (ids stables, relevés le 24/07/2026).

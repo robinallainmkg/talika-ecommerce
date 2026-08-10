@@ -3,9 +3,11 @@
  * Full access API connection with proper pagination
  */
 
+import { SHOPIFY_API_VERSION } from "@/lib/shopify-api-version"
+
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE_DOMAIN || ""
 const SHOPIFY_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN || ""
-const BASE_URL = `https://${SHOPIFY_STORE}/admin/api/2024-01`
+const BASE_URL = `https://${SHOPIFY_STORE}/admin/api/${SHOPIFY_API_VERSION}`
 
 /** Fetch avec retry sur 429 (rate limit Shopify : 2 req/s, le Retry-After est fourni) */
 async function rawShopifyFetch(url: string, options?: RequestInit): Promise<Response> {

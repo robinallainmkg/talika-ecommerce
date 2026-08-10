@@ -2,14 +2,13 @@ import crypto from "node:crypto"
 import { SupabaseClient } from "@supabase/supabase-js"
 import { chunkText } from "./chunking"
 import { insertChunks } from "./ingest"
+import { SHOPIFY_API_VERSION } from "@/lib/shopify-api-version"
 
 // Les FAQ produit sont saisies dans l'ÉDITEUR DE THÈME (templates/product.*.json),
 // pas dans les données produit -> invisibles du sync fiches (vu le 08/07 : la FAQ
 // du LED Therapy Mask répondait aux questions que le bot inventait). Ce module
 // extrait les Q/R des templates produit du thème publié et les indexe comme
 // documents KB (source_type "theme_faq"), au fil des syncs.
-
-const API_VERSION = "2024-10"
 
 function env(): { domain: string; token: string } {
   const domain = process.env.SHOPIFY_STORE_DOMAIN
@@ -20,7 +19,7 @@ function env(): { domain: string; token: string } {
 
 async function rest(path: string): Promise<Record<string, unknown>> {
   const { domain, token } = env()
-  const response = await fetch(`https://${domain}/admin/api/${API_VERSION}${path}`, {
+  const response = await fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}${path}`, {
     headers: { "X-Shopify-Access-Token": token },
   })
   if (!response.ok) throw new Error(`Shopify REST ${path}: ${response.status}`)
@@ -97,7 +96,7 @@ export async function syncThemeFaqs(db: SupabaseClient): Promise<ThemeFaqSyncRes
   const products: { handle: string; title: string; templateSuffix: string | null }[] = []
   let cursor: string | null = null
   for (let page = 0; page < 10; page++) {
-    const response: Response = await fetch(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
+    const response: Response = await fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
       body: JSON.stringify({

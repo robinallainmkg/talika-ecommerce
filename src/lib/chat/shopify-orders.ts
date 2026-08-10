@@ -1,4 +1,4 @@
-const API_VERSION = "2024-10"
+import { SHOPIFY_API_VERSION } from "@/lib/shopify-api-version"
 
 export type OrderTracking = {
   company: string | null
@@ -80,7 +80,7 @@ export async function lookupCustomerByEmail(email: string): Promise<CustomerInfo
         }
       }
     }`
-  const response = await fetch(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     body: JSON.stringify({ query, variables: { search: `email:${clean}` } }),
@@ -148,7 +148,7 @@ export async function lookupOrder(orderNumber: string, email: string): Promise<O
         }
       }
     }`
-  const response = await fetch(`https://${domain}/admin/api/${API_VERSION}/graphql.json`, {
+  const response = await fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     body: JSON.stringify({ query, variables: { search: `name:#${digits}` } }),
