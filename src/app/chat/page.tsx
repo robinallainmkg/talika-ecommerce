@@ -35,11 +35,14 @@ type ConversationDetail = ConversationRow & {
   taken_over_at: string | null
 }
 
+// 3 onglets seulement (simplification Robin 10/08). « À traiter » = exactement
+// le badge SAV de la sidebar (status=awaiting côté serveur) : file d'attente +
+// fils humains dont le dernier message vient du client (hors désabonnements
+// auto-traités). Vide = rien à faire. Bot/Humain sont visibles dans « Tous »
+// (depuis WhatsApp, tous les fils sont « humain » — l'onglet ne triait plus rien).
 const TABS = [
+  { key: "awaiting", label: "À traiter" },
   { key: "all", label: "Tous" },
-  { key: "queued", label: "À traiter" },
-  { key: "bot", label: "Bot" },
-  { key: "human", label: "Humain" },
   { key: "closed", label: "Fermés" },
 ]
 
@@ -96,7 +99,7 @@ function chime() {
 }
 
 export default function ChatInboxPage() {
-  const [tab, setTab] = useState("all")
+  const [tab, setTab] = useState("awaiting")
   const [conversations, setConversations] = useState<ConversationRow[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessageView[]>([])
@@ -181,11 +184,16 @@ export default function ChatInboxPage() {
       }
       firstLoad.current = false
 
-      // Titre d'onglet avec le compteur "à traiter"
-      const waitingCount = convs.filter((c) => c.status === "queued" || c.unread_count > 0).length
-      if (typeof document !== "undefined") {
-        document.title = waitingCount > 0 ? `(${waitingCount}) SAV — Talika` : "SAV — Talika"
-      }
+      // Titre d'onglet = le même compteur que le badge SAV de la sidebar.
+      try {
+        const count =
+          tab === "awaiting"
+            ? convs.length
+            : (await (await adminFetch("/api/chat/admin/awaiting")).json())?.count
+        if (typeof document !== "undefined" && typeof count === "number") {
+          document.title = count > 0 ? `(${count}) SAV — Talika` : "SAV — Talika"
+        }
+      } catch { /* silent */ }
     } catch {
       // silent
     } finally {
@@ -366,7 +374,9 @@ export default function ChatInboxPage() {
             ) : conversations.length === 0 ? (
               <div className="flex flex-col items-center gap-2 p-8 text-center">
                 <Inbox className="h-8 w-8 text-zinc-300" />
-                <p className="text-sm text-zinc-400">Aucune conversation pour le moment.</p>
+                <p className="text-sm text-zinc-400">
+                  {tab === "awaiting" ? "Rien à traiter — tout est répondu ✓" : "Aucune conversation pour le moment."}
+                </p>
               </div>
             ) : (
               conversations.map((conv) => {
