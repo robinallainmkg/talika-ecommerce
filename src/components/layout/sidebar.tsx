@@ -71,14 +71,13 @@ const ROLE_LABELS: Record<string, string> = {
 
 interface RoutineCheck { id: string; label: string; status: "done" | "pending" | "warning"; detail?: string; link?: string }
 
-// Ambre = tâche interne en attente. Rouge = un CLIENT attend un humain (SAV).
-function Badge({ count, active, tone = "amber" }: { count: number; active: boolean; tone?: "amber" | "red" }) {
+// Un badge = « N actions humaines à faire » — même sens partout, même couleur
+// partout (retour Robin 10/08 : pas de mélange rouge/jaune).
+function Badge({ count, active }: { count: number; active: boolean }) {
   return (
     <span className={cn(
-      "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold",
-      tone === "red"
-        ? active ? "bg-red-500 text-white" : "bg-red-600 text-white"
-        : active ? "bg-amber-400 text-zinc-900" : "bg-amber-100 text-amber-700"
+      "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white",
+      active ? "bg-red-500" : "bg-red-600"
     )}>{count}</span>
   )
 }
@@ -86,7 +85,7 @@ function Badge({ count, active, tone = "amber" }: { count: number; active: boole
 export function Sidebar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [badges, setBadges] = useState<Record<string, { count: number; labels: string[]; tone?: "amber" | "red" }>>({})
+  const [badges, setBadges] = useState<Record<string, { count: number; labels: string[] }>>({})
   // Dernier compteur SAV connu → notification navigateur seulement quand il MONTE.
   const savCount = useRef<number | null>(null)
   const [role, setRole] = useState<string | null>(null)
@@ -138,7 +137,7 @@ export function Sidebar() {
   const isOpen = (g: Group) => openMap[g.name] ?? groupHasActive(g)
 
   const fetchBadges = useCallback(async () => {
-    const grouped: Record<string, { count: number; labels: string[]; tone?: "amber" | "red" }> = {}
+    const grouped: Record<string, { count: number; labels: string[] }> = {}
     // Badge SAV (rouge) : fils où un CLIENT attend une action humaine. Feature FR
     // (chat talika.fr + WhatsApp), indépendante du marché affiché.
     try {
@@ -148,7 +147,6 @@ export function Sidebar() {
       if (typeof data?.count === "number" && data.count > 0) {
         grouped["/chat"] = {
           count: data.count,
-          tone: "red",
           labels: items.slice(0, 3).map((i) => i.contact || i.preview || "conversation en attente"),
         }
       }
@@ -287,7 +285,7 @@ export function Sidebar() {
                                   active ? "bg-zinc-900 font-medium text-white" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
                                 )}>
                                 <span className="flex-1">{c.name}</span>
-                                {badge && <Badge count={badge.count} active={active} tone={badge.tone} />}
+                                {badge && <Badge count={badge.count} active={active} />}
                               </Link>
                             </li>
                           )
@@ -312,7 +310,7 @@ export function Sidebar() {
                     )}>
                     <Icon className="h-5 w-5" />
                     <span className="flex-1">{item.name}</span>
-                    {badge && <Badge count={badge.count} active={active} tone={badge.tone} />}
+                    {badge && <Badge count={badge.count} active={active} />}
                   </Link>
                 </li>
               )
