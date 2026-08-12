@@ -8,8 +8,10 @@
 export type EscalationReason = "explicit" | "sav_topic" | "confirm"
 
 // 1) Demande explicite d'un humain / du service client (FR + EN).
+// « laisser/déposer un message » dit par le CLIENT compte aussi (vu en prod les
+// 06-07/08 : 2 clientes non transmises, le bot affirmait à tort avoir transmis).
 const HUMAN_INTENT =
-  /\b(parler|joindre|contacter|appeler|discuter|échanger|avoir)\b[^.?!]{0,40}\b(humain|conseill\w+|personne|quelqu['’]un|une?\s+équipe|l['’]équipe|équipe\s+talika|agent|opérateur|service\s*client|sav|vrai\w*\s+(gens|personne))\b|\b(un|une)\s+(humain|vraie?\s+personne|conseill\w+|opérateur)\b|\bservice\s*client\b|\bsav\b|talk\s+to\s+(a\s+|an\s+)?(human|agent|person|advisor|someone|representative)|speak\s+(to|with)\s+(a\s+|an\s+)?(human|agent|person)|customer\s+(service|support)|real\s+(human|person)/i
+  /\b(parler|joindre|contacter|appeler|discuter|échanger|avoir)\b[^.?!]{0,40}\b(humain|conseill\w+|personne|quelqu['’]un|une?\s+équipe|l['’]équipe|équipe\s+talika|agent|opérateur|service\s*client|sav|vrai\w*\s+(gens|personne))\b|\b(laiss\w*|dépos\w*)\b[^.?!]{0,30}\bmessage\b|leave\s+(a\s+|your\s+)?message|\b(un|une)\s+(humain|vraie?\s+personne|conseill\w+|opérateur)\b|\bservice\s*client\b|\bsav\b|talk\s+to\s+(a\s+|an\s+)?(human|agent|person|advisor|someone|representative)|speak\s+(to|with)\s+(a\s+|an\s+)?(human|agent|person)|customer\s+(service|support)|real\s+(human|person)/i
 
 // 2) Sujets SAV durs qui dépassent le bot (codes promo, remboursements,
 //    réclamations, colis/articles problématiques). On exige un signal de
