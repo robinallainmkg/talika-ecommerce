@@ -24,6 +24,7 @@ interface Collab {
   themes: string[]; fee: number; commission: number; commission_rate: number | null
   message_count: number; last_message_at: string | null; awaiting_reply: boolean
   qual: { stats: boolean; demo: boolean; prix: boolean }
+  gifting_status: string | null
 }
 
 // Badges de qualification : visibles dès qu'un contact est engagé (discussion et
@@ -49,6 +50,28 @@ function QualBadges({ c }: { c: Collab }) {
     </div>
   )
 }
+// Badge logistique gifting : rend visible sur la carte OÙ EN EST le colis
+// (la colonne dit l'état de la négo, le badge dit l'état du cadeau).
+// "offered" est volontairement muet — proposé sans acceptation = pas d'info utile.
+const GIFT_STEPS: Record<string, { label: string; cls: string }> = {
+  accepted: { label: "🎁 Accepté", cls: "bg-sky-50 text-sky-700" },
+  address_ok: { label: "🎁 Adresse OK", cls: "bg-sky-50 text-sky-700" },
+  code_created: { label: "🎁 Code créé", cls: "bg-violet-50 text-violet-700" },
+  shipped: { label: "📦 Expédié", cls: "bg-amber-50 text-amber-700" },
+  delivered: { label: "📦 Livré", cls: "bg-emerald-50 text-emerald-700" },
+  content_live: { label: "⭐ Contenu publié", cls: "bg-emerald-100 text-emerald-800" },
+}
+function GiftBadge({ status }: { status: string | null }) {
+  const step = status ? GIFT_STEPS[status] : undefined
+  if (!step) return null
+  return (
+    <span className={cn("inline-block rounded px-1.5 py-0.5 text-[10px] font-medium", step.cls)}
+      title={`Gifting : ${step.label.replace(/^\S+ /, "")}`}>
+      {step.label}
+    </span>
+  )
+}
+
 interface InfLite { id: string; name: string }
 
 const cost = (c: Collab) => (c.fee || 0) + (c.commission || 0)
@@ -306,6 +329,7 @@ export default function CampagnesPage() {
                                 </span>
                               )}
                               {!c.email && <span className="inline-block rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700" title="Pas d'email — ne peut pas être contactée par outreach">✉️ email manquant</span>}
+                              <GiftBadge status={c.gifting_status} />
                             </div>
                           </div>
                           <button onClick={(e) => { e.stopPropagation(); removeCollab(c.id) }} className="opacity-0 group-hover:opacity-100 text-zinc-300 hover:text-red-500" title="Retirer">

@@ -89,6 +89,9 @@ export async function GET(request: Request) {
       }
       return {
         qual,
+        // État logistique gifting (offered → accepted → address_ok → code_created
+        // → shipped → delivered → content_live), tenu par la routine outreach.
+        gifting_status: (meta.gifting_status as string) || null,
         message_count: ms?.message_count || 0,
         last_message_at: ms?.last_message_at || null,
         // Dernier message = entrant → une réponse attend d'être traitée.
