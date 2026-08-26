@@ -36,6 +36,7 @@ interface CalendarInput {
 }
 
 // Planning macro 2026 — reconcilié Canva (DAG7BX1zTgs) + emails NPD (24 juin 2026)
+// MAJ 01/08/2026 : soldes été → 21/07, Collagen Fusion → 19/07, + Sélection été, Last Chance, Back to work 16-31/08 (-10 % routine visage)
 const PLANNING_2026: CalendarInput[] = [
   // ── Offres ──────────────────────────────────────────────────────────────
   { title: "Soldes privées", event_type: "promo", scheduled_at: "2026-01-04", end_at: "2026-01-06" },
@@ -43,8 +44,10 @@ const PLANNING_2026: CalendarInput[] = [
   { title: "Blue Days", event_type: "promo", scheduled_at: "2026-03-06", end_at: "2026-03-08" },
   { title: "Promo Bust", event_type: "promo", scheduled_at: "2026-04-21", end_at: "2026-04-22" },
   { title: "French Days", event_type: "promo", scheduled_at: "2026-04-29", end_at: "2026-05-04", description: "10/15/20% hors nouveautés" },
-  { title: "Soldes été", event_type: "promo", scheduled_at: "2026-06-22", end_at: "2026-06-30" },
-  { title: "French Days", event_type: "promo", scheduled_at: "2026-09-22", end_at: "2026-09-30" },
+  { title: "Soldes été", event_type: "promo", scheduled_at: "2026-06-22", end_at: "2026-07-21", description: "2ᵉ démarque +10 % (PLUS10) à partir du 10/07" },
+  { title: "Last Chance (jusqu'à -40 %)", event_type: "promo", scheduled_at: "2026-08-01", end_at: "2026-08-15", description: "Déstockage anti-gaspi — 20 produits, remises en prix direct, collection last-chance" },
+  { title: "Back to work", event_type: "promo", scheduled_at: "2026-08-16", end_at: "2026-08-31", description: "-10 % routine visage — focus skincare & anti-âge" },
+  { title: "French Days", event_type: "promo", scheduled_at: "2026-09-19", end_at: "2026-09-28", description: "Démarrage le samedi 19/09 (avant le lancement officiel du 22). Mécanique de remise à confirmer." },
   { title: "Black Weeks", event_type: "promo", scheduled_at: "2026-11-13", end_at: "2026-11-30" },
   { title: "Fêtes", event_type: "promo", scheduled_at: "2026-12-01", end_at: "2026-12-25" },
 
@@ -69,9 +72,9 @@ const PLANNING_2026: CalendarInput[] = [
   { title: "LED Therapy Mask", event_type: "campaign", scheduled_at: "2026-05-15", end_at: "2026-05-18" },
   { title: "LED Therapy Mask", event_type: "campaign", scheduled_at: "2026-06-01", end_at: "2026-06-04" },
   { title: "Glow — Sérum en brume Vit C", event_type: "campaign", scheduled_at: "2026-06-15", end_at: "2026-06-17" },
-  { title: "Glow — Collagen Fusion & INK", event_type: "campaign", scheduled_at: "2026-07-01", end_at: "2026-07-04" },
+  { title: "Glow — Collagen Fusion & INK", event_type: "campaign", scheduled_at: "2026-07-01", end_at: "2026-07-19", description: "Collagen Fusion Mask & Patchs" },
+  { title: "Sélection de l'été", event_type: "campaign", scheduled_at: "2026-07-21", end_at: "2026-08-15" },
   { title: "Focus été", event_type: "campaign", scheduled_at: "2026-07-22", end_at: "2026-08-02", description: "BEM après soleil, brumes, gels crèmes, mascara WR" },
-  { title: "Back to work", event_type: "campaign", scheduled_at: "2026-08-17", end_at: "2026-08-20", description: "Focus skincare & anti-âge" },
   { title: "Hair Force — Casquette", event_type: "campaign", scheduled_at: "2026-09-07", end_at: "2026-09-10" },
   { title: "Anti-taches", event_type: "campaign", scheduled_at: "2026-09-21" },
   { title: "Focus devices", event_type: "campaign", scheduled_at: "2026-10-01", end_at: "2026-10-02", description: "TC7+, LED Mask, Hair Cap" },
