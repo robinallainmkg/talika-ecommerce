@@ -397,7 +397,8 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
   // Toute influenceuse avec une vente/un coût ce mois apparaît dans la campagne du mois.
   await step("monthly_campaign", "Campagne influence du mois", async () => {
     const { syncMonthlyCampaign } = await import("@/lib/influence/monthly-campaign")
-    const r = await syncMonthlyCampaign(supabase, year, month)
+    // Les campagnes mensuelles n'existent qu'en FR (UK/US = campagnes outreach sans période).
+    const r = await syncMonthlyCampaign(supabase, year, month, "FR")
     return `${r.name} : ${r.total_active} actives${r.added ? `, ${r.added} ajoutée(s)` : ""}${r.created ? " (créée)" : ""}`
   })
 

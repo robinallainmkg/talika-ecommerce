@@ -6,6 +6,7 @@ import { MONTHS_FULL } from "@/components/influence/month-tabs"
 import { authClient } from "@/lib/auth/client"
 import { AudienceSection, type AudienceData } from "@/components/influence/audience-section"
 import { ConversationThread } from "@/components/influence/conversation-drawer"
+import { MARKET_CURRENCY, normalizeMarket } from "@/lib/market"
 import { X, Mail, Phone, ExternalLink, FileText, Loader2, Instagram, Music2, ShoppingBag, Paperclip, Trash2, Pencil, Check, Plus, Handshake } from "lucide-react"
 
 // Drawer unifié à onglets : Chat (fil email) / Profil (réseaux, démographies,
@@ -33,6 +34,7 @@ interface Detail {
     id: string; name: string; instagram_handle: string | null; tiktok_handle: string | null
     email: string | null; phone: string | null; tier: string | null; category: string | null
     status: string | null; billing_name: string | null; commission_rate: number | null
+    market: string | null
     metadata: Record<string, unknown> | null; influencer_codes: Code[]
   }
   fixedFees: MonthAmt[]; commissions: MonthAmt[]; invoices: Invoice[]; content: Content[]
@@ -44,7 +46,8 @@ const periodLabel = (y: number, m: number) => `${MONTHS_FULL[m - 1]} ${y}`
 
 // ── Stats de performance (Profil) ──
 // Lu depuis influencers.metadata, alimenté par la routine outreach et le sourcing
-// Kolsquare : followers, engagement_rate (déjà en %), uk_audience_pct,
+// Kolsquare : followers, engagement_rate (déjà en %), part d'audience locale
+// (local_audience_pct, sinon la clé historique du marché : us_/uk_audience_pct),
 // audience_credibility, story_views {median, period, source, reach_note}.
 // Affiché dès qu'AU MOINS une stat existe — c'est la vue « ça vaut combien »
 // qui manquait au drawer (les vues stories n'apparaissaient nulle part).
@@ -60,14 +63,14 @@ function KeyStatsSection({ meta }: { meta: Record<string, unknown> }) {
   const ins = (meta.insights_30d ?? null) as Insights | null
   const followers = num("followers")
   const er = num("engagement_rate")
-  const uk = num("uk_audience_pct")
+  const localAudience = num("local_audience_pct") ?? num("us_audience_pct") ?? num("uk_audience_pct")
   const cred = num("audience_credibility")
   const tiles: [string, string][] = []
   if (sv?.median != null) tiles.push(["Vues / story (méd.)", fmtK(sv.median)])
   if (ins?.views != null) tiles.push(["Vues / 30 j", fmtK(ins.views)])
   if (ins?.views_stories != null && sv?.median == null) tiles.push(["Vues stories / 30 j", fmtK(ins.views_stories)])
   if (followers != null) tiles.push(["Abonnés", fmtK(followers)])
-  if (uk != null) tiles.push(["Audience UK", fmtPct(uk)])
+  if (localAudience != null) tiles.push(["Audience locale", fmtPct(localAudience)])
   if (er != null) tiles.push(["Engagement", fmtPct(er)])
   if (cred != null) tiles.push(["Crédibilité", fmtPct(cred)])
   if (tiles.length === 0) return null
@@ -122,7 +125,7 @@ type Rates = { currency?: string; source?: string; updated_at?: string; lines?: 
 type RateCard = { items?: Record<string, number>; currency?: string; source?: string; received_at?: string; vat_excluded?: boolean; note?: string }
 type DealTerms = { type?: string; commission_pct?: number; status?: string; decided_by?: string; decided_at?: string; proposed_at?: string; note?: string; agreed?: boolean }
 
-function CollabTab({ meta }: { meta: Record<string, unknown> }) {
+function CollabTab({ meta, market }: { meta: Record<string, unknown>; market: string | null }) {
   const summary = meta.collab_summary as string | undefined
   const deal = meta.deal_terms as DealTerms | undefined
   // La routine écrit `rate_card` (items) ; le format cible du drawer est `rates`
@@ -136,7 +139,7 @@ function CollabTab({ meta }: { meta: Record<string, unknown> }) {
     lines: Object.entries(rc.items).map(([k, v]) => ({ label: k.replace(/_/g, " "), price: v })),
   } : undefined)
   const fmt = (n: number) =>
-    new Intl.NumberFormat("fr-FR", { style: "currency", currency: rates?.currency || "GBP", maximumFractionDigits: 0 }).format(n)
+    new Intl.NumberFormat("fr-FR", { style: "currency", currency: rates?.currency || MARKET_CURRENCY[normalizeMarket(market)], maximumFractionDigits: 0 }).format(n)
 
   if (!summary && !rates?.lines?.length && !deal) {
     return (
@@ -508,7 +511,7 @@ export function InfluencerDrawer({ influencerId, onClose, initialTab = "profile"
             {/* Onglet Collab — conditions négociées, rate card, résumé du deal */}
             {tab === "collab" && (
               <div className="flex-1 overflow-y-auto">
-                <CollabTab meta={meta} />
+                <CollabTab meta={meta} market={inf?.market ?? null} />
               </div>
             )}
 

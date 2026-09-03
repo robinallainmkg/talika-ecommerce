@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { sendMail } from "@/lib/mailer"
 import { outreachConfigured } from "@/lib/influence/outreach"
 import { logOutbound } from "@/lib/influence/messages"
+import { canReplyFromApp, normalizeMarket } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -20,7 +21,8 @@ const OUTREACH_FROM_DEFAULT = "Talika <talika@companion-ecommerce.com>"
 const OUTREACH_REPLY_DEFAULT = "talika@companion-ecommerce.com"
 
 // POST { influencer_id, body, subject? } — répond à une influenceuse depuis l'app.
-// Phase 1 : UK uniquement (boîte talika@companion-ecommerce.com via Resend).
+// Marchés branchés en envoi (cf. canReplyFromApp) : boîte talika@companion-ecommerce.com
+// via Resend, partagée UK/US.
 // Threading : In-Reply-To/References posés depuis le dernier message ENTRANT du fil,
 // pour que la réponse s'affiche dans la même conversation chez la destinataire.
 // ⚠️ N'écrit PAS dans outreach_log : ce journal est l'anti-doublon du drip (fail-closed),
@@ -39,10 +41,10 @@ export async function POST(request: Request) {
 
     const email = (inf.email || "").trim()
     if (!email.includes("@")) return NextResponse.json({ error: "email manquant sur la fiche" }, { status: 400 })
-    const market = (inf.market || "FR").toUpperCase()
-    if (market !== "UK") {
+    const market = normalizeMarket(inf.market)
+    if (!canReplyFromApp(market)) {
       return NextResponse.json(
-        { error: "Réponse indisponible — boîte Outlook FR non connectée (Phase 2)." },
+        { error: `Réponse indisponible — boîte Outlook ${market} non connectée (Phase 2).` },
         { status: 400 }
       )
     }

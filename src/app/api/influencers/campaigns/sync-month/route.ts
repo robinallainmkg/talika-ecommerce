@@ -22,7 +22,8 @@ export async function POST(request: Request) {
     const year = Number(b.year) || now.getFullYear()
     const month = Number(b.month) || now.getMonth() + 1
     if (month < 1 || month > 12) return NextResponse.json({ error: "mois invalide" }, { status: 400 })
-    const result = await syncMonthlyCampaign(supabase, year, month)
+    // Les campagnes mensuelles n'existent qu'en FR (UK/US = campagnes outreach sans période).
+    const result = await syncMonthlyCampaign(supabase, year, month, "FR")
     return NextResponse.json({ ok: true, ...result })
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 })

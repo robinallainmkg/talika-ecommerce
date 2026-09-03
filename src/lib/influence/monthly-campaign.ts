@@ -42,18 +42,20 @@ async function activeInfluencerIds(
 }
 
 /**
- * Garantit la campagne du mois (year, month) et y rattache toute influenceuse
- * active non encore présente (stage "actif"). Ne touche jamais aux collabs/themes
- * existants. Retourne le bilan.
+ * Garantit la campagne du mois (year, month) sur `market` et y rattache toute
+ * influenceuse active non encore présente (stage "actif"). Ne touche jamais aux
+ * collabs/themes existants. Retourne le bilan.
+ * Le marché doit être explicite : sans lui, la campagne d'un autre marché sur le
+ * même mois serait recyclée (et l'insert créerait une campagne sans marché).
  */
 export async function syncMonthlyCampaign(
-  supabase: SupabaseClient, year: number, month: number
+  supabase: SupabaseClient, year: number, month: number, market = "FR"
 ): Promise<SyncMonthlyResult> {
   // 1. Trouver (ou créer) la campagne du mois.
   let { data: campaign } = await supabase
     .from("influence_campaigns")
     .select("id, name")
-    .eq("year", year).eq("month", month)
+    .eq("year", year).eq("month", month).eq("market", market)
     .maybeSingle()
 
   let created = false
@@ -63,7 +65,7 @@ export async function syncMonthlyCampaign(
     const end = new Date(year, month, 0).toISOString().slice(0, 10) // dernier jour du mois
     const { data: inserted, error } = await supabase
       .from("influence_campaigns")
-      .insert({ name, year, month, start_date: start, end_date: end, status: "active" })
+      .insert({ name, year, month, market, start_date: start, end_date: end, status: "active" })
       .select("id, name")
       .single()
     if (error || !inserted) throw new Error(error?.message || "création campagne mensuelle impossible")

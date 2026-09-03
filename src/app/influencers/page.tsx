@@ -214,7 +214,8 @@ export default function InfluencersPage() {
       const res = await fetch("/api/influencers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(addForm),
+        // La fiche est créée sur le marché de la vue courante (sinon tout part en FR).
+        body: JSON.stringify({ ...addForm, market: getMarketCookie() }),
       })
       const json = await res.json()
       if (json.error) throw new Error(json.error)

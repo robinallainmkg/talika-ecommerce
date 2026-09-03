@@ -27,7 +27,9 @@ export interface InfluenceMessage {
   created_at: string
 }
 
-// Boîte outreach UK (alignée sur OUTREACH_FROM/OUTREACH_REPLY_TO par défaut).
+// Boîte outreach PARTAGÉE par les marchés hors FR (UK et US), alignée sur
+// OUTREACH_FROM/OUTREACH_REPLY_TO par défaut. Le nom reste historique : le marché
+// d'un message est porté par la colonne `market`, pas par la boîte.
 export const UK_MAILBOX = process.env.OUTREACH_IMAP_USER || "talika@companion-ecommerce.com"
 
 // Corps tronqués (sécurité taille de ligne / colonnes jsonb voisines).

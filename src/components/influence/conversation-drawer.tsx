@@ -5,10 +5,11 @@
 //   drawer influenceur unifié, drawer conversation de la page outreach…).
 // - ConversationDrawer : l'ancien drawer plein écran (page outreach) — même
 //   overlay/en-tête qu'avant, le corps est délégué à ConversationThread.
-// Phase 1 : réponse UK via talika@companion-ecommerce.com ; FR = lecture seule
-// tant que la boîte Outlook n'est pas connectée.
+// Réponse UK/US via talika@companion-ecommerce.com ; FR = lecture seule tant que la
+// boîte Outlook n'est pas connectée (le serveur tranche, cf. can_reply).
 import { useEffect, useRef, useState } from "react"
 import { X, Loader2, Send, User, Instagram, AlertTriangle, MailQuestion } from "lucide-react"
+import { MARKET_FLAG, normalizeMarket } from "@/lib/market"
 
 interface Msg {
   id: string
@@ -200,7 +201,7 @@ export function ConversationDrawer({ influencerId, onClose, onOpenProfile }: Pro
               {inf?.name || "Conversation"}
             </button>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-zinc-500">
-              {inf && <span>{inf.market === "UK" ? "🇬🇧" : "🇫🇷"} {inf.email || "email manquant"}</span>}
+              {inf && <span>{MARKET_FLAG[normalizeMarket(inf.market)]} {inf.email || "email manquant"}</span>}
               {inf?.instagram_handle && (
                 <a href={`https://instagram.com/${handle}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-zinc-900">
                   <Instagram className="h-3.5 w-3.5" />{inf.instagram_handle}

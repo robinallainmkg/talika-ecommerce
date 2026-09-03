@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { outreachConfigured } from "@/lib/influence/outreach"
+import { canReplyFromApp, normalizeMarket } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -14,8 +15,8 @@ const supabase = createClient(
 )
 
 // GET ?influencer_id= → fil de conversation complet (influence_messages, tri chrono)
-// + état outreach + can_reply (Phase 1 : réponse in-app UK uniquement — la boîte FR
-// Outlook n'est pas encore connectée, cf. Phase 2 Graph).
+// + état outreach + can_reply (marchés branchés en envoi : cf. canReplyFromApp — la
+// boîte FR Outlook n'est pas encore connectée, cf. Phase 2 Graph).
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
@@ -36,12 +37,12 @@ export async function GET(request: Request) {
     if (!inf) return NextResponse.json({ error: "influenceuse introuvable" }, { status: 404 })
     if (msgErr) return NextResponse.json({ error: msgErr.message }, { status: 500 })
 
-    const market = (inf.market || "FR").toUpperCase()
-    const can_reply = market === "UK" && outreachConfigured() && !!inf.email
+    const market = normalizeMarket(inf.market)
+    const can_reply = canReplyFromApp(market) && outreachConfigured() && !!inf.email
     const reply_blocked_reason = !inf.email
       ? "email manquant"
-      : market !== "UK"
-        ? "Boîte FR (Outlook) non connectée — lecture seule pour l'instant"
+      : !canReplyFromApp(market)
+        ? `Boîte ${market} (Outlook) non connectée — lecture seule pour l'instant`
         : !outreachConfigured()
           ? "canal mail non configuré (RESEND_API_KEY / SMTP)"
           : null
