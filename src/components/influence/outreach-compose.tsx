@@ -3,15 +3,17 @@
 import { useRef, useState } from "react"
 import { X, Send, Eye, Loader2, Users } from "lucide-react"
 import { TEMPLATES, MERGE_VARS, mergeTemplate } from "@/lib/influence/templates"
+import { MARKET_SENDER, normalizeMarket } from "@/lib/market"
 
 interface Props {
   ids: string[]
   names: string[]
+  market: string
   onClose: () => void
   onDone: (results: { id: string; result: string }[]) => void
 }
 
-export function OutreachCompose({ ids, names, onClose, onDone }: Props) {
+export function OutreachCompose({ ids, names, market, onClose, onDone }: Props) {
   const [tplKey, setTplKey] = useState(TEMPLATES[0].key)
   const [subject, setSubject] = useState(TEMPLATES[0].subject)
   const [body, setBody] = useState(TEMPLATES[0].body)
@@ -41,7 +43,8 @@ export function OutreachCompose({ ids, names, onClose, onDone }: Props) {
 
   const sampleVars = (): Record<string, string> => {
     const fn = (names[0] || "there").trim().split(/\s+/)[0]
-    return { first_name: fn, name: names[0] || "", handle: "yourhandle", sender: "Robin · Talika UK", personalisation: "" }
+    // Aperçu seulement : à l'envoi, le serveur resigne chaque mail sur le marché de sa destinataire.
+    return { first_name: fn, name: names[0] || "", handle: "yourhandle", sender: MARKET_SENDER[normalizeMarket(market)], personalisation: "" }
   }
   const doPreview = () => {
     const v = sampleVars()

@@ -400,6 +400,7 @@ export default function CampagnesPage() {
         <OutreachCompose
           ids={selectedCollabs.map((c) => c.influencer_id)}
           names={selectedCollabs.map((c) => c.name)}
+          market={market}
           onClose={() => setShowCompose(false)}
           onDone={afterCompose}
         />

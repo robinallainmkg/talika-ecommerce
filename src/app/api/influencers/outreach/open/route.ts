@@ -33,6 +33,8 @@ export async function GET(request: Request) {
   // UUID basique pour éviter d'insérer du bruit / des FK invalides.
   if (id && /^[0-9a-f-]{36}$/i.test(id)) {
     try {
+      // TODO marché : "UK" en dur — le pixel n'est plus posé par le drip (code mort),
+      // à rendre dynamique (lookup du marché de la fiche) si on le remet en service.
       await supabase.from("outreach_log").insert({
         influencer_id: id, market: "UK", step, channel: "open", status: "open",
       })

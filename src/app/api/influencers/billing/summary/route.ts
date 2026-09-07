@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { loadStatusMap, billingKey } from "@/lib/influence/billing-status"
+import { marketFromRequest } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -24,8 +25,7 @@ export async function GET(request: Request) {
     // Marché courant (?market= sinon cookie tk_market, défaut FR) → on ne compte
     // que les collabs de ce marché, sinon les badges "sans facture" affichent les
     // chiffres FR même quand on a basculé en UK (confusant).
-    const rawMarket = (searchParams.get("market") || (request.headers.get("cookie") || "").match(/(?:^|;\s*)tk_market=([A-Za-z]{2})/)?.[1] || "FR").toUpperCase()
-    const market = rawMarket === "UK" ? "UK" : "FR"
+    const market = marketFromRequest(request)
 
     const [{ data: fees }, { data: comms }, { data: invoices }, { data: marketInfs }] = await Promise.all([
       supabase.from("influencer_fixed_fees").select("influencer_id, month, amount").eq("year", year),

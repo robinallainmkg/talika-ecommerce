@@ -32,6 +32,9 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 )
 
+// Mono-marché volontaire : ce cron ne pilote que le drip UK. Le drip US tourne en
+// scripts locaux (Talika-US/outreach) — ne pas le brancher ici sans repenser la
+// cadence et le cap partagés sur la même boîte.
 const MARKET = "UK"
 const REPLY_DONE = ["Répondu", "Intéressée", "Pas intéressée", "Désinscrit", "Bounce", "Exclu"]
 

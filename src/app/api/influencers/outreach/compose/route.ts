@@ -4,6 +4,7 @@ import {
   mergeTemplate, sendOutreach, outreachConfigured, defaultState, type OutreachState,
 } from "@/lib/influence/outreach"
 import { logOutbound } from "@/lib/influence/messages"
+import { MARKET_SENDER, normalizeMarket } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -28,7 +29,6 @@ export async function POST(request: Request) {
   const subjectTpl: string = (b.subject || "").toString()
   const bodyTpl: string = (b.body || "").toString()
   const dry = b.dry !== false
-  const sender = process.env.OUTREACH_SENDER || "Robin · Talika UK"
 
   if (!ids.length || !bodyTpl.trim()) {
     return NextResponse.json({ error: "influencer_ids et body requis" }, { status: 400 })
@@ -52,11 +52,14 @@ export async function POST(request: Request) {
       continue
     }
     const st = (inf.metadata?.outreach as OutreachState) || defaultState()
+    // Signature suivant le marché de la destinataire ; OUTREACH_SENDER force la même
+    // signature pour tout le batch (override d'exception).
+    const market = normalizeMarket(inf.market)
     const vars: Record<string, string> = {
       first_name: firstName(inf.name),
       name: inf.name || "",
       handle: (inf.instagram_handle || "").replace(/^@/, ""),
-      sender,
+      sender: process.env.OUTREACH_SENDER || MARKET_SENDER[market],
       personalisation: st.personalisation || "",
     }
     const subject = mergeTemplate(subjectTpl, vars)
@@ -68,15 +71,15 @@ export async function POST(request: Request) {
       status = r.ok ? "sent" : "error"; provider = r.id; errMsg = r.error
     }
     await supabase.from("outreach_log").insert({
-      influencer_id: inf.id, market: "UK", step: 1, channel: "email",
+      influencer_id: inf.id, market, step: 1, channel: "email",
       to_email: email, subject, status, provider_id: provider || null, error: errMsg || null,
     })
     // Envoi réel : on marque "contactée" pour stopper le step1 auto du drip.
     if (status === "sent") {
-      // Fil de conversation (best-effort). Market réel de l'influenceuse (l'outreach_log
-      // ci-dessus garde "UK" en dur — journal du drip, sémantique distincte).
+      // Fil de conversation (best-effort), scopé sur le marché réel de l'influenceuse —
+      // comme outreach_log, dont l'anti-doublon du drip dépend.
       await logOutbound(supabase, {
-        influencer_id: inf.id, market: inf.market || "UK", source: "compose",
+        influencer_id: inf.id, market, source: "compose",
         to_email: email, subject, body_text: text, provider_id: provider || null,
       })
       const next: OutreachState = {

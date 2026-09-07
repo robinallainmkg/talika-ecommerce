@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { normalizeMarket } from "@/lib/market"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
   // Liste globale (page Contenus) — jointure nom/handle/marché
   const brandOnly = searchParams.get("brand") === "1"
   const mentionsOnly = searchParams.get("mentions") === "1"
-  const market = (searchParams.get("market") || "").toUpperCase()
+  const market = searchParams.get("market")
   const limit = Math.min(parseInt(searchParams.get("limit") || "120"), 300)
   // Mentions : jointure LEFT (l'auteur peut être hors base → influencer_id null),
   // pas de filtre marché (les mentions = earned media global de la marque).
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
   if (mentionsOnly) query = query.eq("is_mention", true)
   else {
     if (brandOnly) query = query.eq("is_brand", true)
-    if (market === "FR" || market === "UK") query = query.eq("influencers.market", market)
+    if (market) query = query.eq("influencers.market", normalizeMarket(market))
   }
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
