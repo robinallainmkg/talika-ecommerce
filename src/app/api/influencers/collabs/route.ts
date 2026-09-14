@@ -92,6 +92,8 @@ export async function GET(request: Request) {
         // État logistique gifting (offered → accepted → address_ok → code_created
         // → shipped → delivered → content_live), tenu par la routine outreach.
         gifting_status: (meta.gifting_status as string) || null,
+        // Tags libres posés par la routine/Robin (ex. "paid" = négo payante parquée).
+        tags: Array.isArray(meta.tags) ? (meta.tags as string[]) : [],
         message_count: ms?.message_count || 0,
         last_message_at: ms?.last_message_at || null,
         // Dernier message = entrant → une réponse attend d'être traitée.
