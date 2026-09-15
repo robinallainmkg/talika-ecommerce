@@ -512,6 +512,13 @@ export async function runFullSync(opts?: { trigger?: "cron" | "manual" }): Promi
     return checkChatCost(supabase, now)
   })
 
+  // ── 10c. Contrôle commissions influence : saisie figée vs ventes × taux ──
+  // (cf. src/lib/influence/commission-drift.ts — signale, ne corrige jamais)
+  await step("commissions_drift", "Contrôle commissions influence", async () => {
+    const { checkCommissionDrift } = await import("@/lib/influence/commission-drift")
+    return checkCommissionDrift(supabase, now)
+  })
+
   // NB. Le contenu Instagram N'EST PLUS dans ce pipeline : ~88 profils × 250 ms de
   // rate-limit Meta ≈ 2-3 min, qui ne tiennent pas dans les 300 s avec le reste.
   // Il a son propre cron → GET /api/cron/instagram (cf. vercel.json).

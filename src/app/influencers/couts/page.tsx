@@ -48,6 +48,11 @@ export default function CoutsInfluencePage() {
   const [invoicesByInf, setInvoicesByInf] = useState<Record<string, { id: string; file_name: string; amount: number | null }[]>>({})
   const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [drawerId, setDrawerId] = useState<string | null>(null)
+  // Période RÉELLEMENT affichée (posée après le fetch). Garde-fou contre la course
+  // "je change de mois puis je clique tout de suite" : le 15/09/2026, 9 commissions
+  // d'août ont été enregistrées avec les suggestions de septembre encore à l'écran
+  // (7 enregistrements en 13 s). saveRow refuse désormais si ça ne correspond pas.
+  const [loadedPeriod, setLoadedPeriod] = useState<string | null>(null)
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -68,6 +73,11 @@ export default function CoutsInfluencePage() {
   const load = useCallback(async () => {
     setLoading(true)
     setFeedback(null)
+    // Rien de cliquable pendant le chargement : on vide les lignes du mois précédent.
+    setLoadedPeriod(null)
+    setRows([])
+    setFeeDraft({}); setCommDraft({}); setRateDraft({})
+    setFeeInitial({}); setCommInitial({}); setRateInitial({})
     try {
       const [res, lockRes, invRes] = await Promise.all([
         fetch(`/api/influencers/commissions?year=${year}&month=${month}`, { cache: "no-store" }),
@@ -101,6 +111,7 @@ export default function CoutsInfluencePage() {
       setRateInitial({ ...rd })
       setFeeInitial({ ...fd })
       setCommInitial({ ...cd })
+      setLoadedPeriod(`${year}-${month}`)
     } finally {
       setLoading(false)
     }
@@ -183,6 +194,10 @@ export default function CoutsInfluencePage() {
     const rateChanged = rate !== (rateInitial[id] ?? "")
     const changed = fee !== (feeInitial[id] ?? "") || comm !== (commInitial[id] ?? "") || rateChanged
     if (!changed || savingIds.has(id)) return
+    if (loadedPeriod !== `${year}-${month}`) {
+      setFeedback({ type: "error", text: "Chargement du mois en cours — réessaie dans une seconde." })
+      return
+    }
 
     setFeedback(null)
     setSavingIds((p) => new Set(p).add(id))
