@@ -3,6 +3,25 @@
 // compte Business/Creator à partir du @handle. Réutilise le token System User
 // Meta existant (META_ACCESS_TOKEN, permanent) + le compte IG @talika_paris
 // comme point d'entrée. Comptes personnels/renommés → introuvables (limite API).
+//
+// ── Périmètre de la sync (depuis le 15 sept. 2026) ──────────────────────────
+// La table `influencers` contient ~600 profils avec un @instagram, dont ~550
+// leads outreach UK/US jamais activés (`status` vaut "active" pour tous → inutile
+// comme filtre ; le stade kanban vit dans `influence_campaign_collabs`). Les
+// parcourir tous chaque jour tuait la lambda à 300 s SANS écrire la trace
+// (14/09 : 400 profils skipped ; 15/09 : aucune trace).
+// Scope "active" (défaut, cron) = influenceuses « qui comptent », soit l'UNION de :
+//   • une collab kanban en stage qualifie / confirme / actif (influence_campaign_collabs)
+//   • un code promo (influencer_codes)
+//   • un fee fixe ou une commission sur les 3 derniers mois (influencer_fixed_fees /
+//     influencer_commissions, colonnes year/month)
+//   • un post « marque » (is_brand) posté < 90 j (influencer_content.posted_at)
+//   → ~50 profils au 15/09/2026 (39 FR, 10 UK) au lieu de 594.
+// Scope "all" = tous les profils ; uniquement à la main (?scope=all), jamais planifié.
+// Comptes introuvables (privé / non-business : Graph code 110, is_transient=false)
+// → `metadata.ig_unreachable_at` posé, profil ignoré 30 j (pas de colonne SQL
+// ajoutée ; effacé dès qu'un appel réussit). Rate-limit / token / réseau = transient,
+// jamais marqué.
 import { createClient } from "@supabase/supabase-js"
 
 const supabase = createClient(
@@ -14,6 +33,16 @@ const supabase = createClient(
 const GRAPH = "https://graph.facebook.com/v21.0"
 // IG business account de la page Talika (@talika_paris) — surchargeable par env.
 const IG_USER_ID = process.env.META_IG_USER_ID || "17841401767498869"
+
+export type InstagramSyncScope = "active" | "all"
+/** Stades kanban qui valent « collab active » (cf. lib/influence/pipeline.ts). */
+const ACTIVE_STAGES = ["qualifie", "confirme", "actif"]
+const RECENT_CONTENT_DAYS = 90
+const RECENT_FEES_MONTHS = 3
+/** Un compte introuvable n'est retenté qu'après ce délai. */
+const UNREACHABLE_RETRY_DAYS = 30
+/** Codes d'erreur Graph transitoires (rate-limit, token) — ne marquent jamais un profil. */
+const TRANSIENT_GRAPH_CODES = new Set([4, 17, 32, 190, 613])
 
 export function instagramConfigured(): boolean {
   return !!process.env.META_ACCESS_TOKEN
@@ -41,18 +70,73 @@ interface IgProfile {
   media?: { data: IgMedia[] }
 }
 
-// Profil + derniers posts d'un handle (null si compte introuvable/personnel).
-export async function fetchBusinessDiscovery(handle: string): Promise<IgProfile | null> {
+export type DiscoveryResult =
+  | { profile: IgProfile; error?: undefined }
+  | { profile: null; error: "unreachable" | "transient" }
+
+// Profil + derniers posts d'un handle. `unreachable` = Graph répond « Cannot find
+// User » (code 110, non transient : compte privé, personnel ou renommé) ;
+// `transient` = rate-limit, token, réseau ou réponse inattendue.
+export async function lookupBusinessDiscovery(handle: string): Promise<DiscoveryResult> {
   const clean = handle.replace(/^@/, "").trim()
-  if (!clean) return null
+  if (!clean) return { profile: null, error: "unreachable" }
   const fields = `business_discovery.username(${clean}){username,name,followers_count,media_count,profile_picture_url,media.limit(25){caption,media_type,media_product_type,like_count,comments_count,permalink,timestamp,thumbnail_url,media_url}}`
-  const res = await fetch(
-    `${GRAPH}/${IG_USER_ID}?fields=${encodeURIComponent(fields)}&access_token=${process.env.META_ACCESS_TOKEN}`,
-    { cache: "no-store" }
-  )
-  const json = await res.json()
-  if (!res.ok || !json.business_discovery) return null
-  return json.business_discovery as IgProfile
+  let res: Response
+  let json: { business_discovery?: IgProfile; error?: { code?: number; is_transient?: boolean } }
+  try {
+    res = await fetch(
+      `${GRAPH}/${IG_USER_ID}?fields=${encodeURIComponent(fields)}&access_token=${process.env.META_ACCESS_TOKEN}`,
+      { cache: "no-store" }
+    )
+    json = await res.json()
+  } catch {
+    return { profile: null, error: "transient" }
+  }
+  if (res.ok && json.business_discovery) return { profile: json.business_discovery }
+  const err = json.error
+  const permanent =
+    !!err && err.is_transient === false && typeof err.code === "number" && !TRANSIENT_GRAPH_CODES.has(err.code)
+  return { profile: null, error: permanent ? "unreachable" : "transient" }
+}
+
+// Compat : profil ou null, sans distinction de cause.
+export async function fetchBusinessDiscovery(handle: string): Promise<IgProfile | null> {
+  return (await lookupBusinessDiscovery(handle)).profile
+}
+
+// Influenceuses « qui comptent » (voir en-tête) : union des 4 critères.
+export async function activeInfluencerIds(): Promise<Set<string>> {
+  const now = new Date()
+  const since = new Date(now.getTime() - RECENT_CONTENT_DAYS * 864e5).toISOString()
+  const months = new Set<string>()
+  for (let k = 0; k < RECENT_FEES_MONTHS; k++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - k, 1)
+    months.add(`${d.getFullYear()}-${d.getMonth() + 1}`)
+  }
+  const minYear = now.getFullYear() - 1
+  const [collabs, codes, fees, commissions, content] = await Promise.all([
+    supabase.from("influence_campaign_collabs").select("influencer_id").in("stage", ACTIVE_STAGES),
+    supabase.from("influencer_codes").select("influencer_id"),
+    supabase.from("influencer_fixed_fees").select("influencer_id, year, month").gte("year", minYear),
+    supabase.from("influencer_commissions").select("influencer_id, year, month").gte("year", minYear),
+    supabase
+      .from("influencer_content")
+      .select("influencer_id")
+      .eq("is_brand", true)
+      .gte("posted_at", since)
+      .not("influencer_id", "is", null),
+  ])
+  const ids = new Set<string>()
+  const add = (rows: { influencer_id: string | null }[] | null) => {
+    for (const r of rows || []) if (r.influencer_id) ids.add(r.influencer_id)
+  }
+  add(collabs.data)
+  add(codes.data)
+  add(content.data)
+  const recentMonth = (r: { year: number; month: number }) => months.has(`${r.year}-${r.month}`)
+  add((fees.data || []).filter(recentMonth))
+  add((commissions.data || []).filter(recentMonth))
+  return ids
 }
 
 // Un post "marque" = la caption mentionne Talika ou un des codes de l'influenceuse.
@@ -72,10 +156,21 @@ export interface InstagramSyncResult {
   mentions_unknown: string[]
   /** Profils non traités faute de temps (budget atteint) — jamais silencieux. */
   profiles_skipped: number
+  scope: InstagramSyncScope
+  /** Profils retenus par le scope (avant marquage unreachable / budget). */
+  profiles_total: number
+  /** Profils ignorés car marqués introuvables il y a < 30 j. */
+  profiles_unreachable_skipped: number
+  /** Profils marqués introuvables lors de CE run. */
+  profiles_marked_unreachable: number
 }
 
-/** Marge sous les 300 s de la lambda : on s'arrête net et on le dit. */
-const DEFAULT_BUDGET_MS = 240_000
+/**
+ * Marge sous les 300 s de la lambda : on s'arrête net et on le dit. 60 s de
+ * réserve pour les mentions + l'écriture de `last_instagram_sync` (le cron ne
+ * doit JAMAIS mourir avant la trace). Avec le scope "active" un run ≈ 1 min.
+ */
+export const DEFAULT_BUDGET_MS = 240_000
 
 // Mentions par TAG : tous les médias où @talika_paris est tagué — y compris
 // par des comptes HORS base (earned media). Auteur connu → rattaché à
@@ -141,26 +236,33 @@ export async function syncTaggedMentions(): Promise<{ upserted: number; unknown:
   return result
 }
 
-// Sync complet : pour chaque influenceuse avec un @instagram (tous marchés) —
-// snapshot stats compte (1/jour max) + refresh metadata.followers + upsert des
-// posts (dédup par external_id, stats likes/commentaires rafraîchies).
-export async function syncInstagramContent(opts?: { budgetMs?: number }): Promise<InstagramSyncResult> {
+// Sync : pour chaque influenceuse du scope (défaut "active", voir en-tête ; tous
+// marchés) — snapshot stats compte (1/jour max) + refresh metadata.followers +
+// upsert des posts (dédup par external_id, stats likes/commentaires rafraîchies).
+export async function syncInstagramContent(
+  opts?: { budgetMs?: number; scope?: InstagramSyncScope }
+): Promise<InstagramSyncResult> {
   const startedAt = Date.now()
   const budgetMs = opts?.budgetMs ?? DEFAULT_BUDGET_MS
+  const scope: InstagramSyncScope = opts?.scope === "all" ? "all" : "active"
   const result: InstagramSyncResult = {
     profiles_ok: 0, profiles_failed: [], posts_upserted: 0, brand_posts: 0,
     mentions_upserted: 0, mentions_unknown: [], profiles_skipped: 0,
+    scope, profiles_total: 0, profiles_unreachable_skipped: 0, profiles_marked_unreachable: 0,
   }
   if (!instagramConfigured()) return result
 
-  const [{ data: influencers }, { data: allCodes }, { data: recentStats }] = await Promise.all([
+  const [{ data: allInfluencers }, { data: allCodes }, { data: recentStats }, keep] = await Promise.all([
     supabase.from("influencers").select("id, instagram_handle, metadata").not("instagram_handle", "is", null),
     supabase.from("influencer_codes").select("influencer_id, code"),
     supabase
       .from("influencer_social_stats")
       .select("influencer_id")
       .gte("captured_at", new Date(Date.now() - 20 * 3600 * 1000).toISOString()),
+    scope === "active" ? activeInfluencerIds() : Promise.resolve<Set<string> | null>(null),
   ])
+  const influencers = (allInfluencers || []).filter((i) => !keep || keep.has(i.id))
+  result.profiles_total = influencers.length
   const codesByInf = new Map<string, string[]>()
   for (const c of allCodes || []) {
     if (!c.influencer_id) continue
@@ -170,7 +272,7 @@ export async function syncInstagramContent(opts?: { budgetMs?: number }): Promis
   }
   const snapshotDone = new Set((recentStats || []).map((s) => s.influencer_id))
 
-  for (const inf of influencers || []) {
+  for (const inf of influencers) {
     // Budget dépassé : on rend la main proprement plutôt que de se faire tuer
     // par la lambda au milieu d'une écriture, et on compte ce qui n'a pas été vu.
     if (Date.now() - startedAt > budgetMs) {
@@ -179,11 +281,28 @@ export async function syncInstagramContent(opts?: { budgetMs?: number }): Promis
     }
     const handle = (inf.instagram_handle || "").replace(/^@/, "").trim()
     if (!handle) continue
-    let profile: IgProfile | null = null
-    try {
-      profile = await fetchBusinessDiscovery(handle)
-    } catch { /* réseau — on passe */ }
-    if (!profile) { result.profiles_failed.push(handle); continue }
+    const meta = { ...((inf.metadata as Record<string, unknown>) || {}) }
+
+    // Compte marqué introuvable il y a < 30 j : on ne retente pas.
+    const unreachableAt = typeof meta.ig_unreachable_at === "string" ? Date.parse(meta.ig_unreachable_at) : NaN
+    if (!Number.isNaN(unreachableAt) && Date.now() - unreachableAt < UNREACHABLE_RETRY_DAYS * 864e5) {
+      result.profiles_unreachable_skipped++
+      continue
+    }
+
+    const lookup = await lookupBusinessDiscovery(handle)
+    if (!lookup.profile) {
+      result.profiles_failed.push(handle)
+      if (lookup.error === "unreachable") {
+        result.profiles_marked_unreachable++
+        await supabase
+          .from("influencers")
+          .update({ metadata: { ...meta, ig_unreachable_at: new Date().toISOString() } })
+          .eq("id", inf.id)
+      }
+      continue
+    }
+    const profile = lookup.profile
     result.profiles_ok++
 
     const followers = Number(profile.followers_count) || null
@@ -205,7 +324,7 @@ export async function syncInstagramContent(opts?: { budgetMs?: number }): Promis
     }
 
     // Followers + photo frais dans metadata (merge non destructif)
-    const meta = { ...((inf.metadata as Record<string, unknown>) || {}) }
+    delete meta.ig_unreachable_at
     if (followers) meta.followers = followers
     if (profile.profile_picture_url) meta.photo_url = profile.profile_picture_url
     meta.ig_stats_at = new Date().toISOString()

@@ -3,9 +3,10 @@
  *
  * Contenu + stats Instagram (Business Discovery Meta), dans SON PROPRE cron.
  *
- * Pourquoi séparé du cron quotidien : ~88 profils × (1 appel Graph + 250 ms de
- * rate-limit) ≈ 2-3 min, à comparer aux ~3 min du reste du pipeline. Dans
- * runFullSync les deux ne tiennent pas dans les 300 s de la lambda :
+ * Pourquoi séparé du cron quotidien : N profils × (1 appel Graph + 250 ms de
+ * rate-limit) — à ~600 profils c'était 2-3 min (et plus), à comparer aux ~3 min
+ * du reste du pipeline. Dans runFullSync les deux ne tiennent pas dans les
+ * 300 s de la lambda :
  *  - du 3 au 31 juil. 2026, l'étape tournait en 6e position et tuait tout ce qui
  *    suivait (Meta, Google, Klaviyo, P&L, analyse figés au 2 juillet) ;
  *  - passée en dernier, elle se faisait couper elle-même — et surtout la lambda
@@ -13,6 +14,11 @@
  *    fraîcheur du dashboard affichait un run vieux d'un mois alors que toutes
  *    les données étaient à jour.
  * Aucun autre calcul ne dépend d'Instagram : un cron à part est la bonne place.
+ *
+ * Depuis le 15 sept. 2026 : scope "active" par défaut (~50 influenceuses qui
+ * comptent, critères en tête de lib/influence/instagram.ts) au lieu des ~600
+ * profils (leads outreach compris) qui tuaient la lambda avant l'écriture de
+ * la trace. `?scope=all` = tous les profils, à la main uniquement (jamais planifié).
  *
  * Protégé par CRON_SECRET, comme /api/cron/daily.
  */
@@ -35,9 +41,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, skipped: "META_ACCESS_TOKEN absent" })
   }
 
+  const scope = new URL(request.url).searchParams.get("scope") === "all" ? "all" : "active"
   try {
-    // 270 s : marge sous les 300 s de la lambda pour l'écriture de la trace.
-    const result = await syncInstagramContent({ budgetMs: 270_000 })
+    // Budget par défaut (240 s) : 60 s de marge sous les 300 s de la lambda
+    // pour les mentions + l'écriture de la trace.
+    const result = await syncInstagramContent({ scope })
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
