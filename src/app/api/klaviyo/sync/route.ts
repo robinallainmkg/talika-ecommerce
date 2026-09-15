@@ -100,6 +100,7 @@ export async function POST() {
       key: "klaviyo_campaigns",
       data: { campaigns, fetched_at: now.toISOString() },
       source: "klaviyo",
+      updated_at: now.toISOString(),
       expires_at: expiresAt,
     })
 
@@ -107,6 +108,7 @@ export async function POST() {
       key: "klaviyo_flows",
       data: { flows: allFlows, fetched_at: now.toISOString() },
       source: "klaviyo",
+      updated_at: now.toISOString(),
       expires_at: expiresAt,
     })
 
@@ -114,6 +116,7 @@ export async function POST() {
       key: "klaviyo_lists",
       data: { lists, fetched_at: now.toISOString() },
       source: "klaviyo",
+      updated_at: now.toISOString(),
       expires_at: expiresAt,
     })
 

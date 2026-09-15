@@ -12,7 +12,11 @@ const DEVELOPER_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || ""
 const REFRESH_TOKEN = process.env.GOOGLE_ADS_REFRESH_TOKEN || ""
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || ""
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ""
-const API_VERSION = "v21" // version REST courante (testée 2026-06)
+// v21 morte (404 HTML) depuis le ~10/08/2026 → cron Google Ads en erreur 5 semaines.
+// Google retire une version ~tous les ans : si 404, sonder les suivantes SANS auth :
+//   curl -X POST https://googleads.googleapis.com/vNN/customers/1/googleAds:searchStream
+//   → 401 = version vivante, 404 = morte. v26 = dernière vivante au 15/09/2026 (v27 = 404).
+const API_VERSION = "v26"
 
 async function getAccessToken(): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
