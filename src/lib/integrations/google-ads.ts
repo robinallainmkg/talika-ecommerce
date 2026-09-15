@@ -15,8 +15,10 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || ""
 // v21 morte (404 HTML) depuis le ~10/08/2026 → cron Google Ads en erreur 5 semaines.
 // Google retire une version ~tous les ans : si 404, sonder les suivantes SANS auth :
 //   curl -X POST https://googleads.googleapis.com/vNN/customers/1/googleAds:searchStream
-//   → 401 = version vivante, 404 = morte. v26 = dernière vivante au 15/09/2026 (v27 = 404).
-const API_VERSION = "v26"
+//   → 401 = version vivante, 404 HTML = morte. Puis tester AVEC creds : au 15/09/2026
+//   v22→v25 répondent 200, v26 existe mais renvoie 404 JSON "Method not found"
+//   (pas encore ouverte à notre developer token) → v25.
+const API_VERSION = "v25"
 
 async function getAccessToken(): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
