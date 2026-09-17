@@ -33,6 +33,17 @@ const SAV_OTHER =
 const YES_WORD =
   "(?:oui+|ouais|ouaip|ok(?:ay|é)?|d['’]accord|volontiers|je\\s+veux\\s+bien|avec\\s+plaisir|carrément|bien\\s+sûr|yes+|yep|yeah|sure|please|s['’]il\\s+(?:vous|te)\\s+pla[îi]t|svp|stp|merci(?:\\s+beaucoup)?|thanks?(?:\\s+you)?)"
 const SHORT_YES = new RegExp(`^\\s*(?!\\s*merci)${YES_WORD}(?:[\\s,.!]+${YES_WORD})*\\s*[.!\\s]*$`, "i")
+// « oui » suivi d'une expression d'intérêt (« oui je suis intéressée pour avoir
+// plus de détails », vu en prod le 15/09 : SHORT_YES exige un message 100 %
+// oui/politesses et la transmission acceptée n'était pas partie). On exige un
+// démarrage par un oui franc, puis une marque d'intérêt dans la même phrase,
+// sans négation entre les deux (« oui mais ça ne m'intéresse pas »).
+const YES_INTEREST = new RegExp(
+  `^\\s*(?:oui+|ouais|ok(?:ay|é)?|volontiers|d['’]accord|yes+)\\b` +
+    `(?:(?!\\b(?:pas|non|ne|n['’]|plus\\s+tard)\\b)[^.?!]){0,60}?` +
+    `\\b(?:int[ée]ress\\w*|plus\\s+de\\s+d[ée]tails?|plus\\s+d['’]in(?:fos?|formations?)|en\\s+savoir\\s+plus)`,
+  "i"
+)
 const OFFERED_ESCALATION =
   /(laisser?\s+un\s+message|parler?\s+à\s+(un|notre|l['’])|transmet\w*\s+(à\s+(l['’]|notre)|votre|ta\s|sa\s|à\s+notre)|notre\s+équipe\s+(vous|pourra|se\s+fera)|un\s+conseiller|équipe\s+talika\s+(vous|pourra)|leave\s+(a\s+|your\s+)?message|talk\s+to\s+(our|the)\s+team)/i
 
@@ -47,7 +58,8 @@ export function detectEscalation(message: string, lastAssistant: string): Escala
   if (!m) return null
   if (HUMAN_INTENT.test(m)) return "explicit"
   if (isSavTopic(m)) return "sav_topic"
-  if (OFFERED_ESCALATION.test(lastAssistant || "") && SHORT_YES.test(m)) return "confirm"
+  if (OFFERED_ESCALATION.test(lastAssistant || "") && (SHORT_YES.test(m) || YES_INTEREST.test(m)))
+    return "confirm"
   return null
 }
 
