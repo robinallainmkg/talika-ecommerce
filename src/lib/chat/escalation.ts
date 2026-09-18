@@ -81,16 +81,18 @@ export function isBusinessHoursParis(): boolean {
 }
 
 // Message d'escalade chaleureux, qui cadre l'attente selon les horaires (sans
-// fausse promesse de temps réel). Le visiteur reste libre de continuer à écrire :
-// la conversation passe en file, ses messages suivants vont droit à l'équipe.
+// fausse promesse de temps réel). L'EMAIL est le canal principal de réponse :
+// beaucoup de visiteurs ferment l'onglet après l'escalade et deviennent
+// injoignables si on ne l'a pas (vécu 15-17/09, demande Robin). Le chat reste
+// un bonus (« aussi ici si vous repassez »), pas la promesse par défaut.
 export function escalationMessage(locale: "fr" | "en"): string {
   const open = isBusinessHoursParis()
   if (locale === "en") {
     return open
-      ? "Let me hand this over to the Talika team — they're best placed to help you here. I'm passing your request along now, and an advisor will reply right here in the chat. Feel free to leave your email if you'd also like a reply by mail."
-      : "Let me hand this over to the Talika team. We're currently outside our hours (Monday to Friday, 9am–6pm Paris time), but I'm passing your message along — an advisor will reply here as soon as we reopen. Leave your email to also be notified by mail."
+      ? "Let me hand this over to the Talika team — they're best placed to help you here. To make sure their reply reaches you, please leave your email just below: an advisor will get back to you by mail. The reply will also appear here if you come back to the site."
+      : "Let me hand this over to the Talika team. We're currently outside our hours (Monday to Friday, 9am–6pm Paris time). To make sure their reply reaches you, please leave your email just below: an advisor will get back to you by mail as soon as we reopen. The reply will also appear here if you come back to the site."
   }
   return open
-    ? "Je préfère confier votre demande à l’équipe Talika, la mieux placée pour vous aider sur ce point. Je la transmets tout de suite — un conseiller vous répondra ici même. Vous pouvez me laisser votre email si vous souhaitez aussi une réponse par mail."
-    : "Je préfère confier votre demande à l’équipe Talika. Nous sommes pour le moment en dehors de nos horaires (du lundi au vendredi, 9h-18h), mais je transmets votre message : un conseiller vous répondra ici dès l’ouverture. Laissez-moi votre email pour être prévenu(e) par mail également."
+    ? "Je préfère confier votre demande à l’équipe Talika, la mieux placée pour vous aider sur ce point. Pour être sûr(e) de recevoir sa réponse, laissez-moi votre email juste en dessous : un conseiller vous répondra par mail. La réponse s’affichera aussi ici si vous repassez sur le site."
+    : "Je préfère confier votre demande à l’équipe Talika. Nous sommes pour le moment en dehors de nos horaires (du lundi au vendredi, 9h-18h). Pour être sûr(e) de recevoir sa réponse, laissez-moi votre email juste en dessous : un conseiller vous répondra par mail dès l’ouverture. La réponse s’affichera aussi ici si vous repassez sur le site."
 }
