@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { formatCurrency } from "@/lib/utils"
 import { Loader2, Plus, Lock, Unlock, Paperclip, Check } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
@@ -27,7 +27,7 @@ const MONTHS = [
 
 export default function CoutsInfluencePage() {
   // Période mémorisée : URL (?year=&month=) + partagée entre vues influence.
-  const { year, setYear, month, setMonth } = usePeriod()
+  const { year, setYear, month, setMonth, periodReady } = usePeriod()
   const [rows, setRows] = useState<Row[]>([])
   const [allInfluencers, setAllInfluencers] = useState<{ id: string; name: string; commission_rate: number }[]>([])
   const [feeDraft, setFeeDraft] = useState<Record<string, string>>({})
@@ -53,6 +53,9 @@ export default function CoutsInfluencePage() {
   // d'août ont été enregistrées avec les suggestions de septembre encore à l'écran
   // (7 enregistrements en 13 s). saveRow refuse désormais si ça ne correspond pas.
   const [loadedPeriod, setLoadedPeriod] = useState<string | null>(null)
+  // Numéro de la dernière requête : une réponse d'une période précédente qui
+  // arrive en retard est ignorée (clics rapides entre onglets).
+  const loadSeq = useRef(0)
 
   const isAdmin = role === "admin"
   const isLocked = !!lock
@@ -78,6 +81,7 @@ export default function CoutsInfluencePage() {
     setRows([])
     setFeeDraft({}); setCommDraft({}); setRateDraft({})
     setFeeInitial({}); setCommInitial({}); setRateInitial({})
+    const seq = ++loadSeq.current
     try {
       const [res, lockRes, invRes] = await Promise.all([
         fetch(`/api/influencers/commissions?year=${year}&month=${month}`, { cache: "no-store" }),
@@ -86,8 +90,9 @@ export default function CoutsInfluencePage() {
       ])
       const data = await res.json()
       const lockData = await lockRes.json()
-      setLock(lockData.locked ? lockData.lock : null)
       const invData = await invRes.json()
+      if (seq !== loadSeq.current) return // période changée entre-temps
+      setLock(lockData.locked ? lockData.lock : null)
       const byInf: Record<string, { id: string; file_name: string; amount: number | null }[]> = {}
       for (const inv of invData.invoices || []) {
         ;(byInf[inv.influencer_id] ??= []).push({ id: inv.id, file_name: inv.file_name, amount: inv.amount })
@@ -113,11 +118,11 @@ export default function CoutsInfluencePage() {
       setCommInitial({ ...cd })
       setLoadedPeriod(`${year}-${month}`)
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [year, month])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (periodReady) load() }, [load, periodReady])
 
   function addInfluencer(id: string) {
     if (!id || rows.some((r) => r.influencer_id === id)) return

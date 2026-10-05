@@ -52,7 +52,7 @@ const MONTHS_SHORT = [
 export default function FacturationPage() {
   const now = new Date()
   // Période mémorisée : URL (?year=&month=) + partagée entre vues influence.
-  const { year, setYear, month, setMonth } = usePeriod()
+  const { year, setYear, month, setMonth, periodReady } = usePeriod()
   const [collabs, setCollabs] = useState<Collab[]>([])
   const [totals, setTotals] = useState({ count: 0, total_due: 0, with_invoice: 0 })
   const [reportsIn, setReportsIn] = useState<ReportIn[]>([])
@@ -146,7 +146,7 @@ export default function FacturationPage() {
     return () => { cancelled = true }
   }, [])
 
-  useEffect(() => { if (initialized) load() }, [load, initialized])
+  useEffect(() => { if (initialized && periodReady) load() }, [load, initialized, periodReady])
 
   async function saveBilling(influencerId: string, value: string) {
     const current = collabs.find((c) => c.influencer_id === influencerId)?.billing_name || ""

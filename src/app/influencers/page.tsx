@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, Fragment } from "react"
+import { useState, useEffect, useCallback, useRef, Fragment } from "react"
 import { Header } from "@/components/layout/header"
 import { KPICard } from "@/components/ui/kpi-card"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -145,7 +145,7 @@ export default function InfluencersPage() {
   const [error, setError] = useState<string | null>(null)
   // Période mémorisée : URL (?year=&month=, month=all = année complète) +
   // partagée entre vues influence (localStorage).
-  const { year: selectedYear, setYear: setSelectedYear, month: selectedMonth, setMonth: setSelectedMonth } = usePeriodWithAll()
+  const { year: selectedYear, setYear: setSelectedYear, month: selectedMonth, setMonth: setSelectedMonth, periodReady } = usePeriodWithAll()
 
   // Add influencer modal
   const [showAddModal, setShowAddModal] = useState(false)
@@ -169,9 +169,12 @@ export default function InfluencersPage() {
   const [codeSaving, setCodeSaving] = useState(false)
 
   // ─── Fetch data ────────────────────────────────────────────────
+  // Une réponse d'une période précédente qui arrive en retard est ignorée.
+  const fetchSeq = useRef(0)
   const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
+    const seq = ++fetchSeq.current
     try {
       const [infRes, codesRes] = await Promise.all([
         fetch(`/api/influencers?year=${selectedYear}${selectedMonth ? `&month=${selectedMonth}` : ""}&market=${getMarketCookie()}`, { cache: "no-store" }),
@@ -182,6 +185,7 @@ export default function InfluencersPage() {
 
       if (infJson.error) throw new Error(infJson.error)
       if (codesJson.error) throw new Error(codesJson.error)
+      if (seq !== fetchSeq.current) return // période changée entre-temps
 
       setInfluencers(infJson.influencers || [])
       const codes = codesJson.codes || []
@@ -196,15 +200,15 @@ export default function InfluencersPage() {
         setUnassignedCodes(cacheJson.codes as UnassignedCode[])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur lors du chargement")
+      if (seq === fetchSeq.current) setError(err instanceof Error ? err.message : "Erreur lors du chargement")
     } finally {
-      setLoading(false)
+      if (seq === fetchSeq.current) setLoading(false)
     }
   }, [selectedYear, selectedMonth])
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    if (periodReady) fetchData()
+  }, [fetchData, periodReady])
 
   // ─── Add influencer ───────────────────────────────────────────
   async function handleAddInfluencer() {

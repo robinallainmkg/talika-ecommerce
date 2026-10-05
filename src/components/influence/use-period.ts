@@ -51,7 +51,12 @@ function usePeriodBase(allowAll: boolean, defaultMonth: number | null) {
     try { localStorage.setItem(LS_KEY, JSON.stringify({ year, month: month == null ? "all" : String(month) })) } catch { /* ignore */ }
   }, [year, month, initialized])
 
-  return { year, setYear, month, setMonth }
+  // periodReady = la lecture URL/localStorage est faite. Les pages NE DOIVENT
+  // PAS charger avant : sinon un 1er fetch part sur le mois courant (ou
+  // l'année), puis un 2e sur le mois mémorisé, et si le 1er répond en dernier
+  // il écrase l'affichage (vécu 05/10/2026 : « Septembre » montrait octobre
+  // dans Coûts et l'année entière dans le scoreboard).
+  return { year, setYear, month, setMonth, periodReady: initialized }
 }
 
 // Vues à mois obligatoire (Coûts, Facturation) : month est toujours un nombre.

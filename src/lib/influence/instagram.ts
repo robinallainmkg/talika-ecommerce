@@ -140,11 +140,24 @@ export async function activeInfluencerIds(): Promise<Set<string>> {
 }
 
 // Un post "marque" = la caption mentionne Talika ou un des codes de l'influenceuse.
-export function isBrandContent(caption: string | undefined, codes: string[]): boolean {
+// Termes produits Talika suffisamment distinctifs pour valoir une mention de
+// la marque (légende sans le mot « talika » mais qui parle du produit).
+export const TALIKA_PRODUCT_TERMS = [
+  "time control", "hair force", "led therapy", "lipocils", "eye therapy",
+  "bio enzymes", "collagen fusion", "bubble mask", "skintelligence",
+  "photo-beauty", "photo beauty", "genius light", "back up 3d", "eye decompress",
+]
+
+// ⚠️ Le code promo SEUL ne suffit plus : les influenceuses réutilisent le même
+// code chez d'autres marques (STORYMUM10 chez Hylton, MARINE15 chez Dermalogica,
+// PIBOU10 chez Oden, GERI10 chez DermEden — vu le 05/10/2026). Un post est
+// « Talika » si la légende cite la marque ou un produit Talika ; le code n'est
+// qu'un renfort.
+export function isBrandContent(caption: string | undefined, _codes: string[]): boolean {
   if (!caption) return false
   const c = caption.toLowerCase()
   if (c.includes("talika")) return true
-  return codes.some((code) => code.length >= 4 && c.includes(code.toLowerCase()))
+  return TALIKA_PRODUCT_TERMS.some((t) => c.includes(t))
 }
 
 export interface InstagramSyncResult {
