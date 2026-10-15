@@ -10,6 +10,12 @@ import { streamChatCompletion, ChatMessage } from "@/lib/chat/llm"
 import { fallbackResponse, FALLBACK_MODEL } from "@/lib/chat/fallback"
 import { parseMarkers, resolveProducts } from "@/lib/chat/products"
 import { detectEscalation, escalationMessage } from "@/lib/chat/escalation"
+import {
+  isNearRepeat,
+  lastQuestion,
+  REPEAT_RETRY_INSTRUCTION,
+  repeatFallbackText,
+} from "@/lib/chat/repeat"
 
 export const dynamic = "force-dynamic"
 // Next 14 met en cache les GET fetch (dont supabase-js) dans le Data Cache Vercel
@@ -195,12 +201,24 @@ export async function POST(request: Request) {
           const localeHint = isEn ? "\n(langue de la page : en)" : ""
           // Sans cette ancre, une question sans nom de produit (« les ingrédients ? »)
           // est traitée hors contexte et le bot répond sur un autre produit.
+          // En cours de conversation, la page ne doit PAS ramener le sujet à elle
+          // (vu en août-septembre : comparaison Genius Eyes / TC7+ demandée → le bot
+          // servait les résultats du masque LED de la page consultée).
           const pageHint = rag.pageProduct
-            ? `\n(Le visiteur consulte la fiche « ${rag.pageProduct.title} ». Sauf s'il nomme explicitement un autre produit, sa question porte sur celui-ci : ne réponds pas sur un autre produit, et n'affirme jamais qu'il en a mentionné un.)`
+            ? history.length > 0
+              ? `\n(Le visiteur consulte la fiche « ${rag.pageProduct.title} ». Si la conversation porte déjà sur un autre produit, reste sur celui de la conversation : la page consultée ne change pas le sujet. Sinon, sa question porte sur ce produit. N'affirme jamais qu'il a mentionné un produit qu'il n'a pas nommé.)`
+              : `\n(Le visiteur consulte la fiche « ${rag.pageProduct.title} ». Sauf s'il nomme explicitement un autre produit, sa question porte sur celui-ci : ne réponds pas sur un autre produit, et n'affirme jamais qu'il en a mentionné un.)`
+            : ""
+          // « oui » / « non merci » seuls : le modèle ne sait pas à quoi le visiteur
+          // répond et ressert sa réponse précédente. On lui rappelle sa question.
+          const pendingQuestion =
+            AFFIRMATION.test(message) || /^\s*non\b/i.test(message) ? lastQuestion(lastAssistantContent) : null
+          const answerHint = pendingQuestion
+            ? `\n(Le visiteur répond « ${message} » à ta dernière question : « ${pendingQuestion} ». S'il accepte, fais exactement ce que tu as proposé ; s'il refuse, prends-en acte en une phrase. Dans les deux cas, ne reprends pas ta réponse précédente.)`
             : ""
           const userContent = rag.contextBlock
-            ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}${pageHint}${localeHint}`
-            : `${message}${pageHint}${localeHint}`
+            ? `Informations Talika disponibles (appuie-toi dessus sans mentionner leur source) :\n\n${rag.contextBlock}\n\nQuestion du visiteur : ${message}${answerHint}${pageHint}${localeHint}`
+            : `${message}${answerHint}${pageHint}${localeHint}`
 
           const messages: ChatMessage[] = [
             { role: "system", content: buildSystemPrompt(settings.prompt_addendum as string) },
@@ -208,6 +226,10 @@ export async function POST(request: Request) {
             { role: "user", content: userContent },
           ]
 
+          // Garde-fou anti-redite : sur un message de suivi, on retient la réponse
+          // entière (le widget affiche les points de saisie en attendant) pour
+          // vérifier qu'elle ne ressert pas la précédente ; sinon on régénère.
+          const checkRepeat = isFollowUp && lastAssistantContent.length > 0
           const llm = await streamChatCompletion(messages)
           // On retient le flux jusqu'au premier "<<<" pour ne jamais montrer les
           // marqueurs (ASK_EMAIL / PRODUCTS) au visiteur ; ils sont toujours en fin.
@@ -215,6 +237,7 @@ export async function POST(request: Request) {
           let emitted = 0
           for await (const delta of llm.deltas) {
             buffer += delta
+            if (checkRepeat) continue
             const markerIdx = buffer.indexOf("<<<")
             let safeEnd = markerIdx === -1 ? buffer.length : markerIdx
             // Retenir aussi un préfixe partiel de marqueur en fin de buffer ("<" ou
@@ -230,7 +253,28 @@ export async function POST(request: Request) {
           }
 
           const final = llm.getFinal()
-          const parsed = parseMarkers(final.content || buffer)
+          let parsed = parseMarkers(final.content || buffer)
+          let model = llm.model
+          let tokensUsed = final.tokensUsed
+          if (checkRepeat && isNearRepeat(parsed.text, lastAssistantContent)) {
+            const retry = await streamChatCompletion([
+              ...messages,
+              { role: "assistant", content: parsed.text },
+              { role: "user", content: REPEAT_RETRY_INSTRUCTION },
+            ])
+            let retryBuffer = ""
+            for await (const delta of retry.deltas) retryBuffer += delta
+            const retryFinal = retry.getFinal()
+            const retryParsed = parseMarkers(retryFinal.content || retryBuffer)
+            tokensUsed = (tokensUsed || 0) + (retryFinal.tokensUsed || 0) || null
+            if (isNearRepeat(retryParsed.text, lastAssistantContent)) {
+              parsed = { text: repeatFallbackText(isEn ? "en" : "fr"), handles: [], askEmail: false }
+              model = "repeat-guard"
+            } else {
+              parsed = retryParsed
+              model = retry.model
+            }
+          }
           // Émettre le reste de texte propre non encore envoyé (cas d'un "<<<" qui
           // n'était finalement pas un marqueur, ou texte après marqueur retiré).
           if (parsed.text.length > emitted) {
@@ -244,8 +288,8 @@ export async function POST(request: Request) {
 
           await saveExchange(db, conversation.id, message, {
             content: parsed.text,
-            model: llm.model,
-            tokensUsed: final.tokensUsed,
+            model,
+            tokensUsed,
             ragSources: rag.sources,
             productRefs: productRefs.length > 0 ? productRefs : null,
           })
@@ -264,9 +308,9 @@ export async function POST(request: Request) {
                 similarity: c.similarity,
                 content: c.content.slice(0, 300),
               })),
-              tokens_used: final.tokensUsed,
+              tokens_used: tokensUsed,
               latency_ms: Date.now() - started,
-              model: llm.model,
+              model,
             }
           }
           send("done", done)

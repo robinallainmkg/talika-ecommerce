@@ -31,6 +31,11 @@ type ShopifyProduct = {
   howToUse: Metafield
   functions: Metafield
   testCliniques: Metafield // rich_text_field (JSON Shopify)
+  // Déclinaisons réelles (teintes, contenances…) : sans elles le bot inventait des
+  // teintes (« châtain clair » pour le Liposourcils Crayon, qui n'existe qu'en Brun et Châtain).
+  hasOnlyDefaultVariant: boolean
+  options: { name: string; optionValues: { name: string }[] }[]
+  variants: { nodes: { availableForSale: boolean; selectedOptions: { name: string; value: string }[] }[] }
 }
 
 export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
@@ -59,6 +64,9 @@ export async function fetchAllProducts(): Promise<ShopifyProduct[]> {
             howToUse: metafield(namespace: "custom", key: "howtouse") { value }
             functions: metafield(namespace: "custom", key: "functions") { value }
             testCliniques: metafield(namespace: "custom", key: "test_cliniques") { value }
+            hasOnlyDefaultVariant
+            options { name optionValues { name } }
+            variants(first: 50) { nodes { availableForSale selectedOptions { name value } } }
           }
         }
       }`
@@ -147,6 +155,30 @@ function buildProductText(p: ShopifyProduct): string {
     .join("\n")
 }
 
+// « Couleur : Noir, Brun (en rupture pour le moment) » — null si le produit n'a
+// qu'une version. Rangé dans les métadonnées (pas dans le texte indexé) : il est
+// rafraîchi à chaque synchro sans re-vectoriser, et s'affiche dans l'en-tête de
+// CHAQUE extrait de la fiche servi au bot (cf. rag.ts).
+export function variantSummary(p: Pick<ShopifyProduct, "hasOnlyDefaultVariant" | "options" | "variants">): string | null {
+  if (p.hasOnlyDefaultVariant || !p.options?.length) return null
+  const variants = p.variants?.nodes || []
+  const parts = p.options
+    .map((option) => {
+      const name = option.name.trim()
+      const values = option.optionValues.map((v) => {
+        const value = v.name.trim()
+        const matching = variants.filter((variant) =>
+          variant.selectedOptions.some((o) => o.name.trim() === name && o.value.trim() === value)
+        )
+        const soldOut = matching.length > 0 && matching.every((variant) => !variant.availableForSale)
+        return soldOut ? `${value} (en rupture pour le moment)` : value
+      })
+      return values.length ? `${name} : ${values.join(", ")}` : ""
+    })
+    .filter(Boolean)
+  return parts.length ? parts.join(" ; ") : null
+}
+
 function productMetadata(p: ShopifyProduct): Record<string, unknown> {
   return {
     handle: p.handle,
@@ -155,6 +187,7 @@ function productMetadata(p: ShopifyProduct): Record<string, unknown> {
     currency: p.priceRangeV2.minVariantPrice.currencyCode,
     available: p.totalInventory > 0,
     image_url: p.featuredImage?.url || null,
+    options: variantSummary(p),
   }
 }
 
