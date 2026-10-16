@@ -7,6 +7,9 @@ drip et de la réponse in-app (`src/lib/mailer.ts` → `sendMail`) et le journal
 
 Auth (identique au cron) : `Authorization: Bearer $CRON_SECRET`. Sans secret posé côté
 serveur ou avec un mauvais bearer → `401`.
+Le préfixe `/api/outreach/` est dans `PUBLIC_PREFIXES` de `src/middleware.ts` (sinon le
+middleware répond `401 {"error":"non authentifié"}` avant la route — c'est le signe d'un
+oubli de liste blanche, pas d'un mauvais secret).
 
 ## 1. `POST /api/outreach/send`
 
