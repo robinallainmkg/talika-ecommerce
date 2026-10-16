@@ -111,11 +111,13 @@ export interface MailAttachment { filename: string; content: Buffer; contentType
 export interface MailMsg {
   to: string | string[]; subject: string; text: string; html?: string; from?: string; replyTo?: string
   headers?: Record<string, string>; messageId?: string; attachments?: MailAttachment[]
+  // channel 'smtp' : force SMTP_* (ex. boîte Hostinger dont le domaine n'est pas vérifié chez Resend).
+  channel?: "auto" | "smtp"
 }
 
 export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; error?: string }> {
-  // 1. Resend HTTP (si clé API directe)
-  if (process.env.RESEND_API_KEY && (m.from || process.env.RESEND_FROM)) {
+  // 1. Resend HTTP (si clé API directe) — sauf si l'appelant impose SMTP
+  if (m.channel !== "smtp" && process.env.RESEND_API_KEY && (m.from || process.env.RESEND_FROM)) {
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",

@@ -134,9 +134,9 @@ export async function POST(request: Request) {
     if (refs.length) headers["References"] = refs.join(" ")
     const sizeBytes = Buffer.byteLength(text, "utf8") + (html ? Buffer.byteLength(html, "utf8") : 0)
       + attachments.reduce((n, a) => n + a.content.length, 0)
-    // Même arbitrage que sendMail : Resend HTTP dès que RESEND_API_KEY existe (on passe toujours
-    // un `from`), sinon SMTP_* (Hostinger), sinon rien.
-    const channel = process.env.RESEND_API_KEY ? "resend" : smtpConfigured() ? "smtp" : "none"
+    // Toujours SMTP_* (boîte Hostinger talika@companion-ecommerce.com) : le domaine n'est pas
+    // vérifié chez Resend (550 « domain is not verified » constaté en prod le 16/10/2026).
+    const channel = smtpConfigured() ? "smtp" : "none"
 
     if (dryRun) {
       return NextResponse.json({
@@ -151,10 +151,11 @@ export async function POST(request: Request) {
       })
     }
 
-    if (channel === "none") return bad("Aucun canal mail configuré (RESEND_API_KEY ou SMTP_*)", 500)
+    if (channel === "none") return bad("SMTP_* non configuré (boîte Hostinger)", 500)
 
     // ── Envoi réel (même chemin que drip / reply / compose) ──
     const r = await sendMail({
+      channel: "smtp",
       to, subject, text, ...(html ? { html } : {}), from, replyTo, messageId,
       ...(Object.keys(headers).length ? { headers } : {}),
       ...(attachments.length ? { attachments } : {}),
