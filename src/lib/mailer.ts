@@ -103,7 +103,15 @@ export async function sendInviteEmail(to: string, link: string): Promise<boolean
 // branché en SMTP : SMTP_HOST=smtp.resend.com, SMTP_USER=resend, SMTP_PASS=<clé re_…>).
 // headers : en-têtes SMTP additionnels (ex. In-Reply-To/References pour qu'une réponse
 // s'affiche dans le bon fil chez le destinataire). Supporté par Resend HTTP ET nodemailer.
-export interface MailMsg { to: string; subject: string; text: string; html?: string; from?: string; replyTo?: string; headers?: Record<string, string> }
+// to : un ou plusieurs destinataires (tableau accepté par Resend HTTP ET nodemailer).
+// attachments : pièces jointes (Buffer décodé côté appelant) — Resend HTTP (base64) ET nodemailer.
+// messageId : Message-ID RFC 5322 imposé ('<uuid@domaine>') — nodemailer le pose tel quel ;
+// Resend le reçoit en en-tête (best-effort : le fournisseur peut le remplacer par le sien).
+export interface MailAttachment { filename: string; content: Buffer; contentType?: string }
+export interface MailMsg {
+  to: string | string[]; subject: string; text: string; html?: string; from?: string; replyTo?: string
+  headers?: Record<string, string>; messageId?: string; attachments?: MailAttachment[]
+}
 
 export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; error?: string }> {
   // 1. Resend HTTP (si clé API directe)
@@ -115,7 +123,15 @@ export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; 
         body: JSON.stringify({
           from: m.from || process.env.RESEND_FROM, to: m.to, subject: m.subject,
           text: m.text, ...(m.html ? { html: m.html } : {}), ...(m.replyTo ? { reply_to: m.replyTo } : {}),
-          ...(m.headers ? { headers: m.headers } : {}),
+          ...(m.headers || m.messageId
+            ? { headers: { ...(m.headers || {}), ...(m.messageId ? { "Message-ID": m.messageId } : {}) } }
+            : {}),
+          ...(m.attachments?.length
+            ? { attachments: m.attachments.map((a) => ({
+                filename: a.filename, content: a.content.toString("base64"),
+                ...(a.contentType ? { content_type: a.contentType } : {}),
+              })) }
+            : {}),
         }),
       })
       if (!res.ok) return { ok: false, error: `Resend HTTP ${res.status} ${await res.text().catch(() => "")}`.slice(0, 300) }
@@ -131,6 +147,12 @@ export async function sendMail(m: MailMsg): Promise<{ ok: boolean; id?: string; 
         to: m.to, subject: m.subject, text: m.text, ...(m.html ? { html: m.html } : {}),
         ...(m.replyTo ? { replyTo: m.replyTo } : {}),
         ...(m.headers ? { headers: m.headers } : {}),
+        ...(m.messageId ? { messageId: m.messageId } : {}),
+        ...(m.attachments?.length
+          ? { attachments: m.attachments.map((a) => ({
+              filename: a.filename, content: a.content, ...(a.contentType ? { contentType: a.contentType } : {}),
+            })) }
+          : {}),
       })
       return { ok: true, id: (info as { messageId?: string })?.messageId }
     } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
