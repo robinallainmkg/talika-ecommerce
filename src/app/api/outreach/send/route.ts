@@ -21,7 +21,8 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { randomUUID } from "crypto"
-import { sendMail, smtpConfigured, type MailAttachment } from "@/lib/mailer"
+import nodemailer from "nodemailer"
+import { type MailAttachment } from "@/lib/mailer"
 import { logOutbound, UK_MAILBOX, BODY_MAX } from "@/lib/influence/messages"
 import { MARKETS, type Market } from "@/lib/market"
 
@@ -47,6 +48,42 @@ const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const bad = (error: string, status = 400) => NextResponse.json({ ok: false, error }, { status })
+
+function hostingerConfigured(): boolean {
+  return !!(process.env.OUTREACH_IMAP_USER && process.env.OUTREACH_IMAP_PASSWORD)
+}
+
+let hostingerTransporter: nodemailer.Transporter | null = null
+function getHostingerTransporter() {
+  if (hostingerTransporter) return hostingerTransporter
+  const port = Number(process.env.OUTREACH_SMTP_PORT || 465)
+  hostingerTransporter = nodemailer.createTransport({
+    host: process.env.OUTREACH_SMTP_HOST || "smtp.hostinger.com",
+    port,
+    secure: port === 465,
+    auth: { user: process.env.OUTREACH_IMAP_USER!, pass: process.env.OUTREACH_IMAP_PASSWORD! },
+  })
+  return hostingerTransporter
+}
+
+async function sendViaHostinger(m: {
+  to: string[]; subject: string; text: string; html?: string; from: string; replyTo: string
+  messageId: string; headers?: Record<string, string>; attachments?: MailAttachment[]
+}): Promise<{ ok: boolean; id?: string; error?: string }> {
+  try {
+    const info = await getHostingerTransporter().sendMail({
+      from: m.from, to: m.to, subject: m.subject, text: m.text, ...(m.html ? { html: m.html } : {}),
+      replyTo: m.replyTo, messageId: m.messageId,
+      ...(m.headers ? { headers: m.headers } : {}),
+      ...(m.attachments?.length
+        ? { attachments: m.attachments.map((a) => ({
+            filename: a.filename, content: a.content, ...(a.contentType ? { contentType: a.contentType } : {}),
+          })) }
+        : {}),
+    })
+    return { ok: true, id: (info as { messageId?: string })?.messageId }
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) } }
+}
 
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET
@@ -134,9 +171,11 @@ export async function POST(request: Request) {
     if (refs.length) headers["References"] = refs.join(" ")
     const sizeBytes = Buffer.byteLength(text, "utf8") + (html ? Buffer.byteLength(html, "utf8") : 0)
       + attachments.reduce((n, a) => n + a.content.length, 0)
-    // Toujours SMTP_* (boîte Hostinger talika@companion-ecommerce.com) : le domaine n'est pas
-    // vérifié chez Resend (550 « domain is not verified » constaté en prod le 16/10/2026).
-    const channel = smtpConfigured() ? "smtp" : "none"
+    // Toujours le SMTP Hostinger de la boîte talika@companion-ecommerce.com, avec les identifiants
+    // de la boîte (OUTREACH_IMAP_USER / OUTREACH_IMAP_PASSWORD). En prod, SMTP_* = Resend-en-SMTP
+    // et RESEND_API_KEY existe : les deux refusent ce domaine (550 « domain is not verified »,
+    // constaté le 16/10/2026). Hôte/port surchargeables par OUTREACH_SMTP_HOST / OUTREACH_SMTP_PORT.
+    const channel = hostingerConfigured() ? "smtp-hostinger" : "none"
 
     if (dryRun) {
       return NextResponse.json({
@@ -151,11 +190,10 @@ export async function POST(request: Request) {
       })
     }
 
-    if (channel === "none") return bad("SMTP_* non configuré (boîte Hostinger)", 500)
+    if (channel === "none") return bad("OUTREACH_IMAP_USER / OUTREACH_IMAP_PASSWORD non configurés (boîte Hostinger)", 500)
 
-    // ── Envoi réel (même chemin que drip / reply / compose) ──
-    const r = await sendMail({
-      channel: "smtp",
+    // ── Envoi réel, SMTP Hostinger ──
+    const r = await sendViaHostinger({
       to, subject, text, ...(html ? { html } : {}), from, replyTo, messageId,
       ...(Object.keys(headers).length ? { headers } : {}),
       ...(attachments.length ? { attachments } : {}),
