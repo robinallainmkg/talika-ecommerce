@@ -34,3 +34,9 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## API (agent cloud)
+
+- `POST /api/outreach/send` · `GET /api/outreach/messages` — envoi et lecture de la boîte créatrices
+  `talika@companion-ecommerce.com` en HTTPS (bearer `CRON_SECRET`, journal `influence_messages`,
+  sans toucher au drip ni à `outreach_log`). Détail : [`docs/outreach-api.md`](docs/outreach-api.md).

@@ -24,6 +24,8 @@ const PUBLIC_PREFIXES = [
   "/api/whatsapp/oauth/",
   // Sonde d'activation de l'envoi (routine quotidienne, protégée par CRON_SECRET).
   "/api/whatsapp/write-status",
+  // API outreach HTTPS (agent cloud) : send + messages, protégées par CRON_SECRET dans la route.
+  "/api/outreach/",
   // TEMPORAIRE — revue des conversations chat partagée avec une relectrice
   // externe (page noindex, emails masqués). À retirer après la revue.
   "/revue-chat",
