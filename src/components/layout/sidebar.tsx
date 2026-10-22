@@ -55,7 +55,12 @@ const NAV: Entry[] = [
     ],
   },
   { name: "SAV", href: "/chat", icon: MessageCircle },
-  { name: "Calendrier", href: "/calendar", icon: Calendar },
+  {
+    name: "Calendrier", icon: Calendar, children: [
+      { name: "Plan de communication", href: "/calendar" },
+      { name: "Planning marketing", href: "/calendar/planning" },
+    ],
+  },
   { name: "Projets", href: "/projects", icon: FolderKanban },
   { name: "Équipe", href: "/users", icon: UserCog },
 ]

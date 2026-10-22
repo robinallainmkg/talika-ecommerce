@@ -121,10 +121,15 @@ export default function CalendarPage() {
         title="Plan de Communication"
         subtitle="Offres, lancements, thématiques, newsletters et posts insta"
         actions={
+          <>
+          <a href="/calendar/planning" className="hidden sm:inline-flex items-center rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50">
+            Planning marketing
+          </a>
           <Button size="sm" onClick={() => openCreate(null)}>
             <Plus className="h-4 w-4" />
             Ajouter
           </Button>
+          </>
         }
       />
 
