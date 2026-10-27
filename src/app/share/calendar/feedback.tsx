@@ -7,6 +7,11 @@ import { VALIDATED_EVENT } from "./validated-toggle"
 const NOTE_MAX = 1000
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+// « 2026-10-15 » (date seule) → « 15 oct. » ; un horodatage complet garde l'heure.
+const fmtPrior = (at: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(at)
+    ? new Date(`${at}T12:00:00Z`).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "short" })
+    : fmt(at)
 
 // Valider / annuler la validation / laisser une note sur une ligne du planning partagé.
 // Tout passe par POST /api/share/calendar/feedback avec le jeton du lien.
@@ -48,9 +53,10 @@ export function Feedback({ token, itemId, initial }: { token: string; itemId: st
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Enregistrement impossible pour l'instant.")
-      setState(json.state)
+      // La réponse ne connaît que le lien partagé : la validation antérieure (chat, vue interne) est conservée.
+      setState({ ...json.state, prior: state.prior })
       if (action === "valider") mark(true)
-      if (action === "annuler") mark(false)
+      if (action === "annuler") mark(!!state.prior)
       if (action === "note") {
         setNote("")
         setWriting(false)
@@ -87,6 +93,10 @@ export function Feedback({ token, itemId, initial }: { token: string; itemId: st
               Annuler la validation
             </button>
           </>
+        ) : state.prior ? (
+          <span className="text-sm font-medium text-[var(--ok-ink)]">
+            ✓ Déjà validé par {state.prior.by}{state.prior.at ? ` le ${fmtPrior(state.prior.at)}` : ""}
+          </span>
         ) : (
           <button type="button" disabled={busy} onClick={() => send("valider")} className="min-h-9 rounded-lg bg-[var(--ink)] px-3 text-sm font-medium text-[var(--bg)] disabled:opacity-50">
             Valider

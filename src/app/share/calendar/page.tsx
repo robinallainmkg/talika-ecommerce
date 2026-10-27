@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { createServiceClient } from "@/lib/supabase/client"
 import { verifyShareToken } from "@/lib/share-token"
-import { SHARED_AUTHOR, foldShared, type FeedbackRow, type SharedState } from "@/lib/plan-feedback"
+import { foldShared, isShared, priorValidation, type FeedbackRow, type SharedState } from "@/lib/plan-feedback"
 import { Feedback } from "./feedback"
 import { ValidatedToggle } from "./validated-toggle"
 
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 }
 
 type Market = "fr" | "uk" | "us"
-type Statut = "prevu" | "pret" | "envoye" | "annule"
+type Statut = "prevu" | "pret" | "envoye" | "annule" | "reporte"
 interface Item {
   id: string
   market: Market
@@ -84,9 +84,10 @@ function typeOf(it: Item): string {
 // Statut d'équipe écrit par Pilotage ; à défaut, déduit du statut interne.
 function statutOf(it: Item): Statut {
   const s = txt(it.payload?.equipe_statut) as Statut
-  if (["prevu", "pret", "envoye", "annule"].includes(s)) return s
+  if (["prevu", "pret", "envoye", "annule", "reporte"].includes(s)) return s
   const raw = txt(it.payload?.statut).toLowerCase()
   if (/annul|écarté|arrêt/.test(raw)) return "annule"
+  if (/^report/.test(raw)) return "reporte"
   if (/envoy|en place|en ligne/.test(raw) && !/à envoyer/.test(raw)) return "envoye"
   if (/programm|brouillon prêt/.test(raw)) return "pret"
   return "prevu"
@@ -96,6 +97,7 @@ const STATUT: Record<Statut, { email: string; other: string; cls: string }> = {
   pret: { email: "Prêt", other: "Prêt", cls: "st-pret" },
   envoye: { email: "Envoyé", other: "En ligne", cls: "st-ok" },
   annule: { email: "Annulé", other: "Annulé", cls: "st-annule" },
+  reporte: { email: "Reporté", other: "Reporté", cls: "st-reporte" },
 }
 
 function Denied({ reason }: { reason: "absent" | "invalide" | "expire" }) {
@@ -121,6 +123,7 @@ background:var(--page);color:var(--ink);min-height:100vh}
 .eq .st-pret{background:var(--pret-bg);color:var(--pret-ink)}
 .eq .st-ok{background:var(--ok-bg);color:var(--ok-ink)}
 .eq .st-annule{border:1px solid var(--line);color:var(--annule-ink);text-decoration:line-through}
+.eq .st-reporte{border:1px dashed var(--prevu-ink);color:var(--prevu-ink)}
 `
 
 export default async function SharedCalendarPage({ searchParams }: { searchParams: { t?: string | string[] } }) {
@@ -137,18 +140,28 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
       .eq("active", true)
       .eq("payload->>equipe_visible", "true")
       .order("date_start", { ascending: true, nullsFirst: false }),
+    // Tous les avis : ceux du lien partagé (validations et notes affichées) et ceux de la vue interne
+    // (seule leur dernière validation compte, comme « déjà validé » ; leurs notes ne sont pas montrées ici).
     supabase
       .from("marketing_plan_reviews")
       .select("item_id, decision, comment, reviewer_email, created_at")
-      .eq("reviewer_email", SHARED_AUTHOR)
       .order("created_at", { ascending: true })
-      .limit(3000),
+      .limit(5000),
   ])
   if (error) {
     return <div className="p-6 text-sm text-red-700">Le planning n&apos;a pas pu être chargé. Réessayez dans un instant.</div>
   }
-  const shared = foldShared((fb || []) as FeedbackRow[])
+  const rows = (fb || []) as FeedbackRow[]
+  const folded = foldShared(rows.filter(isShared))
+  const internal = new Map<string, FeedbackRow[]>()
+  for (const r of rows) if (!isShared(r)) internal.set(r.item_id, [...(internal.get(r.item_id) || []), r])
   const items = (data || []) as Item[]
+  // État affiché par ligne : validations / notes du lien partagé + validation antérieure (chat ou vue interne).
+  const shared: Record<string, SharedState> = {}
+  for (const i of items) {
+    shared[i.id] = { ...(folded[i.id] || { validated: null, notes: [] }), prior: priorValidation(i.payload, internal.get(i.id)) }
+  }
+  const isValidated = (i: Item) => !!(shared[i.id]?.validated || shared[i.id]?.prior)
   const today = todayParis()
   const from = addDays(today, -7) // on montre aussi ce qui est parti la semaine passée
   const lastUpdate = items.reduce((m, i) => (i.updated_at && i.updated_at > m ? i.updated_at : m), "")
@@ -170,6 +183,7 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
             <li className="flex items-center gap-1.5"><span className="st st-pret">Prêt</span> préparé, pas encore parti</li>
             <li className="flex items-center gap-1.5"><span className="st st-ok">Envoyé / En ligne</span></li>
             <li className="flex items-center gap-1.5"><span className="st st-annule">Annulé</span></li>
+            <li className="flex items-center gap-1.5"><span className="st st-reporte">Reporté</span> date à reconfirmer</li>
           </ul>
           <p className="text-xs text-[var(--muted)]">
             {lastUpdate && <>Mis à jour le {fmtParis(Date.parse(lastUpdate))}. </>}
@@ -183,7 +197,7 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
             ))}
           </nav>
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <ValidatedToggle initialCount={items.filter((i) => shared[i.id]?.validated).length} />
+            <ValidatedToggle initialCount={items.filter(isValidated).length} />
           </div>
         </header>
 
@@ -213,7 +227,7 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
               </div>
               {!mine.length && <p className="text-sm text-[var(--muted)]">Rien de prévu pour l&apos;instant.</p>}
               {now.length > 0 && (
-                <Group title="En ce moment sur le site" allValidated={now.every((i) => shared[i.id]?.validated)}>
+                <Group title="En ce moment sur le site" allValidated={now.every(isValidated)}>
                   {now.map((it) => <Row key={it.id} it={it} code={m.code} token={token} fb={shared[it.id] || empty} />)}
                 </Group>
               )}
@@ -222,7 +236,7 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
                 .map(([w, list]) => (
                   <Group
                     key={w}
-                    allValidated={list.every((i) => shared[i.id]?.validated)}
+                    allValidated={list.every(isValidated)}
                     title={
                       w === "sans-date" ? "Sans date" : w === thisWeek ? "Cette semaine" : w < thisWeek ? "Semaine passée" : `Semaine du ${dayLabel(w)}`
                     }
@@ -253,6 +267,7 @@ function Group({ title, children, allValidated }: { title: string; children: Rea
 function Row({ it, code, token, fb }: { it: Item; code: string; token: string; fb: SharedState }) {
   const p = it.payload || {}
   const st = STATUT[statutOf(it)]
+  const validated = !!(fb.validated || fb.prior)
   const isEmail = it.kind === "email"
   const d = it.date_start ? parseDay(it.date_start) : null
   const fin = txt(p.date_fin)
@@ -262,8 +277,8 @@ function Row({ it, code, token, fb }: { it: Item; code: string; token: string; f
   const pour = txt(p.equipe_pour)
   return (
     <li
-      data-validated={fb.validated ? "1" : "0"}
-      hidden={!!fb.validated}
+      data-validated={validated ? "1" : "0"}
+      hidden={validated}
       className="grid grid-cols-[52px_minmax(0,1fr)] gap-3 p-3 sm:grid-cols-[60px_minmax(0,1fr)_96px]"
     >
       <div className="leading-tight">
