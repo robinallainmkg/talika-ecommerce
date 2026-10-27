@@ -33,6 +33,8 @@ const PUBLIC_PREFIXES = [
   // Pages partagées en lecture seule : protégées par un jeton signé qui expire
   // (src/lib/share-token.ts), vérifié dans la page elle-même.
   "/share/",
+  // Notes et validations depuis la page partagée : même jeton signé, vérifié dans la route.
+  "/api/share/",
 ]
 
 function isPublic(pathname: string): boolean {

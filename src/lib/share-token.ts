@@ -37,3 +37,10 @@ export function verifyShareToken(scope: string, token: string | null | undefined
   if (exp - nowS > MAX_TTL_S) return { ok: false, reason: "invalide" }
   return { ok: true, exp }
 }
+
+// Identifiant stable d'un jeton (sans le stocker) : sert à compter ses écritures (limite par heure)
+// et à savoir quel lien a écrit une note. Format UUID pour la colonne reviewer_id.
+export function shareTokenId(token: string): string {
+  const h = createHmac("sha256", "share-token-id:v1").update(token).digest("hex")
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`
+}

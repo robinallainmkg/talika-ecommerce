@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/client"
+import { foldShared, isShared, type FeedbackRow } from "@/lib/plan-feedback"
 
 export const dynamic = "force-dynamic"
 // Jamais de cache (cf. incident 03/07 sur le Data Cache Vercel).
@@ -26,11 +27,13 @@ export async function GET() {
     if (e2) throw e2
 
     // Dernière revue par ligne (les revues sont triées de la plus récente à la plus ancienne).
+    // Les notes / validations du lien partagé (/share/calendar) sont à part, dans `shared`.
     const latest: Record<string, any> = {}
-    for (const r of reviews || []) if (!latest[r.item_id]) latest[r.item_id] = r
+    for (const r of reviews || []) if (!isShared(r) && !latest[r.item_id]) latest[r.item_id] = r
+    const shared = foldShared(((reviews || []) as FeedbackRow[]).filter(isShared))
 
     return NextResponse.json({
-      items: (items || []).map((it: any) => ({ ...it, review: latest[it.id] || null })),
+      items: (items || []).map((it: any) => ({ ...it, review: latest[it.id] || null, shared: shared[it.id] || null })),
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })

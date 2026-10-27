@@ -36,6 +36,23 @@ interface PlanItem {
   preview_url: string | null
   pdf_url: string | null
   review: Review | null
+  // Notes et validations du lien partagé /share/calendar (cf. src/lib/plan-feedback.ts).
+  shared: { validated: { at: string } | null; notes: { at: string; text: string }[] } | null
+}
+
+function SharedFeedback({ item }: { item: PlanItem }) {
+  const s = item.shared
+  if (!s || (!s.validated && !s.notes.length)) return null
+  return (
+    <div className="mt-1 space-y-1 rounded-md bg-sky-50 px-2.5 py-1.5 text-sm text-sky-900">
+      {s.validated && <p>✓ Validé par Sophie (lien partagé) le {fmtWhen(s.validated.at)}</p>}
+      {s.notes.map((n) => (
+        <p key={n.at} className="break-words">
+          Note de Sophie (lien partagé), {fmtWhen(n.at)} : {n.text}
+        </p>
+      ))}
+    </div>
+  )
 }
 
 const MARKETS: { key: Market; label: string; tz: string; tool: string }[] = [
@@ -319,6 +336,7 @@ function MailCard({ item, onOpen }: { item: PlanItem; onOpen: (i: PlanItem) => v
             Retours de {item.review.reviewer_email?.split("@")[0] || "l'équipe"} : {item.review.comment}
           </p>
         )}
+        <SharedFeedback item={item} />
       </div>
       <div className="col-span-2 flex items-start gap-3 md:col-span-1 md:flex-col">
         {item.preview_url ? (
@@ -363,6 +381,7 @@ function OpRow({ item, onOpen }: { item: PlanItem; onOpen: (i: PlanItem) => void
         {item.review?.comment && (
           <p className="mt-1 rounded-md bg-amber-50 px-2.5 py-1.5 text-sm text-amber-800">Réponse : {item.review.comment}</p>
         )}
+        <SharedFeedback item={item} />
       </div>
       <div className="col-start-2 flex items-center gap-2 sm:col-start-auto sm:flex-col sm:items-end">
         <Chip tone={st.tone} text={st.text} />
