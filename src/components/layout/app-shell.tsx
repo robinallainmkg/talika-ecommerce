@@ -6,7 +6,7 @@ import { Header } from "@/components/layout/header"
 import { sectionForPath } from "@/lib/roles"
 import { useMarket, MarketEmptyState } from "@/components/layout/market-gate"
 
-const BARE_PREFIXES = ["/login", "/auth"]
+const BARE_PREFIXES = ["/login", "/auth", "/share"]
 
 // Sections SANS connecteur hors FR → sur tout autre marché on n'affiche aucune donnée FR (état vide).
 const FR_ONLY_SECTIONS = new Set(["dashboard", "acquisition", "performance", "opportunites"])

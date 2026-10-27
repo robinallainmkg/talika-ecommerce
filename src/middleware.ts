@@ -30,6 +30,9 @@ const PUBLIC_PREFIXES = [
   // externe (page noindex, emails masqués). À retirer après la revue.
   "/revue-chat",
   "/api/revue-chat",
+  // Pages partagées en lecture seule : protégées par un jeton signé qui expire
+  // (src/lib/share-token.ts), vérifié dans la page elle-même.
+  "/share/",
 ]
 
 function isPublic(pathname: string): boolean {
