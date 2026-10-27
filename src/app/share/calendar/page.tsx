@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/client"
 import { verifyShareToken } from "@/lib/share-token"
 import { SHARED_AUTHOR, foldShared, type FeedbackRow, type SharedState } from "@/lib/plan-feedback"
 import { Feedback } from "./feedback"
+import { ValidatedToggle } from "./validated-toggle"
 
 // Planning marketing, VUE ÉQUIPE, sans compte, via un lien signé qui expire tout seul
 // (/share/calendar?t=<exp>.<sig>, cf. src/lib/share-token.ts et scripts/gen-share-link.mjs).
@@ -114,6 +115,7 @@ background:var(--page);color:var(--ink);min-height:100vh}
 @media (prefers-color-scheme: dark){.eq{--bg:#1d1d1b;--page:#141413;--ink:#ecebe6;--muted:#a3a29c;--line:#34332f;--note-bg:#2a2925;
 --prevu-bg:#2b2a27;--prevu-ink:#c9c7c0;--pret-bg:#1d2b40;--pret-ink:#9ec1f0;--ok-bg:#183323;--ok-ink:#8fd3a6;
 --annule-ink:#8f8e88;--bad-ink:#f2a39c;--chip:#2b2a27}}
+.eq [hidden]{display:none!important}
 .eq .st{display:inline-flex;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap}
 .eq .st-prevu{background:var(--prevu-bg);color:var(--prevu-ink)}
 .eq .st-pret{background:var(--pret-bg);color:var(--pret-ink)}
@@ -180,6 +182,9 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
               </a>
             ))}
           </nav>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <ValidatedToggle initialCount={items.filter((i) => shared[i.id]?.validated).length} />
+          </div>
         </header>
 
         {MARKETS.map((m) => {
@@ -208,7 +213,7 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
               </div>
               {!mine.length && <p className="text-sm text-[var(--muted)]">Rien de prévu pour l&apos;instant.</p>}
               {now.length > 0 && (
-                <Group title="En ce moment sur le site">
+                <Group title="En ce moment sur le site" allValidated={now.every((i) => shared[i.id]?.validated)}>
                   {now.map((it) => <Row key={it.id} it={it} code={m.code} token={token} fb={shared[it.id] || empty} />)}
                 </Group>
               )}
@@ -217,6 +222,7 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
                 .map(([w, list]) => (
                   <Group
                     key={w}
+                    allValidated={list.every((i) => shared[i.id]?.validated)}
                     title={
                       w === "sans-date" ? "Sans date" : w === thisWeek ? "Cette semaine" : w < thisWeek ? "Semaine passée" : `Semaine du ${dayLabel(w)}`
                     }
@@ -235,9 +241,9 @@ export default async function SharedCalendarPage({ searchParams }: { searchParam
   )
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({ title, children, allValidated }: { title: string; children: React.ReactNode; allValidated: boolean }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-group="" hidden={allValidated}>
       <h3 className="text-sm font-semibold text-[var(--muted)]">{title}</h3>
       <ol className="divide-y divide-[var(--line)] rounded-xl border border-[var(--line)] bg-[var(--bg)]">{children}</ol>
     </div>
@@ -255,7 +261,11 @@ function Row({ it, code, token, fb }: { it: Item; code: string; token: string; f
   const phrase = txt(p.equipe_phrase)
   const pour = txt(p.equipe_pour)
   return (
-    <li className="grid grid-cols-[52px_minmax(0,1fr)] gap-3 p-3 sm:grid-cols-[60px_minmax(0,1fr)_96px]">
+    <li
+      data-validated={fb.validated ? "1" : "0"}
+      hidden={!!fb.validated}
+      className="grid grid-cols-[52px_minmax(0,1fr)] gap-3 p-3 sm:grid-cols-[60px_minmax(0,1fr)_96px]"
+    >
       <div className="leading-tight">
         {d ? (
           <>

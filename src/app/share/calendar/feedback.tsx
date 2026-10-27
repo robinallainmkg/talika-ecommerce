@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import type { SharedState } from "@/lib/plan-feedback"
+import { VALIDATED_EVENT } from "./validated-toggle"
 
 const NOTE_MAX = 1000
 const fmt = (iso: string) =>
@@ -15,6 +16,26 @@ export function Feedback({ token, itemId, initial }: { token: string; itemId: st
   const [writing, setWriting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
+  const box = useRef<HTMLDivElement>(null)
+
+  // Ligne validée : court message, puis elle se replie (sauf si les validées sont affichées).
+  function mark(validated: boolean) {
+    const li = box.current?.closest("li")
+    if (!li) return
+    const shown = document.querySelector<HTMLElement>(".eq")?.dataset.show === "1"
+    if (validated && !shown) {
+      setFlash("Validé — masqué")
+      window.setTimeout(() => {
+        li.dataset.validated = "1"
+        window.dispatchEvent(new Event(VALIDATED_EVENT))
+        setFlash(null)
+      }, 1400)
+    } else {
+      li.dataset.validated = validated ? "1" : "0"
+      window.dispatchEvent(new Event(VALIDATED_EVENT))
+    }
+  }
 
   async function send(action: "valider" | "annuler" | "note") {
     setBusy(true)
@@ -28,6 +49,8 @@ export function Feedback({ token, itemId, initial }: { token: string; itemId: st
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error || "Enregistrement impossible pour l'instant.")
       setState(json.state)
+      if (action === "valider") mark(true)
+      if (action === "annuler") mark(false)
       if (action === "note") {
         setNote("")
         setWriting(false)
@@ -40,7 +63,12 @@ export function Feedback({ token, itemId, initial }: { token: string; itemId: st
   }
 
   return (
-    <div className="space-y-2 pt-1">
+    <div ref={box} className="space-y-2 pt-1">
+      {flash && (
+        <p role="status" className="rounded-md bg-[var(--ok-bg)] px-2.5 py-1.5 text-sm font-semibold text-[var(--ok-ink)]">
+          ✓ {flash}
+        </p>
+      )}
       {state.notes.length > 0 && (
         <ul className="space-y-1">
           {state.notes.map((n) => (
