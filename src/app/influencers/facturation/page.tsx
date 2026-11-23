@@ -7,7 +7,7 @@ import { MonthTabs } from "@/components/influence/month-tabs"
 import { usePeriod } from "@/components/influence/use-period"
 import { Header } from "@/components/layout/header"
 import { InfluencerDrawer } from "@/components/influence/influencer-drawer"
-import { Loader2, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell, Trash2 } from "lucide-react"
+import { Loader2, Paperclip, FileText, Check, Lock, Sparkles, ExternalLink, Bell, Trash2, Download } from "lucide-react"
 import { authClient } from "@/lib/auth/client"
 
 interface Invoice {
@@ -308,6 +308,15 @@ export default function FacturationPage() {
         <div className="space-y-4">
           {/* Période : mois + année */}
           <MonthTabs month={month} onSelect={(m) => m && setMonth(m)} badges={missingByMonth} year={year} onYearChange={setYear} years={years} />
+          {/* Export Excel de l'année (Robin, 23/11) : détail par mois pour la personne qui paie */}
+          <div className="flex justify-end">
+            <a
+              href={`/api/influencers/billing/export?year=${year}`}
+              className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+            >
+              <Download className="h-4 w-4" /> Exporter Excel {year}
+            </a>
+          </div>
       </div>
 
       {isLocked && (
